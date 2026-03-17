@@ -121,6 +121,15 @@ Project purpose and scope
 	- optional shared-secret check via `COGNITO_WEBHOOK_SECRET` + `x-webhook-secret`
 	- explicit mapping for captured Cognito field names (for example: `Entry`, `CustomerName`, `FullVIN`, upload arrays)
 	- upload file links from Cognito are treated as temporary references only in this phase
+- Ticket 5 adds claim persistence:
+	- validated intake submissions now create a `Claim` row and related `ClaimAttachment` rows
+	- internal claim numbers are generated in `CC-YYYYMMDD-XXXX` format
+	- webhook flow now writes a `claim_created` audit entry
+	- `claim_created` audit writes are handled by a dedicated helper service (`lib/audit/write-claim-created-audit-log.ts`)
+	- raw submission payload JSON is preserved on the claim
+	- no duplicate detection yet
+	- no provider/background jobs yet
+	- no file download/storage migration yet (attachments are metadata only)
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
@@ -192,6 +201,15 @@ curl -X POST http://localhost:3000/api/intake/cognito \
 ```
 
 Note: Cognito submits structured JSON payloads to the configured endpoint on form submission; attachment file URLs are currently captured for metadata/preview and will be moved to durable storage in a later ticket.
+
+Ticket 5 behavior summary
+
+- Successful `POST /api/intake/cognito` now returns:
+	- `ok: true`
+	- `requestId`
+	- `message: "Claim created successfully"`
+	- `claim` with `id`, `claimNumber`, and `status`
+- On claim persistence failures, the route returns HTTP `500` with a structured error code.
 
 Files & structure
 

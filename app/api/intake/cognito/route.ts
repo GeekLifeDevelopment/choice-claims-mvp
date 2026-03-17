@@ -7,6 +7,7 @@ import { normalizeCognitoPayload } from '../../../../lib/intake/normalize-cognit
 import { readCognitoBody } from '../../../../lib/intake/read-cognito-body'
 import { validateCognitoWebhookHeaders } from '../../../../lib/intake/validate-cognito-webhook'
 import { getPayloadPreview } from '../../../../lib/intake/get-payload-preview'
+import { createClaimFromSubmission } from '../../../../lib/claims/create-claim-from-submission'
 
 function getRequestId() {
   return randomUUID().slice(0, 8)
@@ -92,11 +93,34 @@ export async function POST(request: Request) {
 
     logWithRequestId(requestId, 'validation succeeded')
 
+    const claimCreationResult = await createClaimFromSubmission(createClaimInput)
+
+    if (!claimCreationResult.ok) {
+      logErrorWithRequestId(requestId, 'claim creation failed', {
+        error: claimCreationResult.error,
+        message: claimCreationResult.message
+      })
+
+      return respond(requestId, 500, {
+        ok: false,
+        requestId,
+        error: claimCreationResult.error,
+        message: 'Claim creation failed'
+      })
+    }
+
+    logWithRequestId(requestId, 'claim created', {
+      claimId: claimCreationResult.claim.id,
+      claimNumber: claimCreationResult.claim.claimNumber,
+      status: claimCreationResult.claim.status
+    })
+
     if (debugMode) {
       return respond(requestId, 200, {
         ok: true,
         requestId,
-        message: 'Payload received and validated',
+        message: 'Claim created successfully',
+        claim: claimCreationResult.claim,
         topLevelKeys: payloadPreview.topLevelKeys,
         payloadPreview,
         normalizedPayload: validatedPayload,
@@ -107,7 +131,8 @@ export async function POST(request: Request) {
     return respond(requestId, 200, {
       ok: true,
       requestId,
-      message: 'Payload received and validated'
+      message: 'Claim created successfully',
+      claim: claimCreationResult.claim
     })
   } catch (error) {
     if (error instanceof ZodError) {
