@@ -20,6 +20,11 @@ export default async function AdminClaimsPage() {
     }
   })
 
+  console.info('[ADMIN_CLAIMS] loaded claims from prisma', {
+    count: claims.length,
+    claimNumbers: claims.slice(0, 5).map((claim) => claim.claimNumber)
+  })
+
   return (
     <section className="card">
       <h1 className="text-2xl">Admin — Claims</h1>

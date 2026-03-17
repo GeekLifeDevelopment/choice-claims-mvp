@@ -92,6 +92,12 @@ export async function POST(request: Request) {
     const createClaimInput = toCreateClaimFromIntakeInput(validatedPayload)
 
     logWithRequestId(requestId, 'validation succeeded')
+    logWithRequestId(requestId, 'starting claim persistence', {
+      source: createClaimInput.source,
+      vin: createClaimInput.vin,
+      attachmentCount: createClaimInput.attachments.length,
+      submittedAt: createClaimInput.submittedAt.toISOString()
+    })
 
     const claimCreationResult = await createClaimFromSubmission(createClaimInput)
 
