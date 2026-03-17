@@ -29,6 +29,18 @@ function formatMetadataPreview(value: unknown): string {
   return serialized.length > 180 ? `${serialized.slice(0, 177)}...` : serialized
 }
 
+function formatDebugJson(value: unknown): string {
+  if (value == null) {
+    return ''
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 type PageProps = {
   params: Promise<{ id: string }>
 }
@@ -44,7 +56,10 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
       status: true,
       source: true,
       claimantName: true,
+      claimantEmail: true,
+      claimantPhone: true,
       vin: true,
+      rawSubmissionPayload: true,
       submittedAt: true,
       attachments: {
         orderBy: { uploadedAt: 'asc' },
@@ -85,7 +100,14 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
         </Link>
       </div>
 
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Claim Info</h2>
+      </div>
+
       <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+        <p>
+          <span className="font-medium text-slate-900">Claim #:</span> {claim.claimNumber}
+        </p>
         <p>
           <span className="font-medium text-slate-900">Status:</span> {claim.status}
         </p>
@@ -96,6 +118,14 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
           <span className="font-medium text-slate-900">Claimant:</span> {claim.claimantName || '—'}
         </p>
         <p>
+          <span className="font-medium text-slate-900">Claimant Email:</span>{' '}
+          {claim.claimantEmail || '—'}
+        </p>
+        <p>
+          <span className="font-medium text-slate-900">Claimant Phone:</span>{' '}
+          {claim.claimantPhone || '—'}
+        </p>
+        <p>
           <span className="font-medium text-slate-900">VIN:</span> {claim.vin || '—'}
         </p>
         <p>
@@ -104,6 +134,22 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
         <p>
           <span className="font-medium text-slate-900">Attachment Count:</span> {claim.attachments.length}
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Raw Submission Data</h2>
+        {!claim.rawSubmissionPayload ? (
+          <p className="text-slate-600">Raw submission payload is not available for this claim.</p>
+        ) : (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600">
+              Developer JSON Debug
+            </p>
+            <pre className="max-h-[28rem] overflow-auto text-xs leading-5 text-slate-800">
+              {formatDebugJson(claim.rawSubmissionPayload)}
+            </pre>
+          </div>
+        )}
       </div>
 
       {claim.attachments.length === 0 ? (
