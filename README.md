@@ -286,6 +286,58 @@ Ticket 8 migration note
 
 - No Prisma schema changes were required for Ticket 8.
 
+Ticket 11 payload replay suite (Cognito intake)
+
+- Fixture directory:
+	- `test/fixtures/cognito/`
+	- `manifest.json` defines run order and expected outcome per payload (`created`, `duplicate`, `validation_failed`).
+- Fixtures included:
+	- `valid-claim.json` — realistic baseline payload, expected `created`
+	- `duplicate-claim.json` — exact replay of `valid-claim.json`, expected `duplicate`
+	- `missing-vin.json` — omits `FullVIN`, tests current validation behavior
+	- `missing-contact.json` — omits `CustomerEmail`, tests current validation behavior
+	- `multiple-attachments.json` — multiple upload arrays and files, expected `created`
+- Replay runner:
+	- script: `scripts/replay-intake-fixtures.mjs`
+	- npm command: `npm run test:intake`
+	- posts each fixture to intake endpoint, compares actual vs expected, and prints per-fixture + final summary counts.
+
+Ticket 11 local run
+
+```bash
+npm run dev
+npm run test:intake
+```
+
+Optional endpoint targets
+
+- Use `INTAKE_TEST_URL` for full endpoint URL:
+
+```bash
+INTAKE_TEST_URL=http://localhost:3000/api/intake/cognito npm run test:intake
+```
+
+```bash
+INTAKE_TEST_URL=https://your-site.netlify.app/api/intake/cognito npm run test:intake
+```
+
+- Or pass `--url` as a base URL or full endpoint URL:
+
+```bash
+npm run test:intake -- --url http://localhost:3000
+npm run test:intake -- --url https://your-site.netlify.app/api/intake/cognito
+```
+
+Webhook secret support
+
+- If `COGNITO_WEBHOOK_SECRET` is set, replay requests include `x-webhook-secret` automatically.
+
+Current validation assumptions (important)
+
+- Based on current normalized intake schema, `vin` and contact fields are optional.
+- For current behavior, `missing-vin.json` and `missing-contact.json` are expected to be `created` (HTTP `200`) unless intake validation rules are tightened in a future ticket.
+- The replay runner reports mismatches directly; it does not mask unexpected outcomes.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

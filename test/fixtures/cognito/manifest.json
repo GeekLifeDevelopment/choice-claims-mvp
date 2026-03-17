@@ -1,0 +1,37 @@
+[
+  {
+    "name": "valid-claim",
+    "file": "valid-claim.json",
+    "expectedOutcome": "created",
+    "expectedStatus": 200,
+    "note": "Baseline valid payload should create a claim"
+  },
+  {
+    "name": "duplicate-claim",
+    "file": "duplicate-claim.json",
+    "expectedOutcome": "duplicate",
+    "expectedStatus": 200,
+    "note": "Exact replay of valid payload should return duplicate"
+  },
+  {
+    "name": "missing-vin",
+    "file": "missing-vin.json",
+    "expectedOutcome": "created",
+    "expectedStatus": 200,
+    "note": "Current schema allows missing vin (vin is optional in normalized intake schema)"
+  },
+  {
+    "name": "missing-contact",
+    "file": "missing-contact.json",
+    "expectedOutcome": "created",
+    "expectedStatus": 200,
+    "note": "Current schema allows missing email if phone is present"
+  },
+  {
+    "name": "multiple-attachments",
+    "file": "multiple-attachments.json",
+    "expectedOutcome": "created",
+    "expectedStatus": 200,
+    "note": "Payload includes multiple known upload fields and files"
+  }
+]
