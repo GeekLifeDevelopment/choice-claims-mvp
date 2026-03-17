@@ -1,0 +1,115 @@
+{
+  "Form": "Choice Claims Intake",
+  "NameOfServiceWriter": {
+    "First": "Jordan",
+    "Last": "Service",
+    "FirstAndLast": "Jordan Service"
+  },
+  "RepairFacilityEmailAddress": "service@southloopautorepair.com",
+  "RepairFacilityPhone": "(555) 010-4400",
+  "NameOfRepairFacility": "South Loop Auto Repair",
+  "CustomerName": {
+    "First": "Avery",
+    "Last": "Driver",
+    "FirstAndLast": "Avery Driver"
+  },
+  "FullVIN": "3FA6P0H73JR255018",
+  "CustomerPhone": "(555) 010-9922",
+  "CustomerEmail": "avery.driver@example.com",
+  "CopyOfRepairOrder": [
+    {
+      "ContentType": "application/pdf",
+      "Id": "file_ro_200",
+      "Name": "repair-order-200.pdf",
+      "Size": 121110,
+      "File": "https://cdn.cognitoforms.com/file/repair-order-200.pdf"
+    }
+  ],
+  "CopyOfRepairEstimate": [
+    {
+      "ContentType": "application/pdf",
+      "Id": "file_re_200",
+      "Name": "repair-estimate-200.pdf",
+      "Size": 97200,
+      "File": "https://cdn.cognitoforms.com/file/repair-estimate-200.pdf"
+    }
+  ],
+  "PhotosOfFailedParts": [
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_fp_200a",
+      "Name": "failed-part-200-a.jpg",
+      "Size": 78111,
+      "File": "https://cdn.cognitoforms.com/file/failed-part-200-a.jpg"
+    },
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_fp_200b",
+      "Name": "failed-part-200-b.jpg",
+      "Size": 79222,
+      "File": "https://cdn.cognitoforms.com/file/failed-part-200-b.jpg"
+    }
+  ],
+  "DriverSideProfilePictureOfVehicle": [
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_dp_200",
+      "Name": "driver-profile-200.jpg",
+      "Size": 93123,
+      "File": "https://cdn.cognitoforms.com/file/driver-profile-200.jpg"
+    }
+  ],
+  "PictureUnderTheHood": [
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_hh_200",
+      "Name": "under-hood-200.jpg",
+      "Size": 90456,
+      "File": "https://cdn.cognitoforms.com/file/under-hood-200.jpg"
+    }
+  ],
+  "UnderCarriagePicture": [
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_uc_200",
+      "Name": "under-carriage-200.jpg",
+      "Size": 88801,
+      "File": "https://cdn.cognitoforms.com/file/under-carriage-200.jpg"
+    }
+  ],
+  "PictureOfOdometer": [
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_od_200",
+      "Name": "odometer-200.jpg",
+      "Size": 70123,
+      "File": "https://cdn.cognitoforms.com/file/odometer-200.jpg"
+    }
+  ],
+  "RearProfilePictureOfVehicle": [
+    {
+      "ContentType": "image/jpeg",
+      "Id": "file_rp_200",
+      "Name": "rear-profile-200.jpg",
+      "Size": 88444,
+      "File": "https://cdn.cognitoforms.com/file/rear-profile-200.jpg"
+    }
+  ],
+  "Signature": {
+    "Name": "signature-200.png",
+    "ContentType": "image/png",
+    "Content": "base64-signature-content-200",
+    "File": "https://cdn.cognitoforms.com/file/signature-200.png"
+  },
+  "Id": "entry_42345",
+  "Entry": {
+    "DateCreated": "2026-03-17T16:30:00.000Z",
+    "DateSubmitted": "2026-03-17T16:35:00.000Z",
+    "DateUpdated": "2026-03-17T16:36:00.000Z",
+    "Timestamp": "2026-03-17T16:35:00.000Z",
+    "Number": "412",
+    "Status": "Submitted",
+    "Action": "Create",
+    "AdminLink": "https://www.cognitoforms.com/admin/entry/412"
+  }
+}

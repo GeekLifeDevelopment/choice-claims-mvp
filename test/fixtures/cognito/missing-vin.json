@@ -1,0 +1,38 @@
+{
+  "Form": "Choice Claims Intake",
+  "NameOfServiceWriter": {
+    "First": "Taylor",
+    "Last": "Writer",
+    "FirstAndLast": "Taylor Writer"
+  },
+  "RepairFacilityEmailAddress": "service@northgateautorepair.com",
+  "RepairFacilityPhone": "(555) 010-2200",
+  "NameOfRepairFacility": "Northgate Auto Repair",
+  "CustomerName": {
+    "First": "Casey",
+    "Last": "Driver",
+    "FirstAndLast": "Casey Driver"
+  },
+  "CustomerPhone": "(555) 010-1122",
+  "CustomerEmail": "casey.driver@example.com",
+  "CopyOfRepairOrder": [
+    {
+      "ContentType": "application/pdf",
+      "Id": "file_ro_010",
+      "Name": "repair-order-missing-vin.pdf",
+      "Size": 101004,
+      "File": "https://cdn.cognitoforms.com/file/repair-order-missing-vin.pdf"
+    }
+  ],
+  "Id": "entry_22345",
+  "Entry": {
+    "DateCreated": "2026-03-17T16:10:00.000Z",
+    "DateSubmitted": "2026-03-17T16:12:00.000Z",
+    "DateUpdated": "2026-03-17T16:12:30.000Z",
+    "Timestamp": "2026-03-17T16:12:00.000Z",
+    "Number": "212",
+    "Status": "Submitted",
+    "Action": "Create",
+    "AdminLink": "https://www.cognitoforms.com/admin/entry/212"
+  }
+}

@@ -11,7 +11,8 @@
     "db:seed": "node prisma/seed.mjs",
     "db:reset:seed": "prisma migrate reset --force --skip-generate && npm run db:seed",
     "intake:test-local": "node scripts/post-cognito-fixture.mjs",
-    "intake:test-local-invalid": "node scripts/post-cognito-invalid-fixture.mjs"
+    "intake:test-local-invalid": "node scripts/post-cognito-invalid-fixture.mjs",
+    "test:intake": "node scripts/replay-intake-fixtures.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.mjs"

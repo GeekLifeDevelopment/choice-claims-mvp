@@ -1,0 +1,38 @@
+{
+  "Form": "Choice Claims Intake",
+  "NameOfServiceWriter": {
+    "First": "Morgan",
+    "Last": "Writer",
+    "FirstAndLast": "Morgan Writer"
+  },
+  "RepairFacilityEmailAddress": "service@eastsideautorepair.com",
+  "RepairFacilityPhone": "(555) 010-3300",
+  "NameOfRepairFacility": "Eastside Auto Repair",
+  "CustomerName": {
+    "First": "Riley",
+    "Last": "Driver",
+    "FirstAndLast": "Riley Driver"
+  },
+  "FullVIN": "2T1BURHE5GC504211",
+  "CustomerPhone": "(555) 010-7788",
+  "CopyOfRepairEstimate": [
+    {
+      "ContentType": "application/pdf",
+      "Id": "file_re_020",
+      "Name": "repair-estimate-missing-contact.pdf",
+      "Size": 97014,
+      "File": "https://cdn.cognitoforms.com/file/repair-estimate-missing-contact.pdf"
+    }
+  ],
+  "Id": "entry_32345",
+  "Entry": {
+    "DateCreated": "2026-03-17T16:20:00.000Z",
+    "DateSubmitted": "2026-03-17T16:22:00.000Z",
+    "DateUpdated": "2026-03-17T16:22:45.000Z",
+    "Timestamp": "2026-03-17T16:22:00.000Z",
+    "Number": "312",
+    "Status": "Submitted",
+    "Action": "Create",
+    "AdminLink": "https://www.cognitoforms.com/admin/entry/312"
+  }
+}
