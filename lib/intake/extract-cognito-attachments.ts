@@ -1,160 +1,92 @@
 import type { IntakeAttachmentMetadata } from '../domain/claims'
+import { asRecord } from './cognito-field-helpers'
 
 type UnknownRecord = Record<string, unknown>
 
-const ATTACHMENT_CATEGORY_HINTS = [
-  'repair order',
-  'repair estimate',
-  'under hood',
-  'odometer',
-  'driver side profile',
-  'under carriage',
-  'rear profile',
-  'failed parts'
-]
+export const KNOWN_COGNITO_UPLOAD_FIELDS = [
+  'CopyOfRepairOrder',
+  'CopyOfRepairEstimate',
+  'PhotosOfFailedParts',
+  'DriverSideProfilePictureOfVehicle',
+  'PictureUnderTheHood',
+  'UnderCarriagePicture',
+  'PictureOfOdometer',
+  'RearProfilePictureOfVehicle'
+] as const
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isLikelyUrl(value: unknown): value is string {
-  return typeof value === 'string' && /^https?:\/\//i.test(value)
-}
+function toNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
 
-function normalizeKey(key: string): string {
-  return key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-}
-
-function findString(record: UnknownRecord, keys: string[]): string | undefined {
-  for (const [rawKey, rawValue] of Object.entries(record)) {
-    const key = normalizeKey(rawKey)
-    if (keys.includes(key) && typeof rawValue === 'string' && rawValue.trim()) {
-      return rawValue.trim()
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
     }
   }
 
   return undefined
 }
 
-function findNumber(record: UnknownRecord, keys: string[]): number | undefined {
-  for (const [rawKey, rawValue] of Object.entries(record)) {
-    const key = normalizeKey(rawKey)
-    if (!keys.includes(key)) {
-      continue
-    }
-
-    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-      return rawValue
-    }
-
-    if (typeof rawValue === 'string') {
-      const parsed = Number(rawValue)
-      if (Number.isFinite(parsed)) {
-        return parsed
-      }
-    }
+function normalizeKnownFileObject(value: unknown): IntakeAttachmentMetadata | null {
+  const record = asRecord(value)
+  if (!record) {
+    return null
   }
 
-  return undefined
-}
-
-function inferFilenameFromUrl(url?: string): string | undefined {
-  if (!url) {
-    return undefined
-  }
-
-  try {
-    const parsed = new URL(url)
-    const lastSegment = parsed.pathname.split('/').filter(Boolean).at(-1)
-    return lastSegment || undefined
-  } catch {
-    return undefined
-  }
-}
-
-function normalizeAttachmentCandidate(record: UnknownRecord): IntakeAttachmentMetadata | null {
-  const sourceUrl = findString(record, ['sourceurl', 'url', 'fileurl', 'downloadurl', 'href'])
-  const filename =
-    findString(record, ['filename', 'name', 'title', 'originalfilename']) ||
-    inferFilenameFromUrl(sourceUrl)
-
+  const filename = typeof record.Name === 'string' && record.Name.trim() ? record.Name.trim() : undefined
   if (!filename) {
     return null
   }
 
-  const mimeType = findString(record, ['mimetype', 'mime', 'contenttype', 'type'])
-  const storageKey = findString(record, ['storagekey', 'key', 'objectkey', 'path'])
-  const externalId = findString(record, ['externalid', 'id', 'fileid', 'assetid'])
-  const fileSize = findNumber(record, ['filesize', 'size', 'bytes'])
+  const mimeType = typeof record.ContentType === 'string' ? record.ContentType : undefined
+  const fileSize = toNumber(record.Size)
+  const sourceUrl = typeof record.File === 'string' ? record.File : undefined
+  const externalId = typeof record.Id === 'string' ? record.Id : undefined
 
   return {
     filename,
     mimeType,
     fileSize,
     sourceUrl,
-    storageKey,
     externalId
   }
 }
 
-function collectPrimitiveUrlAttachments(record: UnknownRecord): IntakeAttachmentMetadata[] {
-  const attachments: IntakeAttachmentMetadata[] = []
-
-  for (const [key, value] of Object.entries(record)) {
-    if (!isLikelyUrl(value)) {
-      continue
-    }
-
-    const keyLabel = key.toLowerCase()
-    const isHinted = ATTACHMENT_CATEGORY_HINTS.some((hint) => keyLabel.includes(hint))
-    const looksLikeUploadField = keyLabel.includes('upload') || keyLabel.includes('photo') || keyLabel.includes('file')
-
-    if (!isHinted && !looksLikeUploadField) {
-      continue
-    }
-
-    attachments.push({
-      filename: inferFilenameFromUrl(value) || `${keyLabel.replace(/\s+/g, '_')}.bin`,
-      sourceUrl: value
-    })
+function normalizeKnownFileFieldValue(value: unknown): IntakeAttachmentMetadata[] {
+  if (!value) {
+    return []
   }
 
-  return attachments
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeKnownFileObject(item))
+      .filter((item): item is IntakeAttachmentMetadata => item !== null)
+  }
+
+  const single = normalizeKnownFileObject(value)
+  return single ? [single] : []
 }
 
 export function extractCognitoAttachments(rawPayload: unknown): IntakeAttachmentMetadata[] {
-  const results: IntakeAttachmentMetadata[] = []
-  const queue: unknown[] = [rawPayload]
-  const visited = new Set<unknown>()
-  const maxNodes = 1000
-
-  while (queue.length > 0 && visited.size < maxNodes) {
-    const current = queue.shift()
-
-    if (!current || visited.has(current)) {
-      continue
-    }
-
-    visited.add(current)
-
-    if (Array.isArray(current)) {
-      queue.push(...current)
-      continue
-    }
-
-    if (!isRecord(current)) {
-      continue
-    }
-
-    const normalized = normalizeAttachmentCandidate(current)
-    if (normalized) {
-      results.push(normalized)
-    }
-
-    results.push(...collectPrimitiveUrlAttachments(current))
-
-    queue.push(...Object.values(current))
+  const topLevel = asRecord(rawPayload)
+  if (!topLevel) {
+    return []
   }
+
+  const results: IntakeAttachmentMetadata[] = []
+
+  for (const fieldName of KNOWN_COGNITO_UPLOAD_FIELDS) {
+    const fieldValue = topLevel[fieldName]
+    results.push(...normalizeKnownFileFieldValue(fieldValue))
+  }
+
+  results.push(...normalizeKnownFileFieldValue(topLevel.Signature))
 
   const deduped = new Map<string, IntakeAttachmentMetadata>()
 

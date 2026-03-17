@@ -119,7 +119,8 @@ Project purpose and scope
 	- endpoint: `/api/intake/cognito`
 	- flow: raw payload -> normalize -> validate -> create-claim input shape
 	- optional shared-secret check via `COGNITO_WEBHOOK_SECRET` + `x-webhook-secret`
-	- flexible field mapping until final Cognito webhook payload structure is confirmed
+	- explicit mapping for captured Cognito field names (for example: `Entry`, `CustomerName`, `FullVIN`, upload arrays)
+	- upload file links from Cognito are treated as temporary references only in this phase
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
@@ -187,10 +188,10 @@ Local POST verification example
 curl -X POST http://localhost:3000/api/intake/cognito \
 	-H "Content-Type: application/json" \
 	-H "x-webhook-secret: ${COGNITO_WEBHOOK_SECRET}" \
-	-d '{"customer":{"customerName":"Jordan Driver"},"vehicle":{"vin":"1HGCM82633A004352"}}'
+	-d '{"CustomerName":{"First":"Jordan","Last":"Driver","FirstAndLast":"Jordan Driver"},"FullVIN":"1HGCM82633A004352","Entry":{"DateSubmitted":"2026-03-17T15:00:00.000Z"}}'
 ```
 
-Note: Cognito submits structured JSON payloads to the configured endpoint on form submission.
+Note: Cognito submits structured JSON payloads to the configured endpoint on form submission; attachment file URLs are currently captured for metadata/preview and will be moved to durable storage in a later ticket.
 
 Files & structure
 
