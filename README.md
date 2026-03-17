@@ -31,6 +31,51 @@ npm run dev
 npm run build
 ```
 
+Database setup (Supabase + Prisma)
+
+1. Create a Supabase project and Postgres database.
+2. In Supabase, open **Project Settings → Database** and copy the connection strings.
+3. Create `.env.local` from `.env.example` and set:
+	- `DATABASE_URL` (pooled connection string)
+	- `DIRECT_URL` (direct/non-pooled connection string)
+	- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+4. Generate Prisma client:
+
+```bash
+npx prisma generate
+```
+
+5. Apply the initial migration to your Supabase database:
+
+```bash
+npx prisma migrate deploy
+```
+
+For local schema changes during development, use:
+
+```bash
+npx prisma migrate dev --name <migration_name>
+```
+
+6. Test DB health route:
+
+```bash
+npm run dev
+curl http://localhost:3000/api/health/db
+```
+
+Expected success response:
+
+```json
+{"status":"ok"}
+```
+
+If DB credentials are missing/invalid, route returns:
+
+```json
+{"status":"error","message":"..."}
+```
+
 Quick GitHub → Netlify workflow
 
 1. Push your local repository to the GitHub repo named `choice-claims-mvp` (replace origin URL):
@@ -64,8 +109,9 @@ Project purpose and scope
 - Pages included:
 	- `/` — staging homepage with summary and note
 	- `/admin/claims` — admin placeholder for claims intake/review
-- This ticket intentionally excludes database, authentication, and webhook logic —
-	those will be added in later tickets (e.g., Supabase integration and Cognito flows).
+- Ticket 2 adds database foundation only (Prisma schema, migration, health check).
+- Business logic, webhook intake, claims processing, and authentication are intentionally
+  deferred to later tickets.
 
 Files & structure
 
