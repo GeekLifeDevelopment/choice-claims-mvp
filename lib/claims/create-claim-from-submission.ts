@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import type { CreateClaimFromIntakeInput } from '../domain/claims'
 import { prisma } from '../prisma'
-import { writeClaimCreatedAuditLog } from '../audit/write-claim-created-audit-log'
+import { logClaimCreatedAudit, logDuplicateBlockedAudit } from '../audit/intake-audit-log'
 import { buildDedupeKey } from './build-dedupe-key'
 import { generateClaimNumber } from './generate-claim-number'
 
@@ -86,29 +86,6 @@ async function getExistingClaimByDedupeKey(dedupeKey: string): Promise<ClaimSumm
   })
 }
 
-async function writeDuplicateBlockedAuditLog(input: {
-  claimId: string
-  claimNumber: string
-  dedupeKey: string
-  source: string
-  claimantEmail?: string
-  vin?: string
-}) {
-  await prisma.auditLog.create({
-    data: {
-      claimId: input.claimId,
-      action: 'duplicate_blocked',
-      metadata: {
-        dedupeKey: input.dedupeKey,
-        claimNumber: input.claimNumber,
-        source: input.source,
-        claimantEmail: input.claimantEmail,
-        vin: input.vin
-      }
-    }
-  })
-}
-
 async function buildDuplicateResult(input: {
   existingClaim: ClaimSummary
   dedupeKey: string
@@ -116,21 +93,27 @@ async function buildDuplicateResult(input: {
   claimantEmail?: string
   vin?: string
 }): Promise<ClaimCreationDuplicate> {
-  try {
-    await writeDuplicateBlockedAuditLog({
-      claimId: input.existingClaim.id,
-      claimNumber: input.existingClaim.claimNumber,
-      dedupeKey: input.dedupeKey,
-      source: input.source,
-      claimantEmail: input.claimantEmail,
-      vin: input.vin
-    })
-  } catch (error) {
+  const auditResult = await logDuplicateBlockedAudit({
+    claimId: input.existingClaim.id,
+    claimNumber: input.existingClaim.claimNumber,
+    dedupeKey: input.dedupeKey,
+    source: input.source,
+    claimantEmail: input.claimantEmail,
+    vin: input.vin
+  })
+
+  if (!auditResult.ok) {
     logClaimPersistenceError('failed to write duplicate_blocked audit log', {
       claimId: input.existingClaim.id,
       claimNumber: input.existingClaim.claimNumber,
       dedupeKey: input.dedupeKey,
-      error
+      error: auditResult.error
+    })
+  } else {
+    logClaimPersistence('audit log written', {
+      action: 'duplicate_blocked',
+      claimNumber: input.existingClaim.claimNumber,
+      auditLogId: auditResult.auditLogId
     })
   }
 
@@ -229,17 +212,32 @@ export async function createClaimFromSubmission(
           })
         }
 
-        await writeClaimCreatedAuditLog(transaction, {
+        const claimCreatedAuditResult = await logClaimCreatedAudit({
+          client: transaction,
           claimId: claim.id,
           source: input.source,
           claimNumber: claim.claimNumber,
-          attachmentCount: input.attachments.length
+          attachmentCount: input.attachments.length,
+          claimantEmail: input.claimantEmail,
+          vin: input.vin,
+          dedupeKey
         })
 
-        logClaimPersistence('audit log created', {
-          claimId: claim.id,
-          action: 'claim_created'
-        })
+        if (!claimCreatedAuditResult.ok) {
+          logClaimPersistenceError('failed to write claim_created audit log', {
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            dedupeKey,
+            error: claimCreatedAuditResult.error
+          })
+        } else {
+          logClaimPersistence('audit log written', {
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            action: 'claim_created',
+            auditLogId: claimCreatedAuditResult.auditLogId
+          })
+        }
 
         return claim
       })
