@@ -115,8 +115,82 @@ Project purpose and scope
 	- intake payload and attachment metadata TypeScript types
 	- audit action type definitions
 	- Zod schemas + parse helper for normalized intake payload validation
+- Ticket 4 adds intake webhook processing (no DB writes yet):
+	- endpoint: `/api/intake/cognito`
+	- flow: raw payload -> normalize -> validate -> create-claim input shape
+	- optional shared-secret check via `COGNITO_WEBHOOK_SECRET` + `x-webhook-secret`
+	- flexible field mapping until final Cognito webhook payload structure is confirmed
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
+
+Ticket 4 local test example
+
+```bash
+curl -X POST http://localhost:3000/api/intake/cognito \
+	-H "Content-Type: application/json" \
+	-H "x-webhook-secret: ${COGNITO_WEBHOOK_SECRET}" \
+	-d '{
+		"customer": {
+			"customerName": "Jordan Driver",
+			"customerEmail": "jordan.driver@example.com",
+			"customerPhone": "(555) 010-8844"
+		},
+		"vehicle": {
+			"vin": "1HGCM82633A004352"
+		},
+		"uploads": {
+			"repairOrder": {
+				"filename": "repair-order.pdf",
+				"sourceUrl": "https://example.com/repair-order.pdf"
+			}
+		}
+	}'
+```
+
+How to verify a live Cognito webhook submission
+
+1. Confirm route reachability on deployed app:
+
+```bash
+curl -s https://choice-claims-mvp.netlify.app/api/intake/cognito
+```
+
+Expected response:
+
+```json
+{"ok":true,"route":"/api/intake/cognito","message":"Webhook endpoint is reachable"}
+```
+
+2. Confirm Cognito **Submit Entry Endpoint** points to:
+	 `https://choice-claims-mvp.netlify.app/api/intake/cognito`
+3. Submit a real test entry through the public Cognito form.
+4. In Netlify, open **Logs & Metrics → Functions** and inspect logs for `api/intake/cognito`.
+5. Match request logs via `requestId` returned in endpoint response.
+6. Inspect logs for:
+	 - request received
+	 - secret validation skipped/passed
+	 - raw top-level keys
+	 - normalization + validation status
+
+Optional debug mode (temporary)
+
+- Set `COGNITO_WEBHOOK_DEBUG=true` to include extra response fields on successful POST:
+	- `topLevelKeys`
+	- `payloadPreview`
+	- `normalizedPayload`
+	- `createClaimInput`
+- Keep `COGNITO_WEBHOOK_DEBUG=false` for minimal response shape in normal operation.
+
+Local POST verification example
+
+```bash
+curl -X POST http://localhost:3000/api/intake/cognito \
+	-H "Content-Type: application/json" \
+	-H "x-webhook-secret: ${COGNITO_WEBHOOK_SECRET}" \
+	-d '{"customer":{"customerName":"Jordan Driver"},"vehicle":{"vin":"1HGCM82633A004352"}}'
+```
+
+Note: Cognito submits structured JSON payloads to the configured endpoint on form submission.
 
 Files & structure
 
