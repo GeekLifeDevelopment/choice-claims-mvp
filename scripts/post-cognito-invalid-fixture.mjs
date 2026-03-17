@@ -2,11 +2,18 @@ const baseUrl = process.env.INTAKE_BASE_URL || 'http://localhost:3000'
 const url = `${baseUrl}/api/intake/cognito`
 
 const payload = {
-  vehicle: {
-    vin: '1HGCM82633A004352'
+  Form: 'Choice Claims Intake',
+  CustomerName: {
+    First: 'Jordan',
+    Last: 'Driver',
+    FirstAndLast: 'Jordan Driver'
   },
-  customer: {
-    customerEmail: 'not-a-valid-email-format'
+  FullVIN: '1HGCM82633A004352',
+  CustomerEmail: 'not-a-valid-email-format',
+  CustomerPhone: '(555) 010-8844',
+  Entry: {
+    DateSubmitted: new Date().toISOString(),
+    Number: '999'
   }
 }
 

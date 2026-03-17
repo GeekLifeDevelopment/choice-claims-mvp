@@ -2,46 +2,133 @@ const baseUrl = process.env.INTAKE_BASE_URL || 'http://localhost:3000'
 const url = `${baseUrl}/api/intake/cognito`
 
 const payload = {
-  submissionId: 'local-fixture-001',
-  submittedAt: new Date().toISOString(),
-  repairFacility: {
-    name: 'Westside Auto Repair',
-    phone: '(555) 010-1200',
-    address: '1234 Service Rd, Portland, OR 97201'
+  Form: 'Choice Claims Intake',
+  NameOfServiceWriter: {
+    First: 'Alex',
+    Last: 'Writer',
+    FirstAndLast: 'Alex Writer'
   },
-  customer: {
-    customerName: 'Jordan Driver',
-    customerEmail: 'jordan.driver@example.com',
-    customerPhone: '(555) 010-8844'
+  RepairFacilityEmailAddress: 'service@westsideautorepair.com',
+  RepairFacilityPhone: '(555) 010-1200',
+  NameOfRepairFacility: 'Westside Auto Repair',
+  CustomerName: {
+    First: 'Jordan',
+    Last: 'Driver',
+    FirstAndLast: 'Jordan Driver'
   },
-  vehicle: {
-    vin: '1HGCM82633A004352',
-    milesOnVehicle: '112430'
+  FullVIN: '1HGCM82633A004352',
+  CustomerPhone: '(555) 010-8844',
+  CustomerEmail: 'jordan.driver@example.com',
+  MilesOnVehicle: '112430',
+  RepairFacilityAddress: {
+    AddressLine1: '1234 Service Rd',
+    City: 'Portland',
+    State: 'OR',
+    ZipCode: '97201',
+    FullAddress: '1234 Service Rd, Portland, OR 97201'
   },
-  complaint: {
-    customerComplaint:
-      'Vehicle stalls intermittently while idling and has increased vibration under acceleration.'
-  },
-  uploads: {
-    repairOrder: {
-      filename: 'repair-order.pdf',
-      mimeType: 'application/pdf',
-      fileSize: 124221,
-      sourceUrl: 'https://example.com/uploads/repair-order.pdf',
-      externalId: 'file_ro_001'
-    },
-    odometer: {
-      filename: 'odometer.jpg',
-      mimeType: 'image/jpeg',
-      sourceUrl: 'https://example.com/uploads/odometer.jpg'
+  BusinessNameifApplicable: 'Westside Auto Repair LLC',
+  CopyOfRepairOrder: [
+    {
+      ContentType: 'application/pdf',
+      Id: 'file_ro_001',
+      Name: 'repair-order.pdf',
+      Size: 124221,
+      File: 'https://cdn.cognitoforms.com/file/repair-order.pdf'
     }
+  ],
+  CopyOfRepairEstimate: [
+    {
+      ContentType: 'application/pdf',
+      Id: 'file_re_001',
+      Name: 'repair-estimate.pdf',
+      Size: 91422,
+      File: 'https://cdn.cognitoforms.com/file/repair-estimate.pdf'
+    }
+  ],
+  PhotosOfFailedParts: [
+    {
+      ContentType: 'image/jpeg',
+      Id: 'file_fp_001',
+      Name: 'failed-part-1.jpg',
+      Size: 88912,
+      File: 'https://cdn.cognitoforms.com/file/failed-part-1.jpg'
+    }
+  ],
+  Signature: {
+    Name: 'signature.png',
+    ContentType: 'image/png',
+    Content: 'base64-signature-content',
+    File: 'https://cdn.cognitoforms.com/file/signature.png'
   },
-  acknowledgements: {
-    termsAccepted: true,
-    privacyAccepted: true
+  PleaseTypeSignedNameAbove: {
+    First: 'Jordan',
+    Last: 'Driver',
+    FirstAndLast: 'Jordan Driver'
   },
-  signature: {
-    signedName: 'Jordan Driver'
+  RepairFacilityHourlyLaborRate: '165',
+  CauseForVisitCustomerComplaint:
+    'Vehicle stalls intermittently while idling and has increased vibration under acceleration.',
+  ClaimsSubmissionAcknowledgementHaveYouReadAndUnderstandTheStatementBelow: true,
+  IUnderstandThatIMustHaveClaimsApprovalPriorToAnyWorkBeingPerformedOnTheVehicle: true,
+  DriverSideProfilePictureOfVehicle: [
+    {
+      ContentType: 'image/jpeg',
+      Id: 'file_dp_001',
+      Name: 'driver-profile.jpg',
+      Size: 104221,
+      File: 'https://cdn.cognitoforms.com/file/driver-profile.jpg'
+    }
+  ],
+  PictureUnderTheHood: [
+    {
+      ContentType: 'image/jpeg',
+      Id: 'file_hh_001',
+      Name: 'under-hood.jpg',
+      Size: 98221,
+      File: 'https://cdn.cognitoforms.com/file/under-hood.jpg'
+    }
+  ],
+  UnderCarriagePicture: [
+    {
+      ContentType: 'image/jpeg',
+      Id: 'file_uc_001',
+      Name: 'under-carriage.jpg',
+      Size: 92321,
+      File: 'https://cdn.cognitoforms.com/file/under-carriage.jpg'
+    }
+  ],
+  PictureOfOdometer: [
+    {
+      ContentType: 'image/jpeg',
+      Id: 'file_od_001',
+      Name: 'odometer.jpg',
+      Size: 74562,
+      File: 'https://cdn.cognitoforms.com/file/odometer.jpg'
+    }
+  ],
+  RearProfilePictureOfVehicle: [
+    {
+      ContentType: 'image/jpeg',
+      Id: 'file_rp_001',
+      Name: 'rear-profile.jpg',
+      Size: 89221,
+      File: 'https://cdn.cognitoforms.com/file/rear-profile.jpg'
+    }
+  ],
+  IHaveUploadedIndividualImagesAsRequestedAboveClaimsCannotBeProcessedWithoutClearImagesUploaded: true,
+  WhenRepairsAreCompleteIUnderstandThatINeedToGoToChoiceAutoProtectioncomAndSubmitForClaimPaymentLinkHereHttpschoiceautoprotectioncomsubmitforclaimpayment:
+    true,
+  Id: 'entry_12345',
+  Entry: {
+    DateCreated: '2026-03-17T14:58:00.000Z',
+    DateSubmitted: new Date().toISOString(),
+    DateUpdated: new Date().toISOString(),
+    Timestamp: new Date().toISOString(),
+    Number: '142',
+    Status: 'Submitted',
+    Action: 'Create',
+    AdminLink: 'https://www.cognitoforms.com/admin/entry/142'
   }
 }
 

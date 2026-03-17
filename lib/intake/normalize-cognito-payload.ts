@@ -1,5 +1,11 @@
 import type { NormalizedIntakePayload } from '../domain/claims'
 import { extractCognitoAttachments } from './extract-cognito-attachments'
+import {
+  asRecord,
+  getCognitoEntryTimestamp,
+  getCognitoNameValue,
+  getCognitoTopLevelString
+} from './cognito-field-helpers'
 
 type UnknownRecord = Record<string, unknown>
 
@@ -78,15 +84,14 @@ function findFirstString(raw: unknown, candidateKeys: string[]): string | undefi
 }
 
 function normalizeSubmittedAt(raw: unknown): string {
-  const extracted = findFirstString(raw, [
-    'submittedAt',
-    'submitted_at',
-    'submitted on',
-    'submissionDate',
-    'dateSubmitted',
-    'createdAt',
-    'timestamp'
-  ])
+  const topLevel = asRecord(raw)
+  const entryTimestamp = getCognitoEntryTimestamp(topLevel?.Entry)
+
+  if (entryTimestamp) {
+    return entryTimestamp
+  }
+
+  const extracted = findFirstString(raw, ['DateSubmitted', 'Timestamp', 'submittedAt', 'submitted_at'])
 
   if (extracted && !Number.isNaN(Date.parse(extracted))) {
     return new Date(extracted).toISOString()
@@ -96,16 +101,25 @@ function normalizeSubmittedAt(raw: unknown): string {
 }
 
 export function normalizeCognitoPayload(rawPayload: unknown): NormalizedIntakePayload {
-  const vin = findFirstString(rawPayload, ['full vin #', 'vin', 'full vin', 'vehicle vin'])
-  const claimantName = findFirstString(rawPayload, [
-    'customer name',
-    'customerName',
-    'name',
-    'signed name',
-    'signature name'
-  ])
-  const claimantEmail = findFirstString(rawPayload, ['customer email', 'customerEmail', 'email'])
-  const claimantPhone = findFirstString(rawPayload, ['customer phone', 'customerPhone', 'phone', 'phone number'])
+  const topLevel = asRecord(rawPayload)
+
+  const vin =
+    getCognitoTopLevelString(rawPayload, 'FullVIN') ||
+    getCognitoTopLevelString(rawPayload, 'VIN') ||
+    findFirstString(rawPayload, ['FullVIN', 'VIN', 'vin'])
+
+  const claimantName =
+    getCognitoNameValue(topLevel?.CustomerName) ||
+    findFirstString(rawPayload, ['CustomerName', 'customerName', 'name'])
+
+  const claimantEmail =
+    getCognitoTopLevelString(rawPayload, 'CustomerEmail') ||
+    findFirstString(rawPayload, ['CustomerEmail', 'customerEmail', 'email'])
+
+  const claimantPhone =
+    getCognitoTopLevelString(rawPayload, 'CustomerPhone') ||
+    findFirstString(rawPayload, ['CustomerPhone', 'customerPhone', 'phone'])
+
   const attachments = extractCognitoAttachments(rawPayload)
 
   return {
