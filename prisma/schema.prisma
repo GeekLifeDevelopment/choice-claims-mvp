@@ -1,11 +1,61 @@
-// Prisma schema placeholder for future work.
-// We'll add models and datasource when Sprint 1 requires DB work.
+generator client {
+  provider = "prisma-client-js"
+}
 
-// datasource db {
-//   provider = "postgresql"
-//   url      = env("DATABASE_URL")
-// }
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
 
-// generator client {
-//   provider = "prisma-client-js"
-// }
+model Claim {
+  id                   String   @id @default(cuid())
+  claimNumber          String   @unique
+  status               String
+  source               String?
+  vin                  String?
+  claimantName         String?
+  claimantEmail        String?
+  claimantPhone        String?
+  rawSubmissionPayload Json
+  submittedAt          DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  attachments ClaimAttachment[]
+  auditLogs   AuditLog[]
+
+  @@index([status])
+  @@index([submittedAt])
+}
+
+model ClaimAttachment {
+  id         String   @id @default(cuid())
+  claimId    String
+  filename   String
+  mimeType   String?
+  storageKey String?
+  fileSize   Int?
+  uploadedAt DateTime @default(now())
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  claimId   String?
+  action    String
+  fieldName String?
+  oldValue  Json?
+  newValue  Json?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  claim Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+
+  @@index([claimId])
+  @@index([action])
+  @@index([createdAt])
+}
