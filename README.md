@@ -110,6 +110,11 @@ Project purpose and scope
 	- `/` — staging homepage with summary and note
 	- `/admin/claims` — admin placeholder for claims intake/review
 - Ticket 2 adds database foundation only (Prisma schema, migration, health check).
+- Ticket 3 adds Sprint 1 intake domain contracts:
+	- `ClaimStatus` enum (`Submitted`)
+	- intake payload and attachment metadata TypeScript types
+	- audit action type definitions
+	- Zod schemas + parse helper for normalized intake payload validation
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
