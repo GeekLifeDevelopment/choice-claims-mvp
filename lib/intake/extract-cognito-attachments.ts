@@ -48,13 +48,20 @@ function normalizeKnownFileObject(value: unknown): IntakeAttachmentMetadata | nu
   const fileSize = toNumber(record.Size)
   const sourceUrl = typeof record.File === 'string' ? record.File : undefined
   const externalId = typeof record.Id === 'string' ? record.Id : undefined
+  const storageKey =
+    typeof record.StorageKey === 'string'
+      ? record.StorageKey
+      : typeof record.Key === 'string'
+        ? record.Key
+        : undefined
 
   return {
     filename,
     mimeType,
     fileSize,
     sourceUrl,
-    externalId
+    externalId,
+    storageKey
   }
 }
 

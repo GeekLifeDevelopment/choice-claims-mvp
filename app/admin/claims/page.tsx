@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { prisma } from '../../../lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -16,7 +17,13 @@ export default async function AdminClaimsPage() {
       status: true,
       claimantName: true,
       vin: true,
-      submittedAt: true
+      submittedAt: true,
+      attachments: {
+        select: {
+          id: true,
+          sourceUrl: true
+        }
+      }
     }
   })
 
@@ -41,16 +48,26 @@ export default async function AdminClaimsPage() {
                 <th className="py-2 pr-4 font-medium">Status</th>
                 <th className="py-2 pr-4 font-medium">Claimant</th>
                 <th className="py-2 pr-4 font-medium">VIN</th>
+                <th className="py-2 pr-4 font-medium">Attachments</th>
+                <th className="py-2 pr-4 font-medium">Has File URL</th>
                 <th className="py-2 pr-4 font-medium">Submitted</th>
               </tr>
             </thead>
             <tbody>
               {claims.map((claim) => (
                 <tr key={claim.id} className="border-b last:border-0">
-                  <td className="py-2 pr-4 font-medium text-slate-900">{claim.claimNumber}</td>
+                  <td className="py-2 pr-4 font-medium text-slate-900">
+                    <Link href={`/admin/claims/${claim.id}`} className="underline underline-offset-2">
+                      {claim.claimNumber}
+                    </Link>
+                  </td>
                   <td className="py-2 pr-4">{claim.status}</td>
                   <td className="py-2 pr-4">{claim.claimantName || '—'}</td>
                   <td className="py-2 pr-4">{claim.vin || '—'}</td>
+                  <td className="py-2 pr-4">{claim.attachments.length}</td>
+                  <td className="py-2 pr-4">
+                    {claim.attachments.some((attachment) => Boolean(attachment.sourceUrl)) ? 'Yes' : 'No'}
+                  </td>
                   <td className="py-2 pr-4">{formatDate(claim.submittedAt)}</td>
                 </tr>
               ))}

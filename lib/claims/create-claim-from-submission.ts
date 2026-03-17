@@ -210,6 +210,8 @@ export async function createClaimFromSubmission(
               claimId: claim.id,
               filename: attachment.filename,
               mimeType: attachment.mimeType,
+              sourceUrl: attachment.sourceUrl,
+              externalId: attachment.externalId,
               storageKey: attachment.storageKey,
               fileSize: attachment.fileSize,
               uploadedAt: new Date()

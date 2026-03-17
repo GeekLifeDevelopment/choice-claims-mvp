@@ -123,14 +123,16 @@ export async function POST(request: Request) {
       logWithRequestId(requestId, 'duplicate detected', {
         dedupeKey: claimCreationResult.dedupeKey,
         claimId: claimCreationResult.claim.id,
-        claimNumber: claimCreationResult.claim.claimNumber
+        claimNumber: claimCreationResult.claim.claimNumber,
+        attachmentCount: createClaimInput.attachments.length
       })
     } else {
       logWithRequestId(requestId, 'claim created', {
         dedupeKey: claimCreationResult.dedupeKey,
         claimId: claimCreationResult.claim.id,
         claimNumber: claimCreationResult.claim.claimNumber,
-        status: claimCreationResult.claim.status
+        status: claimCreationResult.claim.status,
+        attachmentCount: createClaimInput.attachments.length
       })
     }
 

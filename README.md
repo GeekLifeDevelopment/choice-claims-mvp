@@ -137,6 +137,12 @@ Project purpose and scope
 	- duplicate detections write a `duplicate_blocked` audit log event
 	- this prevents accidental replay/retry duplicates for MVP
 	- future versions may add secondary heuristic checks if needed
+- Ticket 7 adds attachment metadata persistence/visibility:
+	- each extracted Cognito file now persists one `ClaimAttachment` row
+	- `ClaimAttachment` now stores `filename`, `mimeType`, `fileSize`, `sourceUrl`, `externalId`, and `storageKey`
+	- Cognito file URLs are preserved as external references for now
+	- `storageKey` remains a placeholder for future app-managed ingestion (S3)
+	- files are not downloaded or migrated yet in this ticket
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
@@ -242,6 +248,29 @@ INTAKE_BASE_URL=http://localhost:3000 npm run intake:test-local
 
 2. Confirm second response has `"duplicate": true`.
 3. Confirm only one new claim was added on `/admin/claims` and logs show duplicate detection.
+
+Ticket 7 behavior summary
+
+- Attachment extraction supports known upload arrays and single file-like `Signature` objects.
+- One `ClaimAttachment` row is created per normalized file.
+- Metadata is preserved for each attachment:
+	- `filename`
+	- `mimeType`
+	- `fileSize`
+	- `sourceUrl`
+	- `externalId`
+	- `storageKey` (nullable placeholder)
+- Admin verification views now include attachment visibility in:
+	- `/admin/claims` (count + file URL presence)
+	- `/admin/claims/[id]` (per-file metadata table)
+
+Ticket 7 migration note
+
+- Apply migrations after pulling Ticket 7:
+
+```bash
+npx prisma migrate deploy
+```
 
 Files & structure
 
