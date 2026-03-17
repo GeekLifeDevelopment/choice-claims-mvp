@@ -7,6 +7,7 @@ import { normalizeCognitoPayload } from '../../../../lib/intake/normalize-cognit
 import { readCognitoBody } from '../../../../lib/intake/read-cognito-body'
 import { validateCognitoWebhookHeaders } from '../../../../lib/intake/validate-cognito-webhook'
 import { getPayloadPreview } from '../../../../lib/intake/get-payload-preview'
+import { buildDedupeKey } from '../../../../lib/claims/build-dedupe-key'
 import { createClaimFromSubmission } from '../../../../lib/claims/create-claim-from-submission'
 
 function getRequestId() {
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
       submittedAt: createClaimInput.submittedAt.toISOString()
     })
 
+    const dedupeKey = buildDedupeKey(createClaimInput)
+    logWithRequestId(requestId, 'dedupe key built', { dedupeKey })
+
     const claimCreationResult = await createClaimFromSubmission(createClaimInput)
 
     if (!claimCreationResult.ok) {
@@ -115,29 +119,45 @@ export async function POST(request: Request) {
       })
     }
 
-    logWithRequestId(requestId, 'claim created', {
-      claimId: claimCreationResult.claim.id,
-      claimNumber: claimCreationResult.claim.claimNumber,
-      status: claimCreationResult.claim.status
-    })
+    if (claimCreationResult.duplicate) {
+      logWithRequestId(requestId, 'duplicate detected', {
+        dedupeKey: claimCreationResult.dedupeKey,
+        claimId: claimCreationResult.claim.id,
+        claimNumber: claimCreationResult.claim.claimNumber
+      })
+    } else {
+      logWithRequestId(requestId, 'claim created', {
+        dedupeKey: claimCreationResult.dedupeKey,
+        claimId: claimCreationResult.claim.id,
+        claimNumber: claimCreationResult.claim.claimNumber,
+        status: claimCreationResult.claim.status
+      })
+    }
 
     if (debugMode) {
       return respond(requestId, 200, {
         ok: true,
         requestId,
-        message: 'Claim created successfully',
+        duplicate: claimCreationResult.duplicate,
+        message: claimCreationResult.duplicate
+          ? 'Duplicate submission detected; existing claim returned'
+          : 'Claim created successfully',
         claim: claimCreationResult.claim,
         topLevelKeys: payloadPreview.topLevelKeys,
         payloadPreview,
         normalizedPayload: validatedPayload,
-        createClaimInput
+        createClaimInput,
+        dedupeKey: claimCreationResult.dedupeKey
       })
     }
 
     return respond(requestId, 200, {
       ok: true,
       requestId,
-      message: 'Claim created successfully',
+      duplicate: claimCreationResult.duplicate,
+      message: claimCreationResult.duplicate
+        ? 'Duplicate submission detected; existing claim returned'
+        : 'Claim created successfully',
       claim: claimCreationResult.claim
     })
   } catch (error) {

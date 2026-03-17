@@ -130,6 +130,13 @@ Project purpose and scope
 	- no duplicate detection yet
 	- no provider/background jobs yet
 	- no file download/storage migration yet (attachments are metadata only)
+- Ticket 6 adds duplicate submission protection:
+	- claims now store a nullable unique `dedupeKey`
+	- dedupe key is built from canonical validated intake input + stable Cognito identifiers
+	- reposting the same payload safely no-ops and returns the existing claim
+	- duplicate detections write a `duplicate_blocked` audit log event
+	- this prevents accidental replay/retry duplicates for MVP
+	- future versions may add secondary heuristic checks if needed
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
@@ -210,6 +217,31 @@ Ticket 5 behavior summary
 	- `message: "Claim created successfully"`
 	- `claim` with `id`, `claimNumber`, and `status`
 - On claim persistence failures, the route returns HTTP `500` with a structured error code.
+
+Ticket 6 behavior summary
+
+- Successful first submission returns:
+	- `ok: true`
+	- `duplicate: false`
+	- `message: "Claim created successfully"`
+	- `claim` summary (`id`, `claimNumber`, `status`)
+- Reposting the same submission returns:
+	- `ok: true`
+	- `duplicate: true`
+	- `message: "Duplicate submission detected; existing claim returned"`
+	- the existing `claim` summary (no new claim row created)
+
+Ticket 6 local verification (duplicate protection)
+
+1. Submit the same payload twice:
+
+```bash
+INTAKE_BASE_URL=http://localhost:3000 npm run intake:test-local
+INTAKE_BASE_URL=http://localhost:3000 npm run intake:test-local
+```
+
+2. Confirm second response has `"duplicate": true`.
+3. Confirm only one new claim was added on `/admin/claims` and logs show duplicate detection.
 
 Files & structure
 

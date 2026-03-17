@@ -2,12 +2,27 @@ import { Prisma } from '@prisma/client'
 import type { CreateClaimFromIntakeInput } from '../domain/claims'
 import { prisma } from '../prisma'
 import { writeClaimCreatedAuditLog } from '../audit/write-claim-created-audit-log'
+import { buildDedupeKey } from './build-dedupe-key'
 import { generateClaimNumber } from './generate-claim-number'
 
 const CLAIM_NUMBER_MAX_ATTEMPTS = 5
 
 type ClaimCreationSuccess = {
   ok: true
+  duplicate: false
+  dedupeKey: string
+  claim: {
+    id: string
+    claimNumber: string
+    status: string
+  }
+}
+
+type ClaimCreationDuplicate = {
+  ok: true
+  duplicate: true
+  dedupeKey: string
+  message: 'Duplicate submission detected'
   claim: {
     id: string
     claimNumber: string
@@ -21,14 +36,20 @@ type ClaimCreationFailure = {
   message: string
 }
 
-export type ClaimCreationResult = ClaimCreationSuccess | ClaimCreationFailure
+export type ClaimCreationResult = ClaimCreationSuccess | ClaimCreationDuplicate | ClaimCreationFailure
 
-function isClaimNumberUniqueViolation(error: unknown): boolean {
+type ClaimSummary = {
+  id: string
+  claimNumber: string
+  status: string
+}
+
+function isUniqueViolationOnField(error: unknown, fieldName: string): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === 'P2002' &&
     Array.isArray(error.meta?.target) &&
-    error.meta.target.includes('claimNumber')
+    error.meta.target.includes(fieldName)
   )
 }
 
@@ -54,9 +75,97 @@ function logClaimPersistenceError(message: string, details?: unknown) {
   console.error(`[CLAIM_PERSISTENCE] ${message}`)
 }
 
+async function getExistingClaimByDedupeKey(dedupeKey: string): Promise<ClaimSummary | null> {
+  return prisma.claim.findUnique({
+    where: { dedupeKey },
+    select: {
+      id: true,
+      claimNumber: true,
+      status: true
+    }
+  })
+}
+
+async function writeDuplicateBlockedAuditLog(input: {
+  claimId: string
+  claimNumber: string
+  dedupeKey: string
+  source: string
+  claimantEmail?: string
+  vin?: string
+}) {
+  await prisma.auditLog.create({
+    data: {
+      claimId: input.claimId,
+      action: 'duplicate_blocked',
+      metadata: {
+        dedupeKey: input.dedupeKey,
+        claimNumber: input.claimNumber,
+        source: input.source,
+        claimantEmail: input.claimantEmail,
+        vin: input.vin
+      }
+    }
+  })
+}
+
+async function buildDuplicateResult(input: {
+  existingClaim: ClaimSummary
+  dedupeKey: string
+  source: string
+  claimantEmail?: string
+  vin?: string
+}): Promise<ClaimCreationDuplicate> {
+  try {
+    await writeDuplicateBlockedAuditLog({
+      claimId: input.existingClaim.id,
+      claimNumber: input.existingClaim.claimNumber,
+      dedupeKey: input.dedupeKey,
+      source: input.source,
+      claimantEmail: input.claimantEmail,
+      vin: input.vin
+    })
+  } catch (error) {
+    logClaimPersistenceError('failed to write duplicate_blocked audit log', {
+      claimId: input.existingClaim.id,
+      claimNumber: input.existingClaim.claimNumber,
+      dedupeKey: input.dedupeKey,
+      error
+    })
+  }
+
+  logClaimPersistence('duplicate detected', {
+    claimId: input.existingClaim.id,
+    claimNumber: input.existingClaim.claimNumber,
+    dedupeKey: input.dedupeKey
+  })
+
+  return {
+    ok: true,
+    duplicate: true,
+    dedupeKey: input.dedupeKey,
+    message: 'Duplicate submission detected',
+    claim: input.existingClaim
+  }
+}
+
 export async function createClaimFromSubmission(
   input: CreateClaimFromIntakeInput
 ): Promise<ClaimCreationResult> {
+  const dedupeKey = buildDedupeKey(input)
+  logClaimPersistence('dedupe key built', { dedupeKey })
+
+  const existingClaim = await getExistingClaimByDedupeKey(dedupeKey)
+  if (existingClaim) {
+    return buildDuplicateResult({
+      existingClaim,
+      dedupeKey,
+      source: input.source,
+      claimantEmail: input.claimantEmail,
+      vin: input.vin
+    })
+  }
+
   for (let attempt = 1; attempt <= CLAIM_NUMBER_MAX_ATTEMPTS; attempt += 1) {
     const claimNumber = generateClaimNumber()
     logClaimPersistence('generated claim number', { attempt, claimNumber })
@@ -78,6 +187,7 @@ export async function createClaimFromSubmission(
             claimantName: input.claimantName,
             claimantEmail: input.claimantEmail,
             claimantPhone: input.claimantPhone,
+            dedupeKey,
             rawSubmissionPayload: toPrismaJsonValue(input.rawSubmissionPayload),
             submittedAt: input.submittedAt
           },
@@ -139,10 +249,26 @@ export async function createClaimFromSubmission(
 
       return {
         ok: true,
+        duplicate: false,
+        dedupeKey,
         claim: createdClaim
       }
     } catch (error) {
-      if (isClaimNumberUniqueViolation(error) && attempt < CLAIM_NUMBER_MAX_ATTEMPTS) {
+      if (isUniqueViolationOnField(error, 'dedupeKey')) {
+        const claimAfterRace = await getExistingClaimByDedupeKey(dedupeKey)
+
+        if (claimAfterRace) {
+          return buildDuplicateResult({
+            existingClaim: claimAfterRace,
+            dedupeKey,
+            source: input.source,
+            claimantEmail: input.claimantEmail,
+            vin: input.vin
+          })
+        }
+      }
+
+      if (isUniqueViolationOnField(error, 'claimNumber') && attempt < CLAIM_NUMBER_MAX_ATTEMPTS) {
         logClaimPersistence('claim number collision, retrying', {
           claimNumber,
           attempt

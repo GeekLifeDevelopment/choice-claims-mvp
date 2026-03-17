@@ -11,6 +11,7 @@ datasource db {
 model Claim {
   id                   String   @id @default(cuid())
   claimNumber          String   @unique
+  dedupeKey            String?  @unique
   status               String
   source               String?
   vin                  String?
