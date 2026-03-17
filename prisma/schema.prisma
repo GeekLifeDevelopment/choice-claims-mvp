@@ -35,6 +35,8 @@ model ClaimAttachment {
   claimId    String
   filename   String
   mimeType   String?
+  sourceUrl  String?
+  externalId String?
   storageKey String?
   fileSize   Int?
   uploadedAt DateTime @default(now())
