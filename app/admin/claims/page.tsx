@@ -1,5 +1,7 @@
 import { prisma } from '../../../lib/prisma'
 
+export const dynamic = 'force-dynamic'
+
 function formatDate(value: Date): string {
   return value.toISOString().replace('T', ' ').slice(0, 16)
 }
