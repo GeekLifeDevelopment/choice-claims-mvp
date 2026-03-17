@@ -9,6 +9,7 @@ import { validateCognitoWebhookHeaders } from '../../../../lib/intake/validate-c
 import { getPayloadPreview } from '../../../../lib/intake/get-payload-preview'
 import { buildDedupeKey } from '../../../../lib/claims/build-dedupe-key'
 import { createClaimFromSubmission } from '../../../../lib/claims/create-claim-from-submission'
+import { logIntakeValidationFailedAudit } from '../../../../lib/audit/intake-audit-log'
 
 function getRequestId() {
   return randomUUID().slice(0, 8)
@@ -83,10 +84,12 @@ export async function POST(request: Request) {
 
   const rawPayload = bodyResult.body
   const payloadPreview = getPayloadPreview(rawPayload)
+  let normalizedSource: string | undefined
   logWithRequestId(requestId, 'raw keys', payloadPreview.topLevelKeys)
 
   try {
     const normalizedPayload = normalizeCognitoPayload(rawPayload)
+    normalizedSource = normalizedPayload.source
     logWithRequestId(requestId, 'normalized')
 
     const validatedPayload = parseNormalizedIntakePayload(normalizedPayload)
@@ -165,6 +168,31 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof ZodError) {
       logWarnWithRequestId(requestId, 'validation failed', error.issues)
+
+      const validationIssues = error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        code: issue.code,
+        message: issue.message
+      }))
+
+      const auditResult = await logIntakeValidationFailedAudit({
+        requestId,
+        source: normalizedSource,
+        issues: validationIssues,
+        topLevelKeys: payloadPreview.topLevelKeys
+      })
+
+      if (!auditResult.ok) {
+        logErrorWithRequestId(requestId, 'audit log failed action=intake_validation_failed', {
+          error: auditResult.error
+        })
+      } else {
+        logWithRequestId(requestId, 'audit log written action=intake_validation_failed', {
+          requestId,
+          auditLogId: auditResult.auditLogId
+        })
+      }
+
       return respond(
         requestId,
         400,
@@ -172,11 +200,7 @@ export async function POST(request: Request) {
           ok: false,
           requestId,
           error: 'validation_failed',
-          issues: error.issues.map((issue) => ({
-            path: issue.path.join('.'),
-            code: issue.code,
-            message: issue.message
-          }))
+          issues: validationIssues
         }
       )
     }

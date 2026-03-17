@@ -16,6 +16,19 @@ function formatFileSize(value?: number | null): string {
   return `${Math.round((value / 1024) * 10) / 10} KB`
 }
 
+function formatMetadataPreview(value: unknown): string {
+  if (value == null) {
+    return '—'
+  }
+
+  const serialized = JSON.stringify(value)
+  if (!serialized) {
+    return '—'
+  }
+
+  return serialized.length > 180 ? `${serialized.slice(0, 177)}...` : serialized
+}
+
 type PageProps = {
   params: Promise<{ id: string }>
 }
@@ -44,6 +57,16 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
           externalId: true,
           storageKey: true,
           uploadedAt: true
+        }
+      },
+      auditLogs: {
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          action: true,
+          metadata: true,
+          createdAt: true
         }
       }
     }
@@ -113,6 +136,34 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
           </table>
         </div>
       )}
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Audit Logs</h2>
+        {claim.auditLogs.length === 0 ? (
+          <p className="text-slate-600">No audit logs linked to this claim yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-slate-600">
+                  <th className="py-2 pr-4 font-medium">Created</th>
+                  <th className="py-2 pr-4 font-medium">Action</th>
+                  <th className="py-2 pr-4 font-medium">Metadata</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claim.auditLogs.map((auditLog) => (
+                  <tr key={auditLog.id} className="border-b last:border-0 align-top">
+                    <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
+                    <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
+                    <td className="py-2 pr-4 text-slate-700">{formatMetadataPreview(auditLog.metadata)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </section>
   )
 }

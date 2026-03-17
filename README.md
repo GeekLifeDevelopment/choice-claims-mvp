@@ -125,7 +125,7 @@ Project purpose and scope
 	- validated intake submissions now create a `Claim` row and related `ClaimAttachment` rows
 	- internal claim numbers are generated in `CC-YYYYMMDD-XXXX` format
 	- webhook flow now writes a `claim_created` audit entry
-	- `claim_created` audit writes are handled by a dedicated helper service (`lib/audit/write-claim-created-audit-log.ts`)
+	- intake audit writes are now handled by reusable services in `lib/audit/write-audit-log.ts` and `lib/audit/intake-audit-log.ts`
 	- raw submission payload JSON is preserved on the claim
 	- no duplicate detection yet
 	- no provider/background jobs yet
@@ -271,6 +271,20 @@ Ticket 7 migration note
 ```bash
 npx prisma migrate deploy
 ```
+
+Ticket 8 behavior summary
+
+- Intake audit logging now uses a dedicated reusable service (`lib/audit/write-audit-log.ts`).
+- Intake-specific wrappers in `lib/audit/intake-audit-log.ts` standardize metadata for key events.
+- Successful claim persistence writes `claim_created` and links the audit row to the created claim.
+- Duplicate submissions write `duplicate_blocked` and link the audit row to the existing claim.
+- Intake validation failures write `intake_validation_failed` with request-scoped metadata and no claim link.
+- Audit writes are best-effort for intake flow traceability; failures are logged without breaking intake responses.
+- Admin claim detail now includes a simple audit section showing action, timestamp, and metadata preview.
+
+Ticket 8 migration note
+
+- No Prisma schema changes were required for Ticket 8.
 
 Files & structure
 

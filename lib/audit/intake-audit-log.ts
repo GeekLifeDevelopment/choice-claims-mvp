@@ -1,0 +1,82 @@
+import type { Prisma, PrismaClient } from '@prisma/client'
+import { writeAuditLog } from './write-audit-log'
+
+type AuditLogClient = Pick<PrismaClient, 'auditLog'> | Pick<Prisma.TransactionClient, 'auditLog'>
+
+type CommonAuditInput = {
+  client?: AuditLogClient
+}
+
+type LogClaimCreatedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  source: string
+  attachmentCount: number
+  claimantEmail?: string
+  vin?: string
+  dedupeKey?: string
+}
+
+type LogDuplicateBlockedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  source: string
+  dedupeKey: string
+  claimantEmail?: string
+  vin?: string
+}
+
+type LogIntakeValidationFailedInput = CommonAuditInput & {
+  requestId: string
+  source?: string
+  issues: Array<{
+    path: string
+    code: string
+    message: string
+  }>
+  topLevelKeys?: string[]
+}
+
+export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_created',
+    claimId: input.claimId,
+    metadata: {
+      claimNumber: input.claimNumber,
+      source: input.source,
+      claimantEmail: input.claimantEmail,
+      vin: input.vin,
+      attachmentCount: input.attachmentCount,
+      dedupeKey: input.dedupeKey
+    }
+  })
+}
+
+export async function logDuplicateBlockedAudit(input: LogDuplicateBlockedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'duplicate_blocked',
+    claimId: input.claimId,
+    metadata: {
+      claimNumber: input.claimNumber,
+      source: input.source,
+      claimantEmail: input.claimantEmail,
+      vin: input.vin,
+      dedupeKey: input.dedupeKey
+    }
+  })
+}
+
+export async function logIntakeValidationFailedAudit(input: LogIntakeValidationFailedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'intake_validation_failed',
+    metadata: {
+      requestId: input.requestId,
+      source: input.source,
+      issues: input.issues,
+      topLevelKeys: input.topLevelKeys ?? []
+    }
+  })
+}
