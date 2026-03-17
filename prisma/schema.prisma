@@ -1,0 +1,11 @@
+// Prisma schema placeholder for future work.
+// We'll add models and datasource when Sprint 1 requires DB work.
+
+// datasource db {
+//   provider = "postgresql"
+//   url      = env("DATABASE_URL")
+// }
+
+// generator client {
+//   provider = "prisma-client-js"
+// }

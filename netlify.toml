@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Notes:
+# - Netlify's Next.js plugin enables App Router and Edge/Server support on Netlify.
+# - Configure environment variables in Netlify UI (see README).
