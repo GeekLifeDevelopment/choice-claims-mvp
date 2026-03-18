@@ -344,6 +344,46 @@ Sprint 2 status lifecycle note
 - Allowed transitions are documented in code comments near the enum and are not yet enforced in runtime logic.
 - This ticket does not add queue, worker, or provider integration logic.
 
+Sprint 2 queue infrastructure (Ticket 2)
+
+- BullMQ is now installed and queue infrastructure scaffolding is in place.
+- Redis is required only when queue infrastructure is actively used.
+- Queue/Redis config is isolated in one shared module:
+	- `lib/queue/config.ts`
+- Queue instances should be created through the shared helper:
+	- `lib/queue/get-queue.ts`
+
+Required environment variables
+
+- `REDIS_URL` (required when invoking queue infrastructure)
+- `QUEUE_PREFIX` (optional; defaults to `choice-claims`)
+
+Queue connectivity smoke test
+
+1. Set `REDIS_URL` in your environment.
+2. Optionally set `QUEUE_PREFIX`.
+3. Run:
+
+```bash
+npm run test:queue
+```
+
+Expected output includes:
+
+- `[QUEUE_SMOKE_TEST] Redis connection successful`
+
+Local vs staging notes
+
+- Local: use a local or hosted Redis URL in `.env.local`.
+- Staging: set `REDIS_URL` (and optional `QUEUE_PREFIX`) in Netlify environment variables.
+
+Scope boundaries for Ticket 2
+
+- No job enqueueing yet.
+- No BullMQ worker processing yet.
+- No provider integrations yet.
+- No retry or transition enforcement logic yet.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
