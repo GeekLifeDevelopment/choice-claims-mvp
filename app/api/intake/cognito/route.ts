@@ -114,16 +114,37 @@ export async function POST(request: Request) {
         message: claimCreationResult.message
       })
 
+      if (claimCreationResult.error === 'vin_lookup_enqueue_failed') {
+        logErrorWithRequestId(requestId, 'enqueue failed claim remains submitted', {
+          dedupeKey,
+          source: createClaimInput.source,
+          vin: createClaimInput.vin
+        })
+      }
+
+      if (claimCreationResult.error === 'claim_status_update_failed') {
+        logErrorWithRequestId(requestId, 'enqueue succeeded but status update failed', {
+          dedupeKey,
+          source: createClaimInput.source,
+          vin: createClaimInput.vin
+        })
+      }
+
       return respond(requestId, 500, {
         ok: false,
         requestId,
         error: claimCreationResult.error,
-        message: 'Claim creation failed'
+        message:
+          claimCreationResult.error === 'vin_lookup_enqueue_failed'
+            ? 'Claim created, but VIN lookup enqueue failed'
+            : claimCreationResult.error === 'claim_status_update_failed'
+              ? 'Claim created and enqueued, but status update failed'
+              : 'Claim creation failed'
       })
     }
 
     if (claimCreationResult.duplicate) {
-      logWithRequestId(requestId, 'duplicate detected', {
+      logWithRequestId(requestId, 'duplicate detected no enqueue', {
         dedupeKey: claimCreationResult.dedupeKey,
         claimId: claimCreationResult.claim.id,
         claimNumber: claimCreationResult.claim.claimNumber,
@@ -137,6 +158,14 @@ export async function POST(request: Request) {
         status: claimCreationResult.claim.status,
         attachmentCount: createClaimInput.attachments.length
       })
+
+      logWithRequestId(requestId, 'vin lookup enqueued', {
+        claimId: claimCreationResult.claim.id,
+        claimNumber: claimCreationResult.claim.claimNumber,
+        queueName: claimCreationResult.enqueued.queueName,
+        jobName: claimCreationResult.enqueued.jobName,
+        jobId: claimCreationResult.enqueued.jobId
+      })
     }
 
     if (debugMode) {
@@ -146,7 +175,7 @@ export async function POST(request: Request) {
         duplicate: claimCreationResult.duplicate,
         message: claimCreationResult.duplicate
           ? 'Duplicate submission detected; existing claim returned'
-          : 'Claim created successfully',
+          : 'Claim created and queued for VIN lookup',
         claim: claimCreationResult.claim,
         topLevelKeys: payloadPreview.topLevelKeys,
         payloadPreview,
@@ -162,7 +191,7 @@ export async function POST(request: Request) {
       duplicate: claimCreationResult.duplicate,
       message: claimCreationResult.duplicate
         ? 'Duplicate submission detected; existing claim returned'
-        : 'Claim created successfully',
+        : 'Claim created and queued for VIN lookup',
       claim: claimCreationResult.claim
     })
   } catch (error) {

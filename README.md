@@ -405,6 +405,23 @@ Ticket 3 scope boundaries
 - No provider integrations yet.
 - No retry logic yet.
 
+Sprint 2 async enqueue integration (Ticket 4)
+
+- Newly created claims now enqueue a VIN lookup job after persistence.
+- Queue/job used:
+	- queue: `vin-data`
+	- job: `lookup-vin-data`
+- On successful enqueue, claim status is updated from `Submitted` to `AwaitingVinData`.
+- Successful enqueue writes an audit log action: `vin_lookup_enqueued`.
+- Duplicate submissions do not enqueue additional jobs.
+
+Ticket 4 scope boundaries
+
+- No worker processing yet.
+- No provider integration yet.
+- No retry system yet.
+- No status transition enforcement engine yet.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

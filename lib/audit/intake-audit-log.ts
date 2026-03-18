@@ -37,6 +37,16 @@ type LogIntakeValidationFailedInput = CommonAuditInput & {
   topLevelKeys?: string[]
 }
 
+type LogVinLookupEnqueuedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  queueName: string
+  jobName: string
+  jobId?: string
+  source: string
+  vin?: string
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -77,6 +87,23 @@ export async function logIntakeValidationFailedAudit(input: LogIntakeValidationF
       source: input.source,
       issues: input.issues,
       topLevelKeys: input.topLevelKeys ?? []
+    }
+  })
+}
+
+export async function logVinLookupEnqueuedAudit(input: LogVinLookupEnqueuedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'vin_lookup_enqueued',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      queueName: input.queueName,
+      jobName: input.jobName,
+      jobId: input.jobId,
+      source: input.source,
+      vin: input.vin
     }
   })
 }
