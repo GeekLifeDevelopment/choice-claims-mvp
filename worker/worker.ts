@@ -1,5 +1,12 @@
 import { config as loadEnv } from 'dotenv'
+import { Prisma } from '@prisma/client'
 import { Worker, type Job } from 'bullmq'
+import {
+  logVinDataFetchedAudit,
+  logVinDataFetchFailedAudit
+} from '../lib/audit/intake-audit-log'
+import { ClaimStatus } from '../lib/domain/claims'
+import { prisma } from '../lib/prisma'
 import { getQueueRuntimeConfig } from '../lib/queue/config'
 import { JOB_NAMES } from '../lib/queue/job-names'
 import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
@@ -46,37 +53,199 @@ async function run() {
         payload: job.data
       })
 
-      if (job.name === JOB_NAMES.LOOKUP_VIN_DATA) {
-        const payload = job.data as VinLookupJobPayload
+      if (job.name !== JOB_NAMES.LOOKUP_VIN_DATA) {
+        const message = `Unsupported job name: ${job.name}`
+        logError(message, {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobId: job.id,
+          payload: job.data
+        })
 
-        if (!payload.vin) {
-          log('vin missing; skipping provider lookup', {
+        throw new Error(message)
+      }
+
+      const payload = job.data as VinLookupJobPayload
+      {
+        const claim = await prisma.claim.findUnique({
+          where: { id: payload.claimId },
+          select: {
+            id: true,
+            claimNumber: true,
+            status: true,
+            source: true,
+            vin: true
+          }
+        })
+
+        if (!claim) {
+          logError('claim not found for job', {
+            queueName: QUEUE_NAMES.VIN_DATA,
             jobName: job.name,
             jobId: job.id,
             claimId: payload.claimId,
             claimNumber: payload.claimNumber
+          })
+
+          throw new Error(`Claim not found for claimId=${payload.claimId}`)
+        }
+
+        log('claim loaded', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          status: claim.status
+        })
+
+        const vinFromPayload = payload.vin?.trim() || null
+        const vinFromClaim = claim.vin?.trim() || null
+        const vin = vinFromPayload ?? vinFromClaim
+
+        if (!vin) {
+          await prisma.claim.update({
+            where: { id: claim.id },
+            data: {
+              status: ClaimStatus.ProviderFailed,
+              vinDataProvider: null,
+              vinDataFetchedAt: null,
+              vinDataResult: Prisma.JsonNull
+            }
+          })
+
+          log('claim status updated for missing vin', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            status: ClaimStatus.ProviderFailed
+          })
+
+          const failedAuditResult = await logVinDataFetchFailedAudit({
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id?.toString(),
+            source: claim.source ?? payload.source,
+            vin,
+            reason: 'vin_missing'
+          })
+
+          if (failedAuditResult.ok) {
+            log('audit log written', {
+              action: 'vin_data_fetch_failed',
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              auditLogId: failedAuditResult.auditLogId
+            })
+          } else {
+            logError('audit log failed', {
+              action: 'vin_data_fetch_failed',
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              error: failedAuditResult.error
+            })
+          }
+
+          log('vin missing; skipping provider lookup', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber
           })
         } else {
           const provider = getVinDataProvider()
 
           log('provider selected', {
             provider: provider.name,
+            queueName: QUEUE_NAMES.VIN_DATA,
             jobName: job.name,
             jobId: job.id,
-            claimId: payload.claimId,
-            claimNumber: payload.claimNumber,
-            vin: payload.vin
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            vin
           })
 
-          const providerResult = await provider.lookupVinData(payload.vin)
+          const providerResult = await provider.lookupVinData(vin)
+
+          const persistedVinDataResult: Prisma.InputJsonValue = {
+            vin: providerResult.vin,
+            year: providerResult.year,
+            make: providerResult.make,
+            model: providerResult.model,
+            provider: providerResult.provider
+          }
+
+          await prisma.claim.update({
+            where: { id: claim.id },
+            data: {
+              vinDataResult: persistedVinDataResult,
+              vinDataProvider: provider.name,
+              vinDataFetchedAt: new Date(),
+              status: ClaimStatus.ReadyForAI
+            }
+          })
+
+          log('claim updated', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            status: ClaimStatus.ReadyForAI,
+            provider: provider.name
+          })
+
+          const fetchedAuditResult = await logVinDataFetchedAudit({
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id?.toString(),
+            source: claim.source ?? payload.source,
+            vin,
+            provider: provider.name,
+            year: providerResult.year,
+            make: providerResult.make,
+            model: providerResult.model
+          })
+
+          if (fetchedAuditResult.ok) {
+            log('audit log written', {
+              action: 'vin_data_fetched',
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              auditLogId: fetchedAuditResult.auditLogId
+            })
+          } else {
+            logError('audit log failed', {
+              action: 'vin_data_fetched',
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              error: fetchedAuditResult.error
+            })
+          }
 
           log('provider result', {
             provider: provider.name,
+            queueName: QUEUE_NAMES.VIN_DATA,
             jobName: job.name,
             jobId: job.id,
-            claimId: payload.claimId,
-            claimNumber: payload.claimNumber,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
             result: providerResult
+          })
+
+          log('status moved to ReadyForAI', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            status: ClaimStatus.ReadyForAI
           })
         }
       }
