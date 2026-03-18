@@ -7,7 +7,7 @@ import { normalizeCognitoPayload } from '../../../../lib/intake/normalize-cognit
 import { readCognitoBody } from '../../../../lib/intake/read-cognito-body'
 import { validateCognitoWebhookHeaders } from '../../../../lib/intake/validate-cognito-webhook'
 import { getPayloadPreview } from '../../../../lib/intake/get-payload-preview'
-import { buildDedupeKey } from '../../../../lib/claims/build-dedupe-key'
+import { buildDedupeKeyDetails } from '../../../../lib/claims/build-dedupe-key'
 import { createClaimFromSubmission } from '../../../../lib/claims/create-claim-from-submission'
 import { logIntakeValidationFailedAudit } from '../../../../lib/audit/intake-audit-log'
 
@@ -103,8 +103,13 @@ export async function POST(request: Request) {
       submittedAt: createClaimInput.submittedAt.toISOString()
     })
 
-    const dedupeKey = buildDedupeKey(createClaimInput)
-    logWithRequestId(requestId, 'dedupe key built', { dedupeKey })
+    const dedupeDetails = buildDedupeKeyDetails(createClaimInput)
+    logWithRequestId(requestId, 'dedupe key built', {
+      dedupeKey: dedupeDetails.dedupeKey,
+      dedupeSource: dedupeDetails.dedupeSource
+    })
+
+    const dedupeKey = dedupeDetails.dedupeKey
 
     const claimCreationResult = await createClaimFromSubmission(createClaimInput)
 

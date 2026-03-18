@@ -3,6 +3,17 @@ import type { CreateClaimFromIntakeInput } from '../domain/claims'
 
 type UnknownRecord = Record<string, unknown>
 
+export type DedupeSource =
+  | 'entry_number'
+  | 'cognito_submission_id'
+  | 'entry_date_submitted'
+  | 'fallback_canonical_hash'
+
+export type DedupeKeyDetails = {
+  dedupeKey: string
+  dedupeSource: DedupeSource
+}
+
 function asRecord(value: unknown): UnknownRecord | undefined {
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
     return value as UnknownRecord
@@ -11,9 +22,17 @@ function asRecord(value: unknown): UnknownRecord | undefined {
   return undefined
 }
 
-function asString(value: unknown): string | undefined {
+function asIdentifierString(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim()) {
     return value.trim()
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  if (typeof value === 'bigint') {
+    return value.toString()
   }
 
   return undefined
@@ -24,31 +43,88 @@ function extractCognitoIdentifiers(rawSubmissionPayload: unknown) {
   const entry = asRecord(topLevel?.Entry)
 
   return {
-    cognitoId: asString(topLevel?.Id),
-    entryNumber: asString(entry?.Number),
-    entryDateSubmitted: asString(entry?.DateSubmitted)
+    cognitoId: asIdentifierString(topLevel?.Id),
+    entryNumber: asIdentifierString(entry?.Number),
+    entryDateSubmitted: asIdentifierString(entry?.DateSubmitted)
   }
 }
 
-export function buildDedupeKey(input: CreateClaimFromIntakeInput): string {
-  const identifiers = extractCognitoIdentifiers(input.rawSubmissionPayload)
+function hashObject(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
 
+function buildCanonicalFallbackObject(input: CreateClaimFromIntakeInput) {
   const attachmentSummary = input.attachments
     .map((attachment) => `${attachment.filename}|${attachment.externalId || ''}`)
     .sort()
 
-  const canonicalObject = {
+  return {
     source: input.source,
     submittedAt: input.submittedAt.toISOString(),
     vin: input.vin || '',
     claimantName: input.claimantName || '',
     claimantEmail: input.claimantEmail || '',
     claimantPhone: input.claimantPhone || '',
-    attachmentSummary,
-    identifiers
+    attachmentSummary
+  }
+}
+
+function buildIdentifierDedupeKey(input: {
+  source: string
+  dedupeSource: Exclude<DedupeSource, 'fallback_canonical_hash'>
+  identifierValue: string
+}): string {
+  return hashObject({
+    source: input.source,
+    dedupeSource: input.dedupeSource,
+    identifierValue: input.identifierValue
+  })
+}
+
+export function buildDedupeKeyDetails(input: CreateClaimFromIntakeInput): DedupeKeyDetails {
+  if (input.source.toLowerCase() === 'cognito') {
+    const identifiers = extractCognitoIdentifiers(input.rawSubmissionPayload)
+
+    if (identifiers.entryNumber) {
+      return {
+        dedupeKey: buildIdentifierDedupeKey({
+          source: input.source,
+          dedupeSource: 'entry_number',
+          identifierValue: identifiers.entryNumber
+        }),
+        dedupeSource: 'entry_number'
+      }
+    }
+
+    if (identifiers.cognitoId) {
+      return {
+        dedupeKey: buildIdentifierDedupeKey({
+          source: input.source,
+          dedupeSource: 'cognito_submission_id',
+          identifierValue: identifiers.cognitoId
+        }),
+        dedupeSource: 'cognito_submission_id'
+      }
+    }
+
+    if (identifiers.entryDateSubmitted) {
+      return {
+        dedupeKey: buildIdentifierDedupeKey({
+          source: input.source,
+          dedupeSource: 'entry_date_submitted',
+          identifierValue: identifiers.entryDateSubmitted
+        }),
+        dedupeSource: 'entry_date_submitted'
+      }
+    }
   }
 
-  const payload = JSON.stringify(canonicalObject)
+  return {
+    dedupeKey: hashObject(buildCanonicalFallbackObject(input)),
+    dedupeSource: 'fallback_canonical_hash'
+  }
+}
 
-  return createHash('sha256').update(payload).digest('hex')
+export function buildDedupeKey(input: CreateClaimFromIntakeInput): string {
+  return buildDedupeKeyDetails(input).dedupeKey
 }

@@ -22,6 +22,9 @@ type LogDuplicateBlockedInput = CommonAuditInput & {
   claimNumber: string
   source: string
   dedupeKey: string
+  dedupeSource?: string
+  cognitoPayloadId?: string
+  cognitoEntryNumber?: string
   claimantEmail?: string
   vin?: string
 }
@@ -73,7 +76,28 @@ export async function logDuplicateBlockedAudit(input: LogDuplicateBlockedInput) 
       source: input.source,
       claimantEmail: input.claimantEmail,
       vin: input.vin,
-      dedupeKey: input.dedupeKey
+      dedupeKey: input.dedupeKey,
+      dedupeSource: input.dedupeSource,
+      cognitoPayloadId: input.cognitoPayloadId,
+      cognitoEntryNumber: input.cognitoEntryNumber
+    }
+  })
+}
+
+export async function logDuplicateReplayIgnoredAudit(input: LogDuplicateBlockedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'duplicate_replay_ignored',
+    claimId: input.claimId,
+    metadata: {
+      claimNumber: input.claimNumber,
+      source: input.source,
+      claimantEmail: input.claimantEmail,
+      vin: input.vin,
+      dedupeKey: input.dedupeKey,
+      dedupeSource: input.dedupeSource,
+      cognitoPayloadId: input.cognitoPayloadId,
+      cognitoEntryNumber: input.cognitoEntryNumber
     }
   })
 }

@@ -47,7 +47,8 @@ function toRedisConnectionOptions(redisUrl) {
     username: parsedUrl.username || undefined,
     password: parsedUrl.password || undefined,
     db,
-    tls: parsedUrl.protocol === 'rediss:' ? {} : undefined
+    tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
+    enableReadyCheck: false
   }
 }
 

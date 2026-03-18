@@ -46,7 +46,9 @@ function toRedisConnectionOptions(redisUrl: string): ConnectionOptions {
     username: parsedUrl.username || undefined,
     password: parsedUrl.password || undefined,
     db,
-    tls: parsedUrl.protocol === 'rediss:' ? {} : undefined
+    tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
+    // Upstash commonly blocks INFO for constrained users.
+    enableReadyCheck: false
   }
 }
 
