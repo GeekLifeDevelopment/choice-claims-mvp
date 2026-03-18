@@ -537,6 +537,43 @@ Ticket 7 scope boundaries
 - No manual retry UI yet.
 - No full transition enforcement engine yet.
 
+Sprint 2 retry + failure visibility (Ticket 8)
+
+- VIN lookup jobs now include BullMQ retry support:
+	- attempts: `3`
+	- exponential backoff with a small delay
+- Claim now persists VIN lookup retry/failure details:
+	- `vinLookupAttemptCount`
+	- `vinLookupLastError`
+	- `vinLookupLastFailedAt`
+	- `vinLookupLastJobId`
+	- `vinLookupLastJobName`
+	- `vinLookupLastQueueName`
+- Worker behavior now records attempt metadata on every run and keeps processing other jobs when one fails.
+- Failure states are persisted and visible:
+	- provider lookup failures set claim status to `ProviderFailed`
+	- non-provider processing failures set claim status to `ProcessingError`
+- Failure audits use `vin_data_fetch_failed` with useful metadata including:
+	- `jobId`, `jobName`, `queueName`
+	- `attemptsMade`, `attemptsAllowed`
+	- `errorMessage`
+- Success path remains unchanged for Ticket 7 outcomes:
+	- `AwaitingVinData -> ReadyForAI`
+	- provider result persistence
+	- `vin_data_fetched` audit logging
+
+Ticket 8 failure-path test note
+
+- Provider stubs intentionally throw for VINs containing `FAIL` to validate retry/failure handling safely without external APIs.
+
+Ticket 8 scope boundaries
+
+- No real CARFAX API calls.
+- No real AutoCheck API calls.
+- No manual retry UI yet.
+- No queue dashboards or operator tooling yet.
+- No advanced fallback/orchestration logic yet.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

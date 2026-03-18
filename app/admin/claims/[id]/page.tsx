@@ -76,6 +76,12 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
       vinDataProvider: true,
       vinDataFetchedAt: true,
       vinDataResult: true,
+      vinLookupAttemptCount: true,
+      vinLookupLastError: true,
+      vinLookupLastFailedAt: true,
+      vinLookupLastJobId: true,
+      vinLookupLastJobName: true,
+      vinLookupLastQueueName: true,
       rawSubmissionPayload: true,
       submittedAt: true,
       attachments: {
@@ -199,6 +205,36 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
             </p>
           </div>
         )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">VIN Lookup Processing</h2>
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Attempt Count:</span>{' '}
+            {String(claim.vinLookupAttemptCount)}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Failed At:</span>{' '}
+            {claim.vinLookupLastFailedAt ? formatDate(claim.vinLookupLastFailedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Error:</span>{' '}
+            {claim.vinLookupLastError || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Queue:</span>{' '}
+            {claim.vinLookupLastQueueName || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Job Name:</span>{' '}
+            {claim.vinLookupLastJobName || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Job ID:</span>{' '}
+            {claim.vinLookupLastJobId || '—'}
+          </p>
+        </div>
       </div>
 
       {claim.attachments.length === 0 ? (
