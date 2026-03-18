@@ -1,9 +1,15 @@
 import { Prisma } from '@prisma/client'
-import type { CreateClaimFromIntakeInput } from '../domain/claims'
+import { ClaimStatus, type CreateClaimFromIntakeInput } from '../domain/claims'
 import { prisma } from '../prisma'
-import { logClaimCreatedAudit, logDuplicateBlockedAudit } from '../audit/intake-audit-log'
+import {
+  logClaimCreatedAudit,
+  logDuplicateBlockedAudit,
+  logVinLookupEnqueuedAudit
+} from '../audit/intake-audit-log'
 import { buildDedupeKey } from './build-dedupe-key'
 import { generateClaimNumber } from './generate-claim-number'
+import { buildVinLookupJobPayload } from '../queue/build-vin-lookup-job'
+import { enqueueVinLookupJob } from '../queue/enqueue-vin-lookup-job'
 
 const CLAIM_NUMBER_MAX_ATTEMPTS = 5
 
@@ -11,6 +17,11 @@ type ClaimCreationSuccess = {
   ok: true
   duplicate: false
   dedupeKey: string
+  enqueued: {
+    queueName: string
+    jobName: string
+    jobId?: string
+  }
   claim: {
     id: string
     claimNumber: string
@@ -32,7 +43,7 @@ type ClaimCreationDuplicate = {
 
 type ClaimCreationFailure = {
   ok: false
-  error: 'claim_creation_failed'
+  error: 'claim_creation_failed' | 'vin_lookup_enqueue_failed' | 'claim_status_update_failed'
   message: string
 }
 
@@ -247,11 +258,118 @@ export async function createClaimFromSubmission(
         claimNumber: createdClaim.claimNumber
       })
 
+      const vinLookupPayload = buildVinLookupJobPayload({
+        claimId: createdClaim.id,
+        vin: input.vin ?? null,
+        source: input.source,
+        dedupeKey,
+        claimNumber: createdClaim.claimNumber
+      })
+
+      let enqueueResult: Awaited<ReturnType<typeof enqueueVinLookupJob>>
+
+      try {
+        enqueueResult = await enqueueVinLookupJob(vinLookupPayload)
+
+        logClaimPersistence('vin lookup enqueued', {
+          claimId: createdClaim.id,
+          claimNumber: createdClaim.claimNumber,
+          queueName: enqueueResult.queueName,
+          jobName: enqueueResult.jobName,
+          jobId: enqueueResult.jobId
+        })
+      } catch (error) {
+        logClaimPersistenceError('vin lookup enqueue failed', {
+          claimId: createdClaim.id,
+          claimNumber: createdClaim.claimNumber,
+          dedupeKey,
+          error
+        })
+
+        return {
+          ok: false,
+          error: 'vin_lookup_enqueue_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Claim created, but VIN lookup job enqueue failed'
+        }
+      }
+
+      let claimAfterEnqueue
+
+      try {
+        claimAfterEnqueue = await prisma.claim.update({
+          where: { id: createdClaim.id },
+          data: { status: ClaimStatus.AwaitingVinData },
+          select: {
+            id: true,
+            claimNumber: true,
+            status: true
+          }
+        })
+
+        logClaimPersistence('claim status updated after enqueue', {
+          claimId: claimAfterEnqueue.id,
+          claimNumber: claimAfterEnqueue.claimNumber,
+          status: claimAfterEnqueue.status
+        })
+      } catch (error) {
+        logClaimPersistenceError('claim status update failed after enqueue', {
+          claimId: createdClaim.id,
+          claimNumber: createdClaim.claimNumber,
+          dedupeKey,
+          error
+        })
+
+        return {
+          ok: false,
+          error: 'claim_status_update_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Claim created and VIN lookup enqueued, but status update failed'
+        }
+      }
+
+      const enqueueAuditResult = await logVinLookupEnqueuedAudit({
+        claimId: claimAfterEnqueue.id,
+        claimNumber: claimAfterEnqueue.claimNumber,
+        queueName: enqueueResult.queueName,
+        jobName: enqueueResult.jobName,
+        jobId: enqueueResult.jobId,
+        source: input.source,
+        vin: input.vin
+      })
+
+      if (!enqueueAuditResult.ok) {
+        logClaimPersistenceError('failed to write vin_lookup_enqueued audit log', {
+          claimId: claimAfterEnqueue.id,
+          claimNumber: claimAfterEnqueue.claimNumber,
+          queueName: enqueueResult.queueName,
+          jobName: enqueueResult.jobName,
+          jobId: enqueueResult.jobId,
+          error: enqueueAuditResult.error
+        })
+      } else {
+        logClaimPersistence('audit log written', {
+          action: 'vin_lookup_enqueued',
+          claimId: claimAfterEnqueue.id,
+          claimNumber: claimAfterEnqueue.claimNumber,
+          auditLogId: enqueueAuditResult.auditLogId
+        })
+      }
+
       return {
         ok: true,
         duplicate: false,
         dedupeKey,
-        claim: createdClaim
+        enqueued: {
+          queueName: enqueueResult.queueName,
+          jobName: enqueueResult.jobName,
+          jobId: enqueueResult.jobId
+        },
+        claim: claimAfterEnqueue
       }
     } catch (error) {
       if (isUniqueViolationOnField(error, 'dedupeKey')) {
