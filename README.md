@@ -111,7 +111,7 @@ Project purpose and scope
 	- `/admin/claims` — admin placeholder for claims intake/review
 - Ticket 2 adds database foundation only (Prisma schema, migration, health check).
 - Ticket 3 adds Sprint 1 intake domain contracts:
-	- `ClaimStatus` enum (`Submitted`)
+	- `ClaimStatus` enum (`Submitted`, `AwaitingVinData`, `ReadyForAI`, `ProviderFailed`, `ProcessingError`)
 	- intake payload and attachment metadata TypeScript types
 	- audit action type definitions
 	- Zod schemas + parse helper for normalized intake payload validation
@@ -337,6 +337,12 @@ Current validation assumptions (important)
 - Based on current normalized intake schema, `vin` and contact fields are optional.
 - For current behavior, `missing-vin.json` and `missing-contact.json` are expected to be `created` (HTTP `200`) unless intake validation rules are tightened in a future ticket.
 - The replay runner reports mismatches directly; it does not mask unexpected outcomes.
+
+Sprint 2 status lifecycle note
+
+- Async lifecycle statuses are now defined on `ClaimStatus`: `Submitted`, `AwaitingVinData`, `ReadyForAI`, `ProviderFailed`, `ProcessingError`.
+- Allowed transitions are documented in code comments near the enum and are not yet enforced in runtime logic.
+- This ticket does not add queue, worker, or provider integration logic.
 
 Files & structure
 
