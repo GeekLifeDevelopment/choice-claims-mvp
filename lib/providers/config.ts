@@ -8,6 +8,15 @@ export type ProviderCredentialConfig = {
 export type ProviderConfigStatus = {
   carfaxConfigured: boolean
   autoCheckConfigured: boolean
+  experianOAuthConfigured: boolean
+}
+
+export type ExperianOAuthConfig = {
+  baseUrl: string | null
+  username: string | null
+  password: string | null
+  clientId: string | null
+  clientSecret: string | null
 }
 
 function readOptionalEnv(name: string): string | null {
@@ -47,6 +56,16 @@ export function getProviderTimeoutMs(): number {
   return parseProviderTimeoutMs(readOptionalEnv('VIN_PROVIDER_TIMEOUT_MS'))
 }
 
+export function getExperianOAuthConfig(): ExperianOAuthConfig {
+  return {
+    baseUrl: readOptionalEnv('EXPERIAN_BASE_URL'),
+    username: readOptionalEnv('EXPERIAN_USERNAME'),
+    password: readOptionalEnv('EXPERIAN_PASSWORD'),
+    clientId: readOptionalEnv('EXPERIAN_CLIENT_ID'),
+    clientSecret: readOptionalEnv('EXPERIAN_CLIENT_SECRET')
+  }
+}
+
 export function hasCarfaxProviderConfig(): boolean {
   const config = getCarfaxConfig()
   return Boolean(config.apiKey && config.apiUrl)
@@ -57,10 +76,23 @@ export function hasAutoCheckProviderConfig(): boolean {
   return Boolean(config.apiKey && config.apiUrl)
 }
 
+export function hasExperianOAuthConfig(): boolean {
+  const config = getExperianOAuthConfig()
+
+  return Boolean(
+    config.baseUrl &&
+      config.username &&
+      config.password &&
+      config.clientId &&
+      config.clientSecret
+  )
+}
+
 // Safe for logs: contains only booleans, never secret values.
 export function getProviderConfigStatus(): ProviderConfigStatus {
   return {
     carfaxConfigured: hasCarfaxProviderConfig(),
-    autoCheckConfigured: hasAutoCheckProviderConfig()
+    autoCheckConfigured: hasAutoCheckProviderConfig(),
+    experianOAuthConfigured: hasExperianOAuthConfig()
   }
 }
