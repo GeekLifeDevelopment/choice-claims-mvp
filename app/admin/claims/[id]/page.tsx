@@ -58,9 +58,49 @@ function getOptionalNumber(value: unknown): number | null {
 
 const ASYNC_AUDIT_ACTIONS = new Set([
   'vin_lookup_enqueued',
+  'vin_lookup_requeued',
   'vin_data_fetched',
   'vin_data_fetch_failed'
 ])
+
+function getRetryMessage(retryResult?: string): { tone: 'success' | 'error'; text: string } | null {
+  if (retryResult === 'success') {
+    return {
+      tone: 'success',
+      text: 'VIN lookup retry requested. Claim is back in AwaitingVinData and was requeued.'
+    }
+  }
+
+  if (retryResult === 'not_retryable') {
+    return {
+      tone: 'error',
+      text: 'Retry was blocked because this claim is not in a retryable failed status.'
+    }
+  }
+
+  if (retryResult === 'status_changed') {
+    return {
+      tone: 'error',
+      text: 'Retry was blocked because claim status changed during the request.'
+    }
+  }
+
+  if (retryResult === 'enqueue_failed') {
+    return {
+      tone: 'error',
+      text: 'Retry failed because requeue could not be completed. The claim remains in a failed state.'
+    }
+  }
+
+  if (retryResult === 'claim_not_found') {
+    return {
+      tone: 'error',
+      text: 'Retry failed because the claim could not be found.'
+    }
+  }
+
+  return null
+}
 
 function getStatusBadgeClassName(status: string): string {
   const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
@@ -82,10 +122,12 @@ function getStatusBadgeClassName(status: string): string {
 
 type PageProps = {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ retry?: string }>
 }
 
-export default async function AdminClaimDetailPage({ params }: PageProps) {
+export default async function AdminClaimDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
+  const resolvedSearchParams = await searchParams
 
   const claim = await prisma.claim.findUnique({
     where: { id },
@@ -104,6 +146,7 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
       vinLookupAttemptCount: true,
       vinLookupLastError: true,
       vinLookupLastFailedAt: true,
+      vinLookupRetryRequestedAt: true,
       vinLookupLastJobId: true,
       vinLookupLastJobName: true,
       vinLookupLastQueueName: true,
@@ -144,6 +187,9 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
   const vinDataMake = getOptionalString(vinDataResult.make)
   const vinDataModel = getOptionalString(vinDataResult.model)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
+  const isRetryable =
+    claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError
+  const retryMessage = getRetryMessage(resolvedSearchParams.retry)
 
   return (
     <section className="card space-y-4">
@@ -154,8 +200,39 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
         </Link>
       </div>
 
+      {retryMessage ? (
+        <div
+          className={
+            retryMessage.tone === 'success'
+              ? 'rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+              : 'rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800'
+          }
+        >
+          {retryMessage.text}
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Claim Info</h2>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Manual Retry</h2>
+        {isRetryable ? (
+          <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
+            <input type="hidden" name="returnTo" value={`/admin/claims/${claim.id}`} />
+            <button
+              type="submit"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
+            >
+              Retry VIN lookup
+            </button>
+          </form>
+        ) : (
+          <p className="text-sm text-slate-600">
+            Manual retry is available only when status is ProviderFailed or ProcessingError.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
@@ -242,6 +319,10 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
           <p>
             <span className="font-medium text-slate-900">Last Failed At:</span>{' '}
             {claim.vinLookupLastFailedAt ? formatDate(claim.vinLookupLastFailedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Retry Requested At:</span>{' '}
+            {claim.vinLookupRetryRequestedAt ? formatDate(claim.vinLookupRetryRequestedAt) : '—'}
           </p>
           <p>
             <span className="font-medium text-slate-900">Last Error:</span>{' '}

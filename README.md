@@ -596,6 +596,16 @@ Sprint 2 admin async visibility (Ticket 9)
 	- failure rows highlighted for quick triage
 - Developer raw JSON debug section remains available on claim detail pages.
 
+Sprint 2 manual failed-claim retry (Ticket 10)
+
+- Admin claim detail now exposes a manual `Retry VIN lookup` action for failed async states.
+- Retry is allowed only for `ProviderFailed` and `ProcessingError` claims.
+- Retry flow performs a safe status reset to `AwaitingVinData`, then requeues `lookup-vin-data`.
+- Claim now stores `vinLookupRetryRequestedAt` to show when the latest manual retry was triggered.
+- Successful manual retries write audit action `vin_lookup_requeued` with queue/job metadata.
+- Duplicate concurrent retries are blocked by status guards and compare-and-swap update behavior.
+- Retry is internal dev/admin only for now (no public UI/auth system yet).
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
