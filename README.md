@@ -460,6 +460,44 @@ Ticket 5 scope boundaries
 - No retry system yet.
 - No job result persistence yet.
 
+Sprint 2 provider abstraction (Ticket 6)
+
+- A VIN provider abstraction now exists so worker logic is separated from provider implementations.
+- Shared normalized provider result type now lives in:
+	- `lib/providers/types.ts`
+- Provider interface contract now lives in:
+	- `lib/providers/provider-interface.ts`
+- Stub provider implementations now live in:
+	- `lib/providers/carfax-provider-stub.ts`
+	- `lib/providers/autocheck-provider-stub.ts`
+- Provider resolver/factory now lives in:
+	- `lib/providers/get-vin-provider.ts`
+
+Worker integration (Ticket 6)
+
+- Worker now resolves a provider and calls `lookupVinData(vin)` for `lookup-vin-data` jobs.
+- Worker logs include:
+	- job received
+	- provider selected
+	- provider result
+	- job completed
+- If VIN is missing/null in payload, worker logs and safely skips provider call.
+
+Provider selection
+
+- Optional env selector is supported:
+	- `VIN_DATA_PROVIDER=carfax|autocheck`
+- Default provider is `carfax` when selector is unset or invalid.
+
+Ticket 6 scope boundaries
+
+- No real CARFAX API calls.
+- No real AutoCheck API calls.
+- No persistence of provider results yet.
+- No claim status updates from provider results yet.
+- No retry logic yet.
+- No failure-state UI yet.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

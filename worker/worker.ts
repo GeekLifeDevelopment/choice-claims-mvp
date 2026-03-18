@@ -1,7 +1,10 @@
 import { config as loadEnv } from 'dotenv'
 import { Worker, type Job } from 'bullmq'
 import { getQueueRuntimeConfig } from '../lib/queue/config'
+import { JOB_NAMES } from '../lib/queue/job-names'
+import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
+import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 
 // Standalone worker does not get Next.js env loading, so load local env explicitly.
 loadEnv({ path: '.env.local' })
@@ -42,6 +45,41 @@ async function run() {
         jobId: job.id,
         payload: job.data
       })
+
+      if (job.name === JOB_NAMES.LOOKUP_VIN_DATA) {
+        const payload = job.data as VinLookupJobPayload
+
+        if (!payload.vin) {
+          log('vin missing; skipping provider lookup', {
+            jobName: job.name,
+            jobId: job.id,
+            claimId: payload.claimId,
+            claimNumber: payload.claimNumber
+          })
+        } else {
+          const provider = getVinDataProvider()
+
+          log('provider selected', {
+            provider: provider.name,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: payload.claimId,
+            claimNumber: payload.claimNumber,
+            vin: payload.vin
+          })
+
+          const providerResult = await provider.lookupVinData(payload.vin)
+
+          log('provider result', {
+            provider: provider.name,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: payload.claimId,
+            claimNumber: payload.claimNumber,
+            result: providerResult
+          })
+        }
+      }
 
       return {
         ok: true
