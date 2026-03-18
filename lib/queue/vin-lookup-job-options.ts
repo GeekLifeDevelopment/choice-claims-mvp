@@ -1,0 +1,2 @@
+export const VIN_LOOKUP_MAX_ATTEMPTS = 3
+export const VIN_LOOKUP_BACKOFF_MS = 3000

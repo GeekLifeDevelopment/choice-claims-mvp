@@ -56,6 +56,8 @@ type LogVinDataFetchedInput = CommonAuditInput & {
   queueName: string
   jobName: string
   jobId?: string
+  attemptsMade?: number
+  attemptsAllowed?: number
   source?: string
   vin?: string
   provider: string
@@ -70,10 +72,13 @@ type LogVinDataFetchFailedInput = CommonAuditInput & {
   queueName: string
   jobName: string
   jobId?: string
+  attemptsMade?: number
+  attemptsAllowed?: number
   source?: string
   vin?: string | null
   provider?: string
   reason: string
+  errorMessage?: string
 }
 
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
@@ -169,6 +174,8 @@ export async function logVinDataFetchedAudit(input: LogVinDataFetchedInput) {
       queueName: input.queueName,
       jobName: input.jobName,
       jobId: input.jobId,
+      attemptsMade: input.attemptsMade,
+      attemptsAllowed: input.attemptsAllowed,
       source: input.source,
       vin: input.vin,
       provider: input.provider,
@@ -190,10 +197,13 @@ export async function logVinDataFetchFailedAudit(input: LogVinDataFetchFailedInp
       queueName: input.queueName,
       jobName: input.jobName,
       jobId: input.jobId,
+      attemptsMade: input.attemptsMade,
+      attemptsAllowed: input.attemptsAllowed,
       source: input.source,
       vin: input.vin,
       provider: input.provider,
-      reason: input.reason
+      reason: input.reason,
+      errorMessage: input.errorMessage
     }
   })
 }

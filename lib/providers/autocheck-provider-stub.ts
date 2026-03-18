@@ -5,6 +5,10 @@ export class AutoCheckProviderStub implements VinDataProvider {
   readonly name = 'autocheck' as const
 
   async lookupVinData(vin: string): Promise<VinDataResult> {
+    if (vin.toUpperCase().includes('FAIL')) {
+      throw new Error('Mocked VIN provider failure (autocheck)')
+    }
+
     return {
       vin,
       year: 2020,

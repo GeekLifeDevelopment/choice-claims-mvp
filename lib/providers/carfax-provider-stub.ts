@@ -5,6 +5,10 @@ export class CarfaxProviderStub implements VinDataProvider {
   readonly name = 'carfax' as const
 
   async lookupVinData(vin: string): Promise<VinDataResult> {
+    if (vin.toUpperCase().includes('FAIL')) {
+      throw new Error('Mocked VIN provider failure (carfax)')
+    }
+
     return {
       vin,
       year: 2019,

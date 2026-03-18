@@ -23,6 +23,12 @@ model Claim {
   vinDataResult        Json?
   vinDataProvider      String?
   vinDataFetchedAt     DateTime?
+  vinLookupAttemptCount Int      @default(0)
+  vinLookupLastError    String?
+  vinLookupLastFailedAt DateTime?
+  vinLookupLastJobId    String?
+  vinLookupLastJobName  String?
+  vinLookupLastQueueName String?
   submittedAt          DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
