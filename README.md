@@ -596,6 +596,24 @@ Sprint 2 admin async visibility (Ticket 9)
 	- failure rows highlighted for quick triage
 - Developer raw JSON debug section remains available on claim detail pages.
 
+Sprint 3 provider config + secret handling foundation (Ticket 1)
+
+- Added provider env vars for future live integrations:
+	- `CARFAX_API_KEY`
+	- `CARFAX_API_URL`
+	- `AUTOCHECK_API_KEY`
+	- `AUTOCHECK_API_URL`
+	- optional `VIN_PROVIDER_TIMEOUT_MS` (default `10000`)
+- Added typed provider config helpers in:
+	- `lib/providers/config.ts`
+- Helpers are safe by default:
+	- support missing env vars without crashing
+	- expose `hasCarfaxProviderConfig()` / `hasAutoCheckProviderConfig()` for readiness checks
+	- expose safe boolean config status without logging secret values
+- Stub providers continue to work without provider credentials.
+- Real CARFAX/AutoCheck API integrations are not implemented in this ticket.
+- Provider secrets must be set in local `.env.local` / Netlify env vars and must not be committed.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
