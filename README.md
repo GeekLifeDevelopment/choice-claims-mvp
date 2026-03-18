@@ -384,6 +384,27 @@ Scope boundaries for Ticket 2
 - No provider integrations yet.
 - No retry or transition enforcement logic yet.
 
+Sprint 2 queue contracts (Ticket 3)
+
+- Queue names are now standardized in one place:
+	- `lib/queue/queue-names.ts`
+- Job names are now standardized in one place:
+	- `lib/queue/job-names.ts`
+- Typed queue job payload contracts now live in:
+	- `lib/queue/job-payloads.ts`
+- Queue/job contract bindings and helpers now live in:
+	- `lib/queue/contracts.ts`
+- Optional VIN lookup payload builder now lives in:
+	- `lib/queue/build-vin-lookup-job.ts`
+- `getQueue` now accepts typed queue names (`QueueName`) for safer queue creation.
+
+Ticket 3 scope boundaries
+
+- No enqueueing from claim creation yet.
+- No worker processing or handlers yet.
+- No provider integrations yet.
+- No retry logic yet.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
