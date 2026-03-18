@@ -1,5 +1,15 @@
 export enum ClaimStatus {
-  Submitted = 'Submitted'
+  // Allowed lifecycle transitions for async processing (documented only for Sprint 2):
+  // Submitted -> AwaitingVinData
+  // AwaitingVinData -> ReadyForAI
+  // AwaitingVinData -> ProviderFailed
+  // ProviderFailed -> AwaitingVinData
+  // ProcessingError -> AwaitingVinData
+  Submitted = 'Submitted',
+  AwaitingVinData = 'AwaitingVinData',
+  ReadyForAI = 'ReadyForAI',
+  ProviderFailed = 'ProviderFailed',
+  ProcessingError = 'ProcessingError'
 }
 
 export const NORMALIZED_INTAKE_FIELDS = {
