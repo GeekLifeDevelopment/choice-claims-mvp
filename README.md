@@ -414,6 +414,13 @@ Sprint 2 async enqueue integration (Ticket 4)
 - On successful enqueue, claim status is updated from `Submitted` to `AwaitingVinData`.
 - Successful enqueue writes an audit log action: `vin_lookup_enqueued`.
 - Duplicate submissions do not enqueue additional jobs.
+- Near-immediate Cognito webhook retries are classified as `duplicate_replay_ignored` (instead of `duplicate_blocked`) to reduce false alarm noise while preserving idempotency.
+- Duplicate replay audit metadata now includes Cognito identity fields for support triage: `cognitoPayloadId` and `cognitoEntryNumber`.
+- Cognito duplicate detection now prioritizes submission identity in this order:
+	- `rawSubmissionPayload.Entry.Number`
+	- `rawSubmissionPayload.Id`
+	- `rawSubmissionPayload.Entry.DateSubmitted`
+- Canonical normalized-field hashing is used only when Cognito submission identifiers are missing.
 
 Ticket 4 scope boundaries
 
@@ -421,6 +428,37 @@ Ticket 4 scope boundaries
 - No provider integration yet.
 - No retry system yet.
 - No status transition enforcement engine yet.
+
+Sprint 2 worker process (Ticket 5)
+
+- A BullMQ worker entry now exists at:
+	- `worker/worker.ts`
+- The worker runs separately from the web server and listens to:
+	- queue: `vin-data`
+- The worker currently logs lifecycle/job events only:
+	- worker starting
+	- connected to Redis
+	- job received
+	- job completed
+	- job failed
+
+Start the worker
+
+```bash
+npm run worker
+```
+
+Worker requirements
+
+- `REDIS_URL` must be set.
+- Optional `QUEUE_PREFIX` is respected.
+
+Ticket 5 scope boundaries
+
+- No provider logic yet.
+- No CARFAX/AutoCheck calls yet.
+- No retry system yet.
+- No job result persistence yet.
 
 Files & structure
 
