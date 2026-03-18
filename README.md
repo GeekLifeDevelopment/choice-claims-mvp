@@ -596,6 +596,29 @@ Sprint 2 admin async visibility (Ticket 9)
 	- failure rows highlighted for quick triage
 - Developer raw JSON debug section remains available on claim detail pages.
 
+Sprint 3 OAuth-ready provider abstraction (Ticket 2)
+
+- Added OAuth provider env scaffolding for future Experian/AutoCheck integrations:
+	- `EXPERIAN_BASE_URL`
+	- `EXPERIAN_USERNAME`
+	- `EXPERIAN_PASSWORD`
+	- `EXPERIAN_CLIENT_ID`
+	- `EXPERIAN_CLIENT_SECRET`
+- Added provider OAuth helper modules:
+	- `lib/providers/oauth-token.ts`
+	- `lib/providers/authenticated-fetch.ts`
+- OAuth token helper supports:
+	- token fetch from OAuth endpoint
+	- in-memory token caching only
+	- expiry checks and safe refresh behavior
+- Added provider config helpers for Experian OAuth readiness in:
+	- `lib/providers/config.ts`
+- Sandbox base URL example for setup:
+	- `https://sandbox-us-api.experian.com`
+- Real provider API calls are still not implemented in this ticket.
+- Stub providers and existing worker/job flow remain unchanged.
+- Provider secrets must be set in `.env.local`/Netlify env vars and must never be committed.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
