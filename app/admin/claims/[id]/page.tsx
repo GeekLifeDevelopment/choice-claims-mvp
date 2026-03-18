@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { ClaimStatus } from '../../../../lib/domain/claims'
 import { prisma } from '../../../../lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -53,6 +54,30 @@ function getOptionalString(value: unknown): string | null {
 
 function getOptionalNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null
+}
+
+const ASYNC_AUDIT_ACTIONS = new Set([
+  'vin_lookup_enqueued',
+  'vin_data_fetched',
+  'vin_data_fetch_failed'
+])
+
+function getStatusBadgeClassName(status: string): string {
+  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+
+  if (status === ClaimStatus.ReadyForAI) {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (status === ClaimStatus.AwaitingVinData) {
+    return `${base} border-amber-300 bg-amber-50 text-amber-800`
+  }
+
+  if (status === ClaimStatus.ProviderFailed || status === ClaimStatus.ProcessingError) {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  return `${base} border-slate-300 bg-slate-50 text-slate-700`
 }
 
 type PageProps = {
@@ -118,6 +143,7 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
   const vinDataYear = getOptionalNumber(vinDataResult.year)
   const vinDataMake = getOptionalString(vinDataResult.make)
   const vinDataModel = getOptionalString(vinDataResult.model)
+  const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
 
   return (
     <section className="card space-y-4">
@@ -137,7 +163,8 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
           <span className="font-medium text-slate-900">Claim #:</span> {claim.claimNumber}
         </p>
         <p>
-          <span className="font-medium text-slate-900">Status:</span> {claim.status}
+          <span className="font-medium text-slate-900">Status:</span>{' '}
+          <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
         </p>
         <p>
           <span className="font-medium text-slate-900">Source:</span> {claim.source || '—'}
@@ -181,35 +208,33 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">VIN Provider Data</h2>
-        {!claim.vinDataResult ? (
-          <p className="text-slate-600">No VIN provider result stored yet.</p>
-        ) : (
-          <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-            <p>
-              <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
-            </p>
-            <p>
-              <span className="font-medium text-slate-900">Fetched At:</span>{' '}
-              {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
-            </p>
-            <p>
-              <span className="font-medium text-slate-900">Year:</span>{' '}
-              {vinDataYear !== null ? String(vinDataYear) : '—'}
-            </p>
-            <p>
-              <span className="font-medium text-slate-900">Make:</span> {vinDataMake ?? '—'}
-            </p>
-            <p>
-              <span className="font-medium text-slate-900">Model:</span> {vinDataModel ?? '—'}
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">VIN Lookup Processing</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Async VIN Processing</h2>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Async Status:</span>{' '}
+            <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
+            {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Result Summary:</span>{' '}
+            {vinDataYear !== null || vinDataMake || vinDataModel
+              ? `${vinDataYear !== null ? `${vinDataYear} ` : ''}${vinDataMake ?? ''} ${vinDataModel ?? ''}`.trim()
+              : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Year:</span>{' '}
+            {vinDataYear !== null ? String(vinDataYear) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Make / Model:</span>{' '}
+            {vinDataMake || vinDataModel ? `${vinDataMake ?? '—'} / ${vinDataModel ?? '—'}` : '—'}
+          </p>
           <p>
             <span className="font-medium text-slate-900">Attempt Count:</span>{' '}
             {String(claim.vinLookupAttemptCount)}
@@ -220,7 +245,9 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
           </p>
           <p>
             <span className="font-medium text-slate-900">Last Error:</span>{' '}
-            {claim.vinLookupLastError || '—'}
+            <span className={claim.vinLookupLastError ? 'font-medium text-red-700' : ''}>
+              {claim.vinLookupLastError || '—'}
+            </span>
           </p>
           <p>
             <span className="font-medium text-slate-900">Last Queue:</span>{' '}
@@ -235,6 +262,57 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
             {claim.vinLookupLastJobId || '—'}
           </p>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Latest Async Audit Events</h2>
+        {asyncAuditLogs.length === 0 ? (
+          <p className="text-slate-600">No async-specific audit events yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-slate-600">
+                  <th className="py-2 pr-4 font-medium">Created</th>
+                  <th className="py-2 pr-4 font-medium">Action</th>
+                  <th className="py-2 pr-4 font-medium">Attempts</th>
+                  <th className="py-2 pr-4 font-medium">Provider</th>
+                  <th className="py-2 pr-4 font-medium">Error / Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {asyncAuditLogs.map((auditLog) => {
+                  const metadata = asRecord(auditLog.metadata)
+                  const attemptsMade = getOptionalNumber(metadata.attemptsMade)
+                  const attemptsAllowed = getOptionalNumber(metadata.attemptsAllowed)
+                  const provider = getOptionalString(metadata.provider)
+                  const errorMessage = getOptionalString(metadata.errorMessage)
+                  const reason = getOptionalString(metadata.reason)
+
+                  return (
+                    <tr key={auditLog.id} className="border-b last:border-0 align-top">
+                      <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
+                      <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {attemptsMade !== null && attemptsAllowed !== null
+                          ? `${attemptsMade}/${attemptsAllowed}`
+                          : '—'}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">{provider || '—'}</td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {errorMessage ? (
+                          <span className="font-medium text-red-700">{errorMessage}</span>
+                        ) : (
+                          reason || '—'
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {claim.attachments.length === 0 ? (

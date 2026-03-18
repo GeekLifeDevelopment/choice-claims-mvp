@@ -574,6 +574,28 @@ Ticket 8 scope boundaries
 - No queue dashboards or operator tooling yet.
 - No advanced fallback/orchestration logic yet.
 
+Sprint 2 admin async visibility (Ticket 9)
+
+- Admin claim detail page now highlights async VIN processing state in a readable section.
+- Detail page surfaces key async metadata directly:
+	- status
+	- provider
+	- fetched time
+	- year/make/model summary
+	- attempt count
+	- last error and failure time
+	- last queue/job metadata
+- Detail page now includes a focused "Latest Async Audit Events" view for:
+	- `vin_lookup_enqueued`
+	- `vin_data_fetched`
+	- `vin_data_fetch_failed`
+- Admin claims list now makes async outcomes easier to scan:
+	- clear status badges for `AwaitingVinData`, `ReadyForAI`, `ProviderFailed`, `ProcessingError`
+	- compact provider/attempt/error visibility
+	- simple status filter for async statuses
+	- failure rows highlighted for quick triage
+- Developer raw JSON debug section remains available on claim detail pages.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
