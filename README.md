@@ -498,6 +498,45 @@ Ticket 6 scope boundaries
 - No retry logic yet.
 - No failure-state UI yet.
 
+Sprint 2 mocked VIN job handler (Ticket 7)
+
+- Worker now handles `lookup-vin-data` jobs end-to-end with mocked providers.
+- Worker flow now:
+	- loads claim by `claimId`
+	- resolves provider via abstraction
+	- calls provider stub
+	- stores normalized VIN data result on claim
+	- updates claim status on success: `AwaitingVinData -> ReadyForAI`
+	- writes audit events for success/failure
+
+Claim VIN data persistence fields (Ticket 7)
+
+- Claim now stores mocked VIN provider results in:
+	- `vinDataResult` (JSON)
+	- `vinDataProvider` (string)
+	- `vinDataFetchedAt` (datetime)
+
+Missing VIN behavior (Ticket 7)
+
+- If VIN is missing/null/empty for a job:
+	- provider call is skipped
+	- claim status is set to `ProviderFailed`
+	- audit event `vin_data_fetch_failed` is written with reason `vin_missing`
+
+Audit events added (Ticket 7)
+
+- `vin_data_fetched`
+- `vin_data_fetch_failed`
+
+Ticket 7 scope boundaries
+
+- No real CARFAX API calls.
+- No real AutoCheck API calls.
+- No retry logic yet.
+- No advanced failure recovery yet.
+- No manual retry UI yet.
+- No full transition enforcement engine yet.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

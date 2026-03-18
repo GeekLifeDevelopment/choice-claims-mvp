@@ -20,6 +20,9 @@ model Claim {
   claimantEmail        String?
   claimantPhone        String?
   rawSubmissionPayload Json
+  vinDataResult        Json?
+  vinDataProvider      String?
+  vinDataFetchedAt     DateTime?
   submittedAt          DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

@@ -50,6 +50,32 @@ type LogVinLookupEnqueuedInput = CommonAuditInput & {
   vin?: string
 }
 
+type LogVinDataFetchedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  queueName: string
+  jobName: string
+  jobId?: string
+  source?: string
+  vin?: string
+  provider: string
+  year?: number | null
+  make?: string | null
+  model?: string | null
+}
+
+type LogVinDataFetchFailedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  queueName: string
+  jobName: string
+  jobId?: string
+  source?: string
+  vin?: string | null
+  provider?: string
+  reason: string
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -128,6 +154,46 @@ export async function logVinLookupEnqueuedAudit(input: LogVinLookupEnqueuedInput
       jobId: input.jobId,
       source: input.source,
       vin: input.vin
+    }
+  })
+}
+
+export async function logVinDataFetchedAudit(input: LogVinDataFetchedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'vin_data_fetched',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      queueName: input.queueName,
+      jobName: input.jobName,
+      jobId: input.jobId,
+      source: input.source,
+      vin: input.vin,
+      provider: input.provider,
+      year: input.year,
+      make: input.make,
+      model: input.model
+    }
+  })
+}
+
+export async function logVinDataFetchFailedAudit(input: LogVinDataFetchFailedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'vin_data_fetch_failed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      queueName: input.queueName,
+      jobName: input.jobName,
+      jobId: input.jobId,
+      source: input.source,
+      vin: input.vin,
+      provider: input.provider,
+      reason: input.reason
     }
   })
 }

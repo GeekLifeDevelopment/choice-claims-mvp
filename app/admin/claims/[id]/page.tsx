@@ -41,6 +41,20 @@ function formatDebugJson(value: unknown): string {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function getOptionalString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function getOptionalNumber(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
 type PageProps = {
   params: Promise<{ id: string }>
 }
@@ -59,6 +73,9 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
       claimantEmail: true,
       claimantPhone: true,
       vin: true,
+      vinDataProvider: true,
+      vinDataFetchedAt: true,
+      vinDataResult: true,
       rawSubmissionPayload: true,
       submittedAt: true,
       attachments: {
@@ -90,6 +107,11 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
   if (!claim) {
     notFound()
   }
+
+  const vinDataResult = asRecord(claim.vinDataResult)
+  const vinDataYear = getOptionalNumber(vinDataResult.year)
+  const vinDataMake = getOptionalString(vinDataResult.make)
+  const vinDataModel = getOptionalString(vinDataResult.model)
 
   return (
     <section className="card space-y-4">
@@ -148,6 +170,33 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
             <pre className="max-h-[28rem] overflow-auto text-xs leading-5 text-slate-800">
               {formatDebugJson(claim.rawSubmissionPayload)}
             </pre>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">VIN Provider Data</h2>
+        {!claim.vinDataResult ? (
+          <p className="text-slate-600">No VIN provider result stored yet.</p>
+        ) : (
+          <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+            <p>
+              <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Fetched At:</span>{' '}
+              {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Year:</span>{' '}
+              {vinDataYear !== null ? String(vinDataYear) : '—'}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Make:</span> {vinDataMake ?? '—'}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Model:</span> {vinDataModel ?? '—'}
+            </p>
           </div>
         )}
       </div>
