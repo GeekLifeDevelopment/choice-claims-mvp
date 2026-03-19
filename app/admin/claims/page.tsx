@@ -41,6 +41,20 @@ function truncate(value: string | null | undefined, maxLength = 48): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function getOptionalString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function getOptionalNumber(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
 type PageProps = {
   searchParams: Promise<{ status?: string }>
 }
@@ -64,6 +78,10 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
       claimantName: true,
       vin: true,
       vinDataProvider: true,
+      vinDataFetchedAt: true,
+      vinDataResult: true,
+      vinDataProviderResultCode: true,
+      vinDataProviderResultMessage: true,
       vinLookupAttemptCount: true,
       vinLookupLastError: true,
       submittedAt: true,
@@ -123,6 +141,8 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
                 <th className="py-2 pr-4 font-medium">Claim #</th>
                 <th className="py-2 pr-4 font-medium">Async Status</th>
                 <th className="py-2 pr-4 font-medium">Provider</th>
+                <th className="py-2 pr-4 font-medium">Fetched</th>
+                <th className="py-2 pr-4 font-medium">Provider Result</th>
                 <th className="py-2 pr-4 font-medium">Run Attempts</th>
                 <th className="py-2 pr-4 font-medium">Last Error</th>
                 <th className="py-2 pr-4 font-medium">Claimant</th>
@@ -133,47 +153,76 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
               </tr>
             </thead>
             <tbody>
-              {claims.map((claim) => (
-                <tr
-                  key={claim.id}
-                  className={
-                    claim.status === ClaimStatus.ProviderFailed ||
-                    claim.status === ClaimStatus.ProcessingError
-                      ? 'border-b bg-red-50/40 last:border-0'
-                      : 'border-b last:border-0'
-                  }
-                >
-                  <td className="py-2 pr-4 font-medium text-slate-900">
-                    <Link href={`/admin/claims/${claim.id}`} className="underline underline-offset-2">
-                      {claim.claimNumber}
-                    </Link>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
-                  </td>
-                  <td className="py-2 pr-4">{claim.vinDataProvider || '—'}</td>
-                  <td className="py-2 pr-4">{String(claim.vinLookupAttemptCount ?? 0)}</td>
-                  <td className="py-2 pr-4">
-                    <span
-                      className={
-                        claim.vinLookupLastError
-                          ? 'font-medium text-red-700'
-                          : 'text-slate-500'
-                      }
-                      title={claim.vinLookupLastError || undefined}
-                    >
-                      {truncate(claim.vinLookupLastError)}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">{claim.claimantName || '—'}</td>
-                  <td className="py-2 pr-4">{claim.vin || '—'}</td>
-                  <td className="py-2 pr-4">{claim.attachments.length}</td>
-                  <td className="py-2 pr-4">
-                    {claim.attachments.some((attachment) => Boolean(attachment.sourceUrl)) ? 'Yes' : 'No'}
-                  </td>
-                  <td className="py-2 pr-4">{formatDate(claim.submittedAt)}</td>
-                </tr>
-              ))}
+              {claims.map((claim) => {
+                const normalizedResult = asRecord(claim.vinDataResult)
+                const year = getOptionalNumber(normalizedResult.year)
+                const make = getOptionalString(normalizedResult.make)
+                const model = getOptionalString(normalizedResult.model)
+                const vehicleSummary =
+                  year !== null || make || model
+                    ? `${year !== null ? `${year} ` : ''}${make ?? ''} ${model ?? ''}`.trim()
+                    : null
+
+                const providerResultLabel =
+                  vehicleSummary ??
+                  claim.vinDataProviderResultMessage ??
+                  (claim.vinDataProviderResultCode !== null
+                    ? `Code ${claim.vinDataProviderResultCode}`
+                    : claim.status === ClaimStatus.ProviderFailed ||
+                        claim.status === ClaimStatus.ProcessingError
+                      ? 'Failed'
+                      : claim.vinDataFetchedAt
+                        ? 'Fetched'
+                        : 'Pending')
+
+                return (
+                  <tr
+                    key={claim.id}
+                    className={
+                      claim.status === ClaimStatus.ProviderFailed ||
+                      claim.status === ClaimStatus.ProcessingError
+                        ? 'border-b bg-red-50/40 last:border-0'
+                        : 'border-b last:border-0'
+                    }
+                  >
+                    <td className="py-2 pr-4 font-medium text-slate-900">
+                      <Link href={`/admin/claims/${claim.id}`} className="underline underline-offset-2">
+                        {claim.claimNumber}
+                      </Link>
+                    </td>
+                    <td className="py-2 pr-4">
+                      <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
+                    </td>
+                    <td className="py-2 pr-4">{claim.vinDataProvider || '—'}</td>
+                    <td className="py-2 pr-4 text-slate-700">
+                      {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+                    </td>
+                    <td className="py-2 pr-4 text-slate-700" title={providerResultLabel}>
+                      {truncate(providerResultLabel)}
+                    </td>
+                    <td className="py-2 pr-4">{String(claim.vinLookupAttemptCount ?? 0)}</td>
+                    <td className="py-2 pr-4">
+                      <span
+                        className={
+                          claim.vinLookupLastError
+                            ? 'font-medium text-red-700'
+                            : 'text-slate-500'
+                        }
+                        title={claim.vinLookupLastError || undefined}
+                      >
+                        {truncate(claim.vinLookupLastError)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">{claim.claimantName || '—'}</td>
+                    <td className="py-2 pr-4">{claim.vin || '—'}</td>
+                    <td className="py-2 pr-4">{claim.attachments.length}</td>
+                    <td className="py-2 pr-4">
+                      {claim.attachments.some((attachment) => Boolean(attachment.sourceUrl)) ? 'Yes' : 'No'}
+                    </td>
+                    <td className="py-2 pr-4">{formatDate(claim.submittedAt)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
