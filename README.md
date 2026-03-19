@@ -653,6 +653,21 @@ Sprint 3 AutoCheck live VIN Specifications integration (Ticket 4)
 	- no QuickCheck endpoint yet
 	- no worker/queue redesign
 
+Sprint 3 AutoCheck live hardening (Ticket 5)
+
+- AutoCheck live provider now uses structured provider errors with safe reason codes for:
+	- missing config
+	- OAuth request/response failures
+	- gateway/network failures
+	- HTTP status failures
+	- timeouts
+	- no vehicle data
+	- invalid response shape/JSON
+- Timeout handling is enforced for both OAuth token requests and gateway calls via `VIN_PROVIDER_TIMEOUT_MS`.
+- Sandbox no-data and odd response-shape cases are treated as safe `ProviderFailed` outcomes rather than worker crashes.
+- Worker failure handling now records provider error codes safely in logs/audit reasons while keeping existing queue/worker flow unchanged.
+- Known sandbox test VINs remain the expected happy-path verification route for `ReadyForAI`.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

@@ -12,6 +12,7 @@ import { JOB_NAMES } from '../lib/queue/job-names'
 import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
+import { isProviderLookupError } from '../lib/providers/provider-error'
 
 // Standalone worker does not get Next.js env loading, so load local env explicitly.
 loadEnv({ path: '.env.local' })
@@ -301,7 +302,12 @@ async function run() {
           status: ClaimStatus.ReadyForAI
         })
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown VIN lookup processing error'
+        const providerLookupError = isProviderLookupError(error) ? error : null
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : providerLookupError?.message ?? 'Unknown VIN lookup processing error'
+        const providerFailureReason = providerLookupError?.code ?? 'provider_lookup_failed'
         const failureStatus = providerName ? ClaimStatus.ProviderFailed : ClaimStatus.ProcessingError
 
         try {
@@ -326,6 +332,8 @@ async function run() {
             claimNumber: claim.claimNumber,
             status: failureStatus,
             errorMessage,
+            providerErrorCode: providerLookupError?.code,
+            providerErrorStatus: providerLookupError?.status,
             attemptsMade,
             attemptsAllowed
           })
@@ -354,7 +362,7 @@ async function run() {
           source: claim.source ?? payload.source,
           vin,
           provider: providerName,
-          reason: providerName ? 'provider_lookup_failed' : 'processing_error',
+          reason: providerName ? providerFailureReason : 'processing_error',
           errorMessage
         })
 
@@ -381,6 +389,8 @@ async function run() {
           claimId: claim.id,
           claimNumber: claim.claimNumber,
           status: failureStatus,
+          providerErrorCode: providerLookupError?.code,
+          providerErrorStatus: providerLookupError?.status,
           attemptsMade,
           attemptsAllowed,
           errorMessage

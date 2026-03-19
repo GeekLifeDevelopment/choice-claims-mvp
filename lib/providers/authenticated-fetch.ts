@@ -1,4 +1,4 @@
-import { getOAuthToken, type OAuthTokenRequestConfig } from './oauth-token'
+import { getOAuthTokenResult, type OAuthTokenRequestConfig } from './oauth-token'
 
 export type FetchWithOAuthSuccess<T = unknown> = {
   ok: true
@@ -9,7 +9,13 @@ export type FetchWithOAuthSuccess<T = unknown> = {
 export type FetchWithOAuthFailure = {
   ok: false
   status?: number
-  error: 'missing_oauth_config' | 'token_unavailable' | 'request_failed' | 'invalid_json'
+  error:
+    | 'missing_oauth_config'
+    | 'oauth_request_failed'
+    | 'oauth_invalid_response'
+    | 'provider_timeout'
+    | 'request_failed'
+    | 'invalid_json'
   details?: string
 }
 
@@ -20,29 +26,36 @@ export async function fetchWithOAuth<T = unknown>(
   url: string,
   init?: RequestInit
 ): Promise<FetchWithOAuthResult<T>> {
-  const token = await getOAuthToken(config)
+  const tokenResult = await getOAuthTokenResult(config)
 
-  if (!config.tokenUrl || !config.username || !config.password || !config.clientId || !config.clientSecret) {
+  if (!tokenResult.ok) {
     return {
       ok: false,
-      error: 'missing_oauth_config'
-    }
-  }
-
-  if (!token) {
-    return {
-      ok: false,
-      error: 'token_unavailable'
+      status: tokenResult.status,
+      error: tokenResult.code,
+      details: tokenResult.details
     }
   }
 
   const headers = new Headers(init?.headers ?? {})
-  headers.set('Authorization', `Bearer ${token.access_token}`)
+  headers.set('Authorization', `Bearer ${tokenResult.token.access_token}`)
 
-  const response = await fetch(url, {
-    ...init,
-    headers
-  })
+  let response: Response
+
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers
+    })
+  } catch (error) {
+    const isTimeout = error instanceof Error && /aborted|timeout/i.test(error.message)
+
+    return {
+      ok: false,
+      error: isTimeout ? 'provider_timeout' : 'request_failed',
+      details: isTimeout ? 'Provider request timed out' : 'Provider request failed before response'
+    }
+  }
 
   if (!response.ok) {
     const responseText = await response.text().catch(() => '')
