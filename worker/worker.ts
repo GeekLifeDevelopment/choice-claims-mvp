@@ -38,7 +38,7 @@ function logError(message: string, details?: unknown) {
 
 function asOptionalJsonField(
   key: string,
-  value: string | number | null | undefined
+  value: Prisma.InputJsonValue | null | undefined
 ): Record<string, Prisma.InputJsonValue> {
   if (value === null || value === undefined) {
     return {}
@@ -245,7 +245,14 @@ async function run() {
           ...asOptionalJsonField('horsepower', providerResult.horsepower),
           ...asOptionalJsonField('eventCount', providerResult.eventCount),
           ...asOptionalJsonField('providerResultCode', providerResult.providerResultCode),
-          ...asOptionalJsonField('providerResultMessage', providerResult.providerResultMessage)
+          ...asOptionalJsonField('providerResultMessage', providerResult.providerResultMessage),
+          ...asOptionalJsonField('quickCheck', providerResult.quickCheck as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('ownershipHistory', providerResult.ownershipHistory as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('accident', providerResult.accident as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('mileage', providerResult.mileage as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('recall', providerResult.recall as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('titleProblem', providerResult.titleProblem as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('titleBrand', providerResult.titleBrand as Prisma.InputJsonValue | null | undefined)
         }
 
         await prisma.claim.update({

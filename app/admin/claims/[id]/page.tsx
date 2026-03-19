@@ -78,8 +78,36 @@ function getProviderSourceHint(normalized: Record<string, unknown>, raw: unknown
 
 function getProviderEndpointHint(raw: unknown): string | null {
   const rawRecord = asRecord(raw)
+  if (rawRecord.vinspecifications !== undefined) {
+    return 'vinspecifications'
+  }
+
   const hasVinSpecificationsEnvelope = rawRecord.vinSpecifications !== undefined
   return hasVinSpecificationsEnvelope ? 'vinspecifications' : null
+}
+
+function getEndpointAttempts(raw: unknown): string[] {
+  const rawRecord = asRecord(raw)
+  return Object.keys(rawRecord).filter((key) => key !== 'endpointErrors')
+}
+
+function getEndpointErrors(raw: unknown): Array<{ endpoint: string; message: string; status?: number; reason?: string }> {
+  const rawRecord = asRecord(raw)
+  const endpointErrors = asRecord(rawRecord.endpointErrors)
+
+  return Object.entries(endpointErrors)
+    .map(([endpoint, details]) => {
+      const detailRecord = asRecord(details)
+      const message = getOptionalString(detailRecord.message)
+
+      return {
+        endpoint,
+        message: message || 'Endpoint failed',
+        status: getOptionalNumber(detailRecord.status) ?? undefined,
+        reason: getOptionalString(detailRecord.reason) ?? undefined
+      }
+    })
+    .filter((entry) => Boolean(entry.endpoint))
 }
 
 const ASYNC_AUDIT_ACTIONS = new Set([
@@ -214,6 +242,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const vinDataModel = getOptionalString(vinDataResult.model)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
+  const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
+  const endpointErrors = getEndpointErrors(resolvedRawProviderPayload)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
 
   return (
@@ -307,6 +337,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             {providerEndpointHint || '—'}
           </p>
           <p>
+            <span className="font-medium text-slate-900">Endpoints Attempted:</span>{' '}
+            {endpointAttempts.length > 0 ? endpointAttempts.join(', ') : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Optional Endpoint Failures:</span>{' '}
+            {endpointErrors.length > 0 ? String(endpointErrors.length) : '0'}
+          </p>
+          <p>
             <span className="font-medium text-slate-900">Provider Source Hint:</span>{' '}
             {providerSourceHint || '—'}
           </p>
@@ -385,6 +423,23 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </div>
 
         <div className="space-y-2">
+          {endpointErrors.length > 0 ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-800">
+                Optional Endpoint Failures
+              </p>
+              <ul className="space-y-1 text-xs text-amber-900">
+                {endpointErrors.map((entry) => (
+                  <li key={entry.endpoint}>
+                    <span className="font-medium">{entry.endpoint}:</span> {entry.message}
+                    {entry.status !== undefined ? ` (status ${entry.status})` : ''}
+                    {entry.reason ? ` [${entry.reason}]` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
             Raw Provider Payload JSON
           </p>
