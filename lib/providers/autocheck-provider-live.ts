@@ -6,6 +6,30 @@ import type { ProviderErrorCode } from './provider-error'
 import type { VinDataProvider } from './provider-interface'
 import type { VinDataResult } from './types'
 
+const AUTOCHECK_BASE_PATH = '/automotive/accuselect/v1'
+
+const OPTIONAL_ENDPOINT_TARGETS = {
+  quickcheck: `${AUTOCHECK_BASE_PATH}/quickcheck`,
+  ownershiphistory: `${AUTOCHECK_BASE_PATH}/ownershiphistory`,
+  accident: `${AUTOCHECK_BASE_PATH}/accident`,
+  mileage: `${AUTOCHECK_BASE_PATH}/mileage`,
+  recall: `${AUTOCHECK_BASE_PATH}/recall`,
+  titleproblem: `${AUTOCHECK_BASE_PATH}/titleproblem`,
+  titlebrand: `${AUTOCHECK_BASE_PATH}/titlebrand`
+} as const
+
+type OptionalAutoCheckEndpointName = keyof typeof OPTIONAL_ENDPOINT_TARGETS
+
+const OPTIONAL_ENDPOINT_ORDER: ReadonlyArray<OptionalAutoCheckEndpointName> = [
+  'quickcheck',
+  'ownershiphistory',
+  'accident',
+  'mileage',
+  'recall',
+  'titleproblem',
+  'titlebrand'
+]
+
 type AutoCheckVinSpecificationsVehicle = {
   vin?: string
   year?: number | string | null
@@ -40,6 +64,37 @@ type AutoCheckParsedPayload = {
   vehicleCount: number | null
   vehicle: AutoCheckVinSpecificationsVehicle | null
   source: 'root' | 'vinSpecifications' | 'data' | 'data.vinSpecifications'
+}
+
+type AutoCheckEndpointFailure = {
+  code: ProviderErrorCode | 'provider_endpoint_failed'
+  message: string
+  reason: string
+  status?: number
+  details?: string
+}
+
+type AutoCheckEndpointResult =
+  | {
+      ok: true
+      endpoint: string
+      payload: unknown
+    }
+  | {
+      ok: false
+      endpoint: string
+      failure: AutoCheckEndpointFailure
+    }
+
+type PrimitiveEntry = {
+  path: string
+  value: string | number | boolean
+}
+
+type EndpointErrorRecord = {
+  message: string
+  status?: number
+  reason?: string
 }
 
 function normalizeBaseUrl(value: string | null): string | null {
@@ -262,6 +317,177 @@ function normalizeHttpErrorReason(status: number | undefined): string {
   return 'http_error'
 }
 
+function toEnrichmentSummaryKey(endpoint: OptionalAutoCheckEndpointName): keyof Pick<
+  VinDataResult,
+  'quickCheck' | 'ownershipHistory' | 'accident' | 'mileage' | 'recall' | 'titleProblem' | 'titleBrand'
+> {
+  if (endpoint === 'quickcheck') {
+    return 'quickCheck'
+  }
+
+  if (endpoint === 'ownershiphistory') {
+    return 'ownershipHistory'
+  }
+
+  if (endpoint === 'titleproblem') {
+    return 'titleProblem'
+  }
+
+  if (endpoint === 'titlebrand') {
+    return 'titleBrand'
+  }
+
+  return endpoint
+}
+
+function collectPrimitiveEntries(value: unknown, path: string, depth: number, entries: PrimitiveEntry[]): void {
+  if (depth > 3 || value === null || value === undefined) {
+    return
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    entries.push({ path, value })
+    return
+  }
+
+  if (Array.isArray(value)) {
+    entries.push({ path: `${path}Count`, value: value.length })
+
+    const firstRecord = value.find((item) => item && typeof item === 'object')
+    if (firstRecord) {
+      collectPrimitiveEntries(firstRecord, `${path}Item`, depth + 1, entries)
+    }
+
+    return
+  }
+
+  const record = asRecord(value)
+  for (const [key, child] of Object.entries(record)) {
+    const nextPath = path ? `${path}.${key}` : key
+    collectPrimitiveEntries(child, nextPath, depth + 1, entries)
+  }
+}
+
+function normalizedPath(path: string): string {
+  return path.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function findPrimitiveEntry(entries: PrimitiveEntry[], requiredTokens: string[]): PrimitiveEntry | null {
+  const normalizedTokens = requiredTokens.map((token) => token.toLowerCase())
+
+  for (const entry of entries) {
+    const path = normalizedPath(entry.path)
+    const matches = normalizedTokens.every((token) => path.includes(token))
+
+    if (matches) {
+      return entry
+    }
+  }
+
+  return null
+}
+
+function toBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value === 0) {
+      return false
+    }
+
+    if (value === 1) {
+      return true
+    }
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true' || normalized === 'yes' || normalized === 'y') {
+      return true
+    }
+
+    if (normalized === 'false' || normalized === 'no' || normalized === 'n') {
+      return false
+    }
+  }
+
+  return null
+}
+
+function getCompactSummaryFromPayload(payload: unknown, endpoint: string): Record<string, string | number | boolean | null> | null {
+  if (payload === null || payload === undefined) {
+    return null
+  }
+
+  const entries: PrimitiveEntry[] = []
+  collectPrimitiveEntries(payload, endpoint, 0, entries)
+
+  const summary: Record<string, string | number | boolean | null> = {}
+  const resultCodeEntry = findPrimitiveEntry(entries, ['result', 'code'])
+  const resultMessageEntry = findPrimitiveEntry(entries, ['result', 'message'])
+
+  if (resultCodeEntry && typeof resultCodeEntry.value === 'number') {
+    summary.resultCode = resultCodeEntry.value
+  }
+
+  if (resultMessageEntry && typeof resultMessageEntry.value === 'string') {
+    summary.resultMessage = resultMessageEntry.value.slice(0, 200)
+  }
+
+  for (const entry of entries) {
+    const key = entry.path.split('.').pop() ?? entry.path
+
+    if (!/(count|total|accident|owner|mileage|recall|brand|problem|title)/i.test(key)) {
+      continue
+    }
+
+    if (Object.keys(summary).length >= 8) {
+      break
+    }
+
+    if (summary[key] === undefined) {
+      summary[key] = entry.value
+    }
+  }
+
+  if (endpoint === 'quickcheck') {
+    const hasAccident = toBoolean(findPrimitiveEntry(entries, ['accident'])?.value)
+    const hasTitleBrand = toBoolean(findPrimitiveEntry(entries, ['title', 'brand'])?.value)
+    const oneOwnerCandidate = findPrimitiveEntry(entries, ['owner'])
+
+    let oneOwner: boolean | null = null
+    if (oneOwnerCandidate) {
+      if (typeof oneOwnerCandidate.value === 'number') {
+        oneOwner = oneOwnerCandidate.value === 1
+      } else {
+        oneOwner = toBoolean(oneOwnerCandidate.value)
+      }
+    }
+
+    if (hasAccident !== null || hasTitleBrand !== null || oneOwner !== null) {
+      summary.hasAccident = hasAccident
+      summary.hasTitleBrand = hasTitleBrand
+      summary.oneOwner = oneOwner
+    }
+  }
+
+  return Object.keys(summary).length > 0 ? summary : { hasData: true }
+}
+
+function toOptionalEndpointErrorRecord(failure: AutoCheckEndpointFailure): EndpointErrorRecord {
+  return {
+    message: failure.message,
+    status: failure.status,
+    reason: failure.reason
+  }
+}
+
+function getDefaultEndpointTargetPath(endpoint: OptionalAutoCheckEndpointName): string {
+  return OPTIONAL_ENDPOINT_TARGETS[endpoint]
+}
+
 function createAutoCheckError(input: {
   code: ProviderErrorCode
   message: string
@@ -282,6 +508,173 @@ function createAutoCheckError(input: {
 
 export class AutoCheckProviderLive implements VinDataProvider {
   readonly name = 'autocheck' as const
+
+  private async fetchEndpointPayload(input: {
+    endpoint: string
+    baseUrl: string
+    vin: string
+    targetPath: string
+    queryParamName: string
+    timeoutMs: number
+    oauth: {
+      tokenUrl: string
+      username: string
+      password: string
+      clientId: string
+      clientSecret: string
+    }
+  }): Promise<AutoCheckEndpointResult> {
+    const { endpoint, baseUrl, vin, targetPath, queryParamName, timeoutMs, oauth } = input
+    const { gatewayUrl, targetQueryParam } = buildAutoCheckUrls(
+      baseUrl,
+      vin,
+      targetPath,
+      queryParamName
+    )
+    const decodedTargetUrl = getDecodedTargetUrl(gatewayUrl)
+
+    logAutoCheckDebug('gateway request URL built', {
+      endpoint,
+      gatewayUrl,
+      decodedTargetUrl,
+      targetQueryParam,
+      targetPath,
+      inspection: inspectGatewayUrlConstruction(baseUrl, gatewayUrl, decodedTargetUrl)
+    })
+
+    let response
+
+    try {
+      response = await fetchWithOAuth<unknown>(
+        {
+          tokenUrl: oauth.tokenUrl,
+          username: oauth.username,
+          password: oauth.password,
+          clientId: oauth.clientId,
+          clientSecret: oauth.clientSecret,
+          cacheKey: 'experian-autocheck-oauth',
+          requestTimeoutMs: timeoutMs
+        },
+        gatewayUrl,
+        {
+          method: 'GET',
+          headers: buildGatewayHeaders(oauth.clientId),
+          signal: AbortSignal.timeout(timeoutMs)
+        }
+      )
+    } catch (error) {
+      const isTimeout = error instanceof Error && /aborted|timeout/i.test(error.message)
+
+      return {
+        ok: false,
+        endpoint,
+        failure: {
+          code: isTimeout ? 'provider_timeout' : 'gateway_request_failed',
+          reason: isTimeout ? `${endpoint}_timeout` : `${endpoint}_request_exception`,
+          message: isTimeout
+            ? `AutoCheck ${endpoint} request timed out after ${timeoutMs}ms`
+            : `AutoCheck ${endpoint} request failed before response`
+        }
+      }
+    }
+
+    if (!response.ok) {
+      const detailsPreview = toShortBodyPreview(response.details)
+
+      logAutoCheckDebug('gateway response received', {
+        endpoint,
+        status: response.status ?? null,
+        outcome: response.error,
+        details: detailsPreview
+      })
+
+      if (response.error === 'missing_oauth_config') {
+        return {
+          ok: false,
+          endpoint,
+          failure: {
+            code: 'missing_provider_config',
+            reason: 'missing_oauth_config',
+            message: 'AutoCheck live provider OAuth configuration is missing'
+          }
+        }
+      }
+
+      if (response.error === 'oauth_request_failed') {
+        return {
+          ok: false,
+          endpoint,
+          failure: {
+            code: 'oauth_request_failed',
+            status: response.status,
+            reason: 'oauth_request_failed',
+            details: detailsPreview,
+            message: `AutoCheck OAuth token request failed during ${endpoint}`
+          }
+        }
+      }
+
+      if (response.error === 'oauth_invalid_response') {
+        return {
+          ok: false,
+          endpoint,
+          failure: {
+            code: 'oauth_invalid_response',
+            status: response.status,
+            reason: 'oauth_invalid_response',
+            details: detailsPreview,
+            message: `AutoCheck OAuth token response was invalid during ${endpoint}`
+          }
+        }
+      }
+
+      if (response.error === 'provider_timeout') {
+        return {
+          ok: false,
+          endpoint,
+          failure: {
+            code: 'provider_timeout',
+            reason: 'provider_timeout',
+            details: detailsPreview,
+            message: `AutoCheck ${endpoint} request timed out after ${timeoutMs}ms`
+          }
+        }
+      }
+
+      if (response.error === 'request_failed') {
+        return {
+          ok: false,
+          endpoint,
+          failure: {
+            code: 'provider_http_error',
+            status: response.status,
+            reason: normalizeHttpErrorReason(response.status),
+            details: detailsPreview,
+            message: `AutoCheck ${endpoint} request failed with status ${response.status ?? 'unknown'}`
+          }
+        }
+      }
+
+      return {
+        ok: false,
+        endpoint,
+        failure: {
+          code: 'provider_invalid_response',
+          status: response.status,
+          reason: 'provider_invalid_json',
+          message: `AutoCheck ${endpoint} response was invalid JSON`
+        }
+      }
+    }
+
+    logAutoCheckDebug('gateway response received', { endpoint, status: response.status })
+
+    return {
+      ok: true,
+      endpoint,
+      payload: response.data as unknown
+    }
+  }
 
   async lookupVinData(vin: string): Promise<VinDataResult> {
     const normalizedVin = vin.trim()
@@ -307,129 +700,46 @@ export class AutoCheckProviderLive implements VinDataProvider {
     }
 
     const timeoutMs = getProviderTimeoutMs()
-    const { tokenUrl, gatewayUrl, targetQueryParam } = buildAutoCheckUrls(
-      baseUrl,
-      normalizedVin,
-      vinSpecs.targetPath,
-      vinSpecs.vinQueryParam
-    )
-    const decodedTargetUrl = getDecodedTargetUrl(gatewayUrl)
+    const tokenUrl = new URL('/oauth2/v1/token', `${baseUrl}/`).toString()
+
+    const oauthConfig = {
+      tokenUrl,
+      username: experian.username,
+      password: experian.password,
+      clientId: experian.clientId,
+      clientSecret: experian.clientSecret
+    }
 
     logAutoCheckDebug('lookup starting', {
       provider: this.name,
-      endpoint: 'vinspecifications',
+      endpoint: 'vinspecifications+enrichment',
       vin: normalizedVin,
       timeoutMs
     })
 
-    logAutoCheckDebug('gateway request URL built', {
-      gatewayUrl,
-      decodedTargetUrl,
-      targetQueryParam,
+    const vinSpecsResult = await this.fetchEndpointPayload({
+      endpoint: 'vinspecifications',
+      baseUrl,
+      vin: normalizedVin,
       targetPath: vinSpecs.targetPath,
-      inspection: inspectGatewayUrlConstruction(baseUrl, gatewayUrl, decodedTargetUrl)
+      queryParamName: vinSpecs.vinQueryParam,
+      timeoutMs,
+      oauth: oauthConfig
     })
 
-    let response
-
-    try {
-      response = await fetchWithOAuth<AutoCheckVinSpecificationsResponse>(
-        {
-          tokenUrl,
-          username: experian.username,
-          password: experian.password,
-          clientId: experian.clientId,
-          clientSecret: experian.clientSecret,
-          cacheKey: 'experian-autocheck-oauth',
-          requestTimeoutMs: timeoutMs
-        },
-        gatewayUrl,
-        {
-          method: 'GET',
-          headers: buildGatewayHeaders(experian.clientId),
-          signal: AbortSignal.timeout(timeoutMs)
-        }
-      )
-    } catch (error) {
-      const isTimeout = error instanceof Error && /aborted|timeout/i.test(error.message)
-
+    if (!vinSpecsResult.ok) {
       throw createAutoCheckError({
-        code: isTimeout ? 'provider_timeout' : 'gateway_request_failed',
-        reason: isTimeout ? 'gateway_timeout' : 'gateway_request_exception',
-        message: isTimeout
-          ? `AutoCheck vinspecifications request timed out after ${timeoutMs}ms`
-          : 'AutoCheck vinspecifications request failed before response'
+        code: vinSpecsResult.failure.code === 'provider_endpoint_failed'
+          ? 'gateway_request_failed'
+          : vinSpecsResult.failure.code,
+        status: vinSpecsResult.failure.status,
+        reason: vinSpecsResult.failure.reason,
+        details: vinSpecsResult.failure.details,
+        message: vinSpecsResult.failure.message
       })
     }
 
-    if (!response.ok) {
-      const detailsPreview = toShortBodyPreview(response.details)
-
-      logAutoCheckDebug('gateway response received', {
-        status: response.status ?? null,
-        outcome: response.error,
-        targetQueryParam,
-        details: detailsPreview
-      })
-
-      if (response.error === 'missing_oauth_config') {
-        throw createAutoCheckError({
-          code: 'missing_provider_config',
-          reason: 'missing_oauth_config',
-          message: 'AutoCheck live provider OAuth configuration is missing'
-        })
-      }
-
-      if (response.error === 'oauth_request_failed') {
-        throw createAutoCheckError({
-          code: 'oauth_request_failed',
-          status: response.status,
-          reason: 'oauth_request_failed',
-          details: detailsPreview,
-          message: 'AutoCheck OAuth token request failed'
-        })
-      }
-
-      if (response.error === 'oauth_invalid_response') {
-        throw createAutoCheckError({
-          code: 'oauth_invalid_response',
-          status: response.status,
-          reason: 'oauth_invalid_response',
-          details: detailsPreview,
-          message: 'AutoCheck OAuth token response was invalid'
-        })
-      }
-
-      if (response.error === 'provider_timeout') {
-        throw createAutoCheckError({
-          code: 'provider_timeout',
-          reason: 'provider_timeout',
-          details: detailsPreview,
-          message: `AutoCheck vinspecifications request timed out after ${timeoutMs}ms`
-        })
-      }
-
-      if (response.error === 'request_failed') {
-        throw createAutoCheckError({
-          code: 'provider_http_error',
-          status: response.status,
-          reason: normalizeHttpErrorReason(response.status),
-          details: detailsPreview,
-          message: `AutoCheck vinspecifications request failed with status ${response.status ?? 'unknown'}`
-        })
-      }
-
-      throw createAutoCheckError({
-        code: 'provider_invalid_response',
-        status: response.status,
-        reason: 'provider_invalid_json',
-        message: 'AutoCheck vinspecifications response was invalid JSON'
-      })
-    }
-
-    logAutoCheckDebug('gateway response received', { status: response.status })
-
-    const payload = response.data as unknown
+    const payload = vinSpecsResult.payload as AutoCheckVinSpecificationsResponse
     const parsedPayload = parseVehiclePayload(payload)
 
     if (!parsedPayload) {
@@ -477,6 +787,51 @@ export class AutoCheckProviderLive implements VinDataProvider {
       source
     })
 
+    const rawByEndpoint: Record<string, unknown> = {
+      vinspecifications: payload
+    }
+    const endpointErrors: Record<string, EndpointErrorRecord> = {}
+
+    const enrichmentSummary: Pick<
+      VinDataResult,
+      'quickCheck' | 'ownershipHistory' | 'accident' | 'mileage' | 'recall' | 'titleProblem' | 'titleBrand'
+    > = {}
+
+    for (const endpoint of OPTIONAL_ENDPOINT_ORDER) {
+      const endpointResult = await this.fetchEndpointPayload({
+        endpoint,
+        baseUrl,
+        vin: normalizedVin,
+        targetPath: getDefaultEndpointTargetPath(endpoint),
+        queryParamName: vinSpecs.vinQueryParam,
+        timeoutMs,
+        oauth: oauthConfig
+      })
+
+      if (!endpointResult.ok) {
+        endpointErrors[endpoint] = toOptionalEndpointErrorRecord(endpointResult.failure)
+        logAutoCheckDebug('optional enrichment endpoint failed', {
+          endpoint,
+          reason: endpointResult.failure.reason,
+          status: endpointResult.failure.status,
+          message: endpointResult.failure.message
+        })
+        continue
+      }
+
+      rawByEndpoint[endpoint] = endpointResult.payload
+
+      const summary = getCompactSummaryFromPayload(endpointResult.payload, endpoint)
+      const summaryKey = toEnrichmentSummaryKey(endpoint)
+      if (summary) {
+        enrichmentSummary[summaryKey] = summary
+      }
+    }
+
+    if (Object.keys(endpointErrors).length > 0) {
+      rawByEndpoint.endpointErrors = endpointErrors
+    }
+
     return {
       vin: toNullableString(vehicle.vin) ?? normalizedVin,
       year,
@@ -496,8 +851,9 @@ export class AutoCheckProviderLive implements VinDataProvider {
       eventCount: toNullableNumber(vehicle.eventCount),
       providerResultCode: resultCode,
       providerResultMessage: resultMessage,
+      ...enrichmentSummary,
       provider: this.name,
-      raw: payload,
+      raw: rawByEndpoint
     }
   }
 }

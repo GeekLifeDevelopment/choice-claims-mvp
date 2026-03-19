@@ -317,6 +317,30 @@ Optional endpoint targets
 INTAKE_TEST_URL=http://localhost:3000/api/intake/cognito npm run test:intake
 ```
 
+Ticket 9 behavior summary (AutoCheck enrichment expansion)
+
+- AutoCheck live provider now keeps `vinspecifications` as the required endpoint and adds best-effort enrichment requests for:
+	- `quickcheck`
+	- `ownershiphistory`
+	- `accident`
+	- `mileage`
+	- `recall`
+	- `titleproblem`
+	- `titlebrand`
+- Required-vs-optional behavior:
+	- if `vinspecifications` fails, lookup still fails and claim follows existing ProviderFailed handling
+	- if any optional enrichment endpoint fails, worker continues and claim can still reach `ReadyForAI`
+- Raw payload storage shape is endpoint-keyed in `Claim.vinDataRawPayload`:
+	- includes `vinspecifications` response
+	- includes successful optional endpoint payloads by endpoint name
+	- includes optional `endpointErrors` object keyed by endpoint with concise error details
+- Normalized enrichment summary fields are now persisted in `Claim.vinDataResult` when present:
+	- `quickCheck`, `ownershipHistory`, `accident`, `mileage`, `recall`, `titleProblem`, `titleBrand`
+	- each field stores a compact summary object intended for admin and AI workflow context (not a raw payload dump)
+- Admin claim detail page (`/admin/claims/[id]`) now shows:
+	- endpoints attempted
+	- optional endpoint failure count and per-endpoint failure details when present
+
 ```bash
 INTAKE_TEST_URL=https://your-site.netlify.app/api/intake/cognito npm run test:intake
 ```
