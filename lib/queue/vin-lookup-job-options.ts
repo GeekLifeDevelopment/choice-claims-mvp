@@ -81,3 +81,19 @@ export function getVinLookupBackoffDelayMs(input: {
 	const exponent = Math.max(0, attemptsMade - 1)
 	return baseDelayMs * 2 ** exponent
 }
+
+export function resolveVinLookupBackoffStrategyDelay(
+	attemptsMade: number,
+	type?: string,
+	error?: Error
+): number {
+	if (type !== VIN_LOOKUP_BACKOFF_TYPE) {
+		return 0
+	}
+
+	return getVinLookupBackoffDelayMs({
+		attemptsMade,
+		baseDelayMs: VIN_LOOKUP_BACKOFF_MS,
+		error
+	})
+}
