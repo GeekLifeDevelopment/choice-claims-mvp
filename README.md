@@ -740,6 +740,18 @@ Sprint 3 admin provider visibility improvements (Ticket 8)
 	- compact provider result preview (vehicle summary / provider message / code / pending)
 	- clearer scanning of ReadyForAI vs ProviderFailed rows with provider context.
 
+Sprint 3 provider environment switch readiness (Ticket 10)
+
+- AutoCheck runtime URLs are now environment-driven for sandbox and future production switching.
+- Experian token URL behavior:
+	- `EXPERIAN_TOKEN_URL` is optional and takes precedence when set.
+	- when omitted, token URL is derived from `EXPERIAN_BASE_URL` as `/oauth2/v1/token`.
+- Gateway + target URL construction continues to use `EXPERIAN_BASE_URL` and endpoint path constants.
+- Provider resolver remains environment-driven:
+	- `VIN_DATA_PROVIDER=autocheck` + valid Experian OAuth config resolves to `AutoCheckProviderLive`
+	- otherwise it safely resolves to `AutoCheckProviderStub`
+- Future production switch is expected to be env-only (swap URLs/credentials), with no code changes.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

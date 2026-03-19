@@ -150,7 +150,6 @@ function logAutoCheckDebug(message: string, details?: unknown): void {
 }
 
 function buildAutoCheckUrls(baseUrl: string, vin: string, targetPath: string, queryParamName: string): {
-  tokenUrl: string
   targetUrl: string
   gatewayUrl: string
   targetQueryParam: string
@@ -159,13 +158,10 @@ function buildAutoCheckUrls(baseUrl: string, vin: string, targetPath: string, qu
 }
 
 function buildAutoCheckUrlsWithParam(baseUrl: string, vin: string, targetPath: string, queryParamName: string): {
-  tokenUrl: string
   targetUrl: string
   gatewayUrl: string
   targetQueryParam: string
 } {
-  const tokenUrl = new URL('/oauth2/v1/token', `${baseUrl}/`).toString()
-
   const targetUrl = new URL(targetPath, `${baseUrl}/`)
   targetUrl.searchParams.set(queryParamName, vin)
 
@@ -173,7 +169,6 @@ function buildAutoCheckUrlsWithParam(baseUrl: string, vin: string, targetPath: s
   gatewayUrl.searchParams.set('targeturl', targetUrl.toString())
 
   return {
-    tokenUrl,
     targetUrl: targetUrl.toString(),
     gatewayUrl: gatewayUrl.toString(),
     targetQueryParam: queryParamName
@@ -690,8 +685,9 @@ export class AutoCheckProviderLive implements VinDataProvider {
     const experian = getExperianOAuthConfig()
     const vinSpecs = getExperianVinSpecsConfig()
     const baseUrl = normalizeBaseUrl(experian.baseUrl)
+    const tokenUrl = experian.tokenUrl
 
-    if (!baseUrl || !experian.username || !experian.password || !experian.clientId || !experian.clientSecret) {
+    if (!baseUrl || !tokenUrl || !experian.username || !experian.password || !experian.clientId || !experian.clientSecret) {
       throw createAutoCheckError({
         code: 'missing_provider_config',
         reason: 'missing_experian_config',
@@ -700,7 +696,6 @@ export class AutoCheckProviderLive implements VinDataProvider {
     }
 
     const timeoutMs = getProviderTimeoutMs()
-    const tokenUrl = new URL('/oauth2/v1/token', `${baseUrl}/`).toString()
 
     const oauthConfig = {
       tokenUrl,
