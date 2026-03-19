@@ -773,6 +773,14 @@ Sprint 4 review snapshot contract (Ticket 1)
 	- no DB writes, no provider calls, no AI calls
 	- safe with missing/partial provider and attachment data
 
+Sprint 4 evaluation input flow (Ticket 2)
+
+- Added `ClaimEvaluationInput` in `lib/review/claim-evaluation-input.ts`.
+- `buildClaimEvaluationInput(claim)` now wraps `ClaimReviewSnapshot` with lightweight readiness metadata.
+- `getClaimEvaluationInput(claimId)` loads a claim + attachment metadata and builds runtime evaluation input.
+- This module is the handoff point for upcoming rules and AI work.
+- No persistence or schema changes were introduced in this ticket.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

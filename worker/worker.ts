@@ -13,10 +13,9 @@ import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
 import {
   getAutoCheck429RetryDelayMs,
-  getVinLookupBackoffDelayMs,
   isAutoCheckSandboxRateLimitMitigationEnabled,
   isRateLimitedProviderFailure,
-  VIN_LOOKUP_BACKOFF_MS
+  resolveVinLookupBackoffStrategyDelay
 } from '../lib/queue/vin-lookup-job-options'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
@@ -471,15 +470,7 @@ async function run() {
       prefix,
       settings: {
         backoffStrategy(attemptsMade, type, error) {
-          if (type !== 'vin_lookup_adaptive') {
-            return 0
-          }
-
-          return getVinLookupBackoffDelayMs({
-            attemptsMade,
-            baseDelayMs: VIN_LOOKUP_BACKOFF_MS,
-            error
-          })
+          return resolveVinLookupBackoffStrategyDelay(attemptsMade, type, error)
         }
       }
     }
