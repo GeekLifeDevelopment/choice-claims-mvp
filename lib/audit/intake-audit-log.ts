@@ -50,6 +50,19 @@ type LogVinLookupEnqueuedInput = CommonAuditInput & {
   vin?: string
 }
 
+type LogVinLookupRequeuedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  queueName: string
+  jobName: string
+  jobId?: string
+  source: string
+  vin?: string
+  previousStatus: string
+  newStatus: string
+  reason: 'manual_retry'
+}
+
 type LogVinDataFetchedInput = CommonAuditInput & {
   claimId: string
   claimNumber: string
@@ -159,6 +172,26 @@ export async function logVinLookupEnqueuedAudit(input: LogVinLookupEnqueuedInput
       jobId: input.jobId,
       source: input.source,
       vin: input.vin
+    }
+  })
+}
+
+export async function logVinLookupRequeuedAudit(input: LogVinLookupRequeuedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'vin_lookup_requeued',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      queueName: input.queueName,
+      jobName: input.jobName,
+      jobId: input.jobId,
+      source: input.source,
+      vin: input.vin,
+      previousStatus: input.previousStatus,
+      newStatus: input.newStatus,
+      reason: input.reason
     }
   })
 }

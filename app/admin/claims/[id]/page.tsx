@@ -58,6 +58,7 @@ function getOptionalNumber(value: unknown): number | null {
 
 const ASYNC_AUDIT_ACTIONS = new Set([
   'vin_lookup_enqueued',
+  'vin_lookup_requeued',
   'vin_data_fetched',
   'vin_data_fetch_failed'
 ])
@@ -95,7 +96,11 @@ function getRetryBannerMessage(retryParam: string | undefined): string | null {
   }
 
   if (retryParam === 'invalid-status') {
-    return 'Retry is only available when claim status is ProviderFailed.'
+    return 'Retry is only available when claim status is ProviderFailed or ProcessingError.'
+  }
+
+  if (retryParam === 'duplicate-blocked') {
+    return 'Retry ignored: claim status changed and is no longer retryable.'
   }
 
   if (retryParam === 'enqueue-failed') {
@@ -135,6 +140,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       vinDataRawPayload: true,
       vinDataProviderResultCode: true,
       vinDataProviderResultMessage: true,
+      vinLookupRetryRequestedAt: true,
       vinLookupAttemptCount: true,
       vinLookupLastError: true,
       vinLookupLastFailedAt: true,
@@ -247,7 +253,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Async VIN Processing</h2>
-        {claim.status === ClaimStatus.ProviderFailed ? (
+        {claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError ? (
           <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
             <button
               type="submit"
@@ -268,6 +274,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <p>
             <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
             {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Retry Requested At:</span>{' '}
+            {claim.vinLookupRetryRequestedAt ? formatDate(claim.vinLookupRetryRequestedAt) : '—'}
           </p>
           <p>
             <span className="font-medium text-slate-900">VIN Result Summary:</span>{' '}
@@ -292,7 +302,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             {vinDataMake || vinDataModel ? `${vinDataMake ?? '—'} / ${vinDataModel ?? '—'}` : '—'}
           </p>
           <p>
-            <span className="font-medium text-slate-900">Attempt Count:</span>{' '}
+            <span className="font-medium text-slate-900">Run Attempt Count:</span>{' '}
             {String(claim.vinLookupAttemptCount)}
           </p>
           <p>
