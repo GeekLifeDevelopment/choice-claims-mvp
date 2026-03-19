@@ -762,6 +762,17 @@ AutoCheck sandbox 429 hotfix (rate-limit mitigation)
 	- `AUTOCHECK_SANDBOX_RATE_LIMIT_MODE` (override on/off; default auto-detect from sandbox base URL)
 	- `AUTOCHECK_429_RETRY_DELAY_MS` (default `30000`)
 
+Sprint 4 review snapshot contract (Ticket 1)
+
+- Introduced `ClaimReviewSnapshot` as a stable evaluation input contract for:
+	- rules engine
+	- AI summary
+	- reviewer/admin evaluation UI
+- Added pure runtime builder in `lib/review/claim-review-snapshot.ts`:
+	- `buildClaimReviewSnapshot(claim)`
+	- no DB writes, no provider calls, no AI calls
+	- safe with missing/partial provider and attachment data
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
