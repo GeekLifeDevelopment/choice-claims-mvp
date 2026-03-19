@@ -220,7 +220,10 @@ async function run() {
           year: providerResult.year,
           make: providerResult.make,
           model: providerResult.model,
-          provider: providerResult.provider
+          provider: providerResult.provider,
+          ...(providerResult.raw !== undefined
+            ? { raw: providerResult.raw as Prisma.InputJsonValue }
+            : {})
         }
 
         await prisma.claim.update({
