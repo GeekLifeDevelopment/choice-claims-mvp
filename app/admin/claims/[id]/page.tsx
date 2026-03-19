@@ -56,6 +56,32 @@ function getOptionalNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null
 }
 
+function getProviderSourceHint(normalized: Record<string, unknown>, raw: unknown): string | null {
+  const rawRecord = asRecord(raw)
+  const rawSource = getOptionalString(rawRecord.source)
+  if (rawSource) {
+    return rawSource
+  }
+
+  const hasVinSpecificationsEnvelope = rawRecord.vinSpecifications !== undefined
+  if (hasVinSpecificationsEnvelope) {
+    return 'vinSpecifications'
+  }
+
+  const normalizedSource = getOptionalString(normalized.source)
+  if (normalizedSource) {
+    return normalizedSource
+  }
+
+  return null
+}
+
+function getProviderEndpointHint(raw: unknown): string | null {
+  const rawRecord = asRecord(raw)
+  const hasVinSpecificationsEnvelope = rawRecord.vinSpecifications !== undefined
+  return hasVinSpecificationsEnvelope ? 'vinspecifications' : null
+}
+
 const ASYNC_AUDIT_ACTIONS = new Set([
   'vin_lookup_enqueued',
   'vin_lookup_requeued',
@@ -180,9 +206,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   }
 
   const vinDataResult = asRecord(claim.vinDataResult)
+  const legacyEmbeddedRawPayload = vinDataResult.raw
+  const resolvedRawProviderPayload = claim.vinDataRawPayload ?? legacyEmbeddedRawPayload ?? null
+  const usingLegacyEmbeddedRawPayload = !claim.vinDataRawPayload && legacyEmbeddedRawPayload !== undefined
   const vinDataYear = getOptionalNumber(vinDataResult.year)
   const vinDataMake = getOptionalString(vinDataResult.make)
   const vinDataModel = getOptionalString(vinDataResult.model)
+  const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
+  const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
 
   return (
@@ -252,7 +283,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Async VIN Processing</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
         {claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError ? (
           <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
             <button
@@ -270,6 +301,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </p>
           <p>
             <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Provider Endpoint:</span>{' '}
+            {providerEndpointHint || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Provider Source Hint:</span>{' '}
+            {providerSourceHint || '—'}
           </p>
           <p>
             <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
@@ -333,6 +372,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
             Normalized Provider Result JSON
           </p>
+          <p className="text-xs text-slate-500">
+            App-friendly normalized provider fields used for AI workflows and admin summaries.
+          </p>
           {claim.vinDataResult ? (
             <pre className="max-h-[20rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
               {formatDebugJson(claim.vinDataResult)}
@@ -346,9 +388,17 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
             Raw Provider Payload JSON
           </p>
-          {claim.vinDataRawPayload ? (
+          <p className="text-xs text-slate-500">
+            Original provider payload retained for sandbox/live debugging and issue triage.
+          </p>
+          {usingLegacyEmbeddedRawPayload ? (
+            <p className="text-xs text-amber-700">
+              Showing legacy embedded raw payload from normalized result.
+            </p>
+          ) : null}
+          {resolvedRawProviderPayload ? (
             <pre className="max-h-[20rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
-              {formatDebugJson(claim.vinDataRawPayload)}
+              {formatDebugJson(resolvedRawProviderPayload)}
             </pre>
           ) : (
             <p className="text-slate-600">No raw provider payload persisted yet.</p>

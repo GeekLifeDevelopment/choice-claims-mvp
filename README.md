@@ -698,6 +698,24 @@ Sprint 3 manual retry hardening (Ticket 7)
 - Manual retry now writes a dedicated audit action:
 	- `vin_lookup_requeued` with previous/new status, queue/job identifiers, VIN, and `reason: manual_retry`.
 
+Sprint 3 admin provider visibility improvements (Ticket 8)
+
+- Admin claim detail now surfaces provider metadata in a clearer summary block:
+	- provider name
+	- fetched timestamp
+	- provider result code/message
+	- run attempt count
+	- retry requested timestamp
+	- last error and queue/job metadata
+	- provider endpoint/source hints when available from stored payloads
+- Claim detail now labels provider JSON sections more clearly:
+	- normalized provider result (app-friendly)
+	- raw provider payload (debug-focused)
+- Admin claims list now adds lightweight provider context for faster triage:
+	- provider fetched timestamp
+	- compact provider result preview (vehicle summary / provider message / code / pending)
+	- clearer scanning of ReadyForAI vs ProviderFailed rows with provider context.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
