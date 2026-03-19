@@ -2,7 +2,11 @@ import { JOB_NAMES } from './job-names'
 import type { VinLookupJobPayload } from './job-payloads'
 import { getQueueNameForJob } from './contracts'
 import { getQueue } from './get-queue'
-import { VIN_LOOKUP_BACKOFF_MS, VIN_LOOKUP_MAX_ATTEMPTS } from './vin-lookup-job-options'
+import {
+  VIN_LOOKUP_BACKOFF_MS,
+  VIN_LOOKUP_BACKOFF_TYPE,
+  VIN_LOOKUP_MAX_ATTEMPTS
+} from './vin-lookup-job-options'
 
 export type EnqueueVinLookupJobResult = {
   queueName: string
@@ -19,7 +23,7 @@ export async function enqueueVinLookupJob(payload: VinLookupJobPayload): Promise
     const job = await queue.add(jobName, payload, {
       attempts: VIN_LOOKUP_MAX_ATTEMPTS,
       backoff: {
-        type: 'exponential',
+        type: VIN_LOOKUP_BACKOFF_TYPE,
         delay: VIN_LOOKUP_BACKOFF_MS
       }
     })

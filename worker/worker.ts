@@ -11,6 +11,13 @@ import { getQueueRuntimeConfig } from '../lib/queue/config'
 import { JOB_NAMES } from '../lib/queue/job-names'
 import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
+import {
+  getAutoCheck429RetryDelayMs,
+  getVinLookupBackoffDelayMs,
+  isAutoCheckSandboxRateLimitMitigationEnabled,
+  isRateLimitedProviderFailure,
+  VIN_LOOKUP_BACKOFF_MS
+} from '../lib/queue/vin-lookup-job-options'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
 
@@ -47,6 +54,10 @@ function asOptionalJsonField(
   return {
     [key]: value
   }
+}
+
+function isRateLimitedProviderLookupError(error: unknown): boolean {
+  return isProviderLookupError(error) && error.status === 429 && error.reason === 'http_429_rate_limited'
 }
 
 async function run() {
@@ -341,8 +352,26 @@ async function run() {
           error instanceof Error
             ? error.message
             : providerLookupError?.message ?? 'Unknown VIN lookup processing error'
-        const providerFailureReason = providerLookupError?.code ?? 'provider_lookup_failed'
+        const providerFailureReason = providerLookupError?.reason ?? providerLookupError?.code ?? 'provider_lookup_failed'
         const failureStatus = providerName ? ClaimStatus.ProviderFailed : ClaimStatus.ProcessingError
+
+        if (providerLookupError && isRateLimitedProviderLookupError(providerLookupError)) {
+          const rateLimitedError = providerLookupError
+
+          log('autocheck rate limit detected; retry backoff mitigation active', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            status: rateLimitedError.status,
+            reason: rateLimitedError.reason,
+            attemptsMade,
+            attemptsAllowed,
+            sandboxRateLimitMode: isAutoCheckSandboxRateLimitMitigationEnabled(),
+            retryDelayMs: getAutoCheck429RetryDelayMs()
+          })
+        }
 
         try {
           await prisma.claim.update({
@@ -439,7 +468,20 @@ async function run() {
     },
     {
       connection,
-      prefix
+      prefix,
+      settings: {
+        backoffStrategy(attemptsMade, type, error) {
+          if (type !== 'vin_lookup_adaptive') {
+            return 0
+          }
+
+          return getVinLookupBackoffDelayMs({
+            attemptsMade,
+            baseDelayMs: VIN_LOOKUP_BACKOFF_MS,
+            error
+          })
+        }
+      }
     }
   )
 
@@ -458,6 +500,26 @@ async function run() {
   })
 
   worker.on('failed', (job, error) => {
+    if (isRateLimitedProviderFailure(error)) {
+      const attemptsAllowed =
+        typeof job?.opts?.attempts === 'number' && Number.isFinite(job.opts.attempts) && job.opts.attempts > 0
+          ? job.opts.attempts
+          : 1
+      const attemptsMade = (job?.attemptsMade ?? 0) + 1
+      const retriesRemaining = Math.max(0, attemptsAllowed - attemptsMade)
+
+      log('rate limit failure captured by worker failed handler', {
+        queueName: QUEUE_NAMES.VIN_DATA,
+        jobName: job?.name,
+        jobId: job?.id,
+        attemptsMade,
+        attemptsAllowed,
+        retriesRemaining,
+        sandboxRateLimitMode: isAutoCheckSandboxRateLimitMitigationEnabled(),
+        retryDelayMs: getAutoCheck429RetryDelayMs()
+      })
+    }
+
     logError('job failed', {
       jobName: job?.name,
       jobId: job?.id,

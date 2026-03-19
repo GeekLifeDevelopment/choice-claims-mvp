@@ -752,6 +752,16 @@ Sprint 3 provider environment switch readiness (Ticket 10)
 	- otherwise it safely resolves to `AutoCheckProviderStub`
 - Future production switch is expected to be env-only (swap URLs/credentials), with no code changes.
 
+AutoCheck sandbox 429 hotfix (rate-limit mitigation)
+
+- Required endpoint behavior is unchanged: `vinspecifications` must succeed for claim status to reach `ReadyForAI`.
+- Sandbox 429 responses (`http_429_rate_limited`) now use a more conservative retry delay via worker backoff strategy.
+- This reduces false `ProviderFailed` outcomes caused by short sandbox throttling windows.
+- If retries still exhaust without a successful `vinspecifications` response, claim status still ends in `ProviderFailed`.
+- Optional env controls:
+	- `AUTOCHECK_SANDBOX_RATE_LIMIT_MODE` (override on/off; default auto-detect from sandbox base URL)
+	- `AUTOCHECK_429_RETRY_DELAY_MS` (default `30000`)
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout
