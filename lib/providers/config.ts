@@ -19,6 +19,14 @@ export type ExperianOAuthConfig = {
   clientSecret: string | null
 }
 
+export type ExperianVinSpecsConfig = {
+  targetPath: string
+  vinQueryParam: string
+}
+
+const DEFAULT_EXPERIAN_VINSPECS_TARGET_PATH = '/automotive/accuselect/v1/vinspecifications'
+const DEFAULT_EXPERIAN_VINSPECS_QUERY_PARAM = 'vinlist'
+
 function readOptionalEnv(name: string): string | null {
   const value = process.env[name]?.trim()
   return value ? value : null
@@ -36,6 +44,16 @@ function parseProviderTimeoutMs(rawValue: string | null): number {
   }
 
   return Math.floor(parsed)
+}
+
+function normalizeTargetPath(value: string | null): string {
+  if (!value) {
+    return DEFAULT_EXPERIAN_VINSPECS_TARGET_PATH
+  }
+
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`
+  const withoutTrailingSlash = withLeadingSlash.replace(/\/+$/, '')
+  return withoutTrailingSlash || DEFAULT_EXPERIAN_VINSPECS_TARGET_PATH
 }
 
 export function getCarfaxConfig(): ProviderCredentialConfig {
@@ -63,6 +81,13 @@ export function getExperianOAuthConfig(): ExperianOAuthConfig {
     password: readOptionalEnv('EXPERIAN_PASSWORD'),
     clientId: readOptionalEnv('EXPERIAN_CLIENT_ID'),
     clientSecret: readOptionalEnv('EXPERIAN_CLIENT_SECRET')
+  }
+}
+
+export function getExperianVinSpecsConfig(): ExperianVinSpecsConfig {
+  return {
+    targetPath: normalizeTargetPath(readOptionalEnv('EXPERIAN_VINSPECS_TARGET_PATH')),
+    vinQueryParam: readOptionalEnv('EXPERIAN_VINSPECS_QUERY_PARAM') ?? DEFAULT_EXPERIAN_VINSPECS_QUERY_PARAM
   }
 }
 

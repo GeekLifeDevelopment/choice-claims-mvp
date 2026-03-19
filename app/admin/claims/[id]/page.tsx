@@ -82,10 +82,41 @@ function getStatusBadgeClassName(status: string): string {
 
 type PageProps = {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ retry?: string }>
 }
 
-export default async function AdminClaimDetailPage({ params }: PageProps) {
+function getRetryBannerMessage(retryParam: string | undefined): string | null {
+  if (retryParam === 'queued') {
+    return 'VIN retry was queued successfully.'
+  }
+
+  if (retryParam === 'not-found') {
+    return 'Retry failed: claim was not found.'
+  }
+
+  if (retryParam === 'invalid-status') {
+    return 'Retry is only available when claim status is ProviderFailed.'
+  }
+
+  if (retryParam === 'enqueue-failed') {
+    return 'Retry failed: unable to enqueue VIN lookup job.'
+  }
+
+  return null
+}
+
+function getRetryBannerClassName(retryParam: string | undefined): string {
+  if (retryParam === 'queued') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
+}
+
+export default async function AdminClaimDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
+  const resolvedSearchParams = await searchParams
+  const retryBannerMessage = getRetryBannerMessage(resolvedSearchParams.retry)
 
   const claim = await prisma.claim.findUnique({
     where: { id },
@@ -158,6 +189,10 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
         <h2 className="text-lg font-semibold text-slate-900">Claim Info</h2>
       </div>
 
+      {retryBannerMessage ? (
+        <p className={getRetryBannerClassName(resolvedSearchParams.retry)}>{retryBannerMessage}</p>
+      ) : null}
+
       <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
         <p>
           <span className="font-medium text-slate-900">Claim #:</span> {claim.claimNumber}
@@ -209,6 +244,16 @@ export default async function AdminClaimDetailPage({ params }: PageProps) {
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Async VIN Processing</h2>
+        {claim.status === ClaimStatus.ProviderFailed ? (
+          <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
+            >
+              Retry VIN Lookup
+            </button>
+          </form>
+        ) : null}
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
           <p>
             <span className="font-medium text-slate-900">Async Status:</span>{' '}

@@ -629,6 +629,9 @@ Sprint 3 AutoCheck live VIN Specifications integration (Ticket 4)
 - Request path now targets Experian EITS gateway + VIN Specifications endpoint:
 	- gateway: `/eits/gdp/v1/request?targeturl=...`
 	- target: `/automotive/accuselect/v1/vinspecifications?vinlist={VIN}`
+	- optional overrides via env for contract drift troubleshooting:
+		- `EXPERIAN_VINSPECS_TARGET_PATH`
+		- `EXPERIAN_VINSPECS_QUERY_PARAM`
 - Resolver behavior:
 	- `VIN_DATA_PROVIDER=autocheck` + valid `EXPERIAN_*` config -> live provider
 	- otherwise AutoCheck stub remains active
