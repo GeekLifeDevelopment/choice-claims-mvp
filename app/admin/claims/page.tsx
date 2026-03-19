@@ -123,7 +123,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
                 <th className="py-2 pr-4 font-medium">Claim #</th>
                 <th className="py-2 pr-4 font-medium">Async Status</th>
                 <th className="py-2 pr-4 font-medium">Provider</th>
-                <th className="py-2 pr-4 font-medium">Attempts</th>
+                <th className="py-2 pr-4 font-medium">Run Attempts</th>
                 <th className="py-2 pr-4 font-medium">Last Error</th>
                 <th className="py-2 pr-4 font-medium">Claimant</th>
                 <th className="py-2 pr-4 font-medium">VIN</th>

@@ -680,6 +680,24 @@ Sprint 3 provider persistence cleanup (Ticket 6)
 	- `vinDataProviderResultMessage` (when available)
 - Success-path persistence is explicit and retry-safe so failed retries do not overwrite prior successful VIN provider data.
 
+Sprint 3 manual retry hardening (Ticket 7)
+
+- Manual retry now supports failed async statuses only:
+	- retryable: `ProviderFailed`, `ProcessingError`
+	- blocked: `Submitted`, `AwaitingVinData`, `ReadyForAI`
+- Retry orchestration is explicit and duplicate-safe:
+	- status is transitioned to `AwaitingVinData` before enqueue
+	- stale/double-click retries are blocked if status changed
+	- enqueue failure restores previous failed status
+- Manual retry resets transient failure fields only:
+	- clears `vinLookupLastError`, `vinLookupLastFailedAt`, last queue/job ids
+	- sets `vinLookupRetryRequestedAt`
+	- preserves prior successful provider data (`vinDataResult`, `vinDataRawPayload`, provider metadata)
+- Attempt count semantics are now explicit:
+	- `vinLookupAttemptCount` is reset on manual retry and tracks attempts for the current retry run.
+- Manual retry now writes a dedicated audit action:
+	- `vin_lookup_requeued` with previous/new status, queue/job identifiers, VIN, and `reason: manual_retry`.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

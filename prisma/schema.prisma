@@ -26,6 +26,7 @@ model Claim {
   vinDataFetchedAt     DateTime?
   vinDataProviderResultCode Int?
   vinDataProviderResultMessage String?
+  vinLookupRetryRequestedAt DateTime?
   vinLookupAttemptCount Int      @default(0)
   vinLookupLastError    String?
   vinLookupLastFailedAt DateTime?
