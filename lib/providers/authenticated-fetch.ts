@@ -45,11 +45,14 @@ export async function fetchWithOAuth<T = unknown>(
   })
 
   if (!response.ok) {
+    const responseText = await response.text().catch(() => '')
+    const bodyPreview = responseText.trim().slice(0, 300)
+
     return {
       ok: false,
       status: response.status,
       error: 'request_failed',
-      details: response.statusText
+      details: bodyPreview || response.statusText
     }
   }
 
