@@ -619,6 +619,37 @@ Sprint 3 OAuth-ready provider abstraction (Ticket 2)
 - Stub providers and existing worker/job flow remain unchanged.
 - Provider secrets must be set in `.env.local`/Netlify env vars and must never be committed.
 
+Sprint 3 AutoCheck live VIN Specifications integration (Ticket 4)
+
+- Added first live VIN provider implementation:
+	- `lib/providers/autocheck-provider-live.ts`
+- Live AutoCheck provider uses existing OAuth and authenticated request helpers:
+	- `lib/providers/oauth-token.ts`
+	- `lib/providers/authenticated-fetch.ts`
+- Request path now targets Experian EITS gateway + VIN Specifications endpoint:
+	- gateway: `/eits/gdp/v1/request?targeturl=...`
+	- target: `/automotive/accuselect/v1/vinspecifications?vinlist={VIN}`
+- Resolver behavior:
+	- `VIN_DATA_PROVIDER=autocheck` + valid `EXPERIAN_*` config -> live provider
+	- otherwise AutoCheck stub remains active
+- Result handling:
+	- normalizes `vin`, `year`, `make`, `model`
+	- preserves provider raw payload in `vinDataResult.raw`
+- Failure handling includes:
+	- missing VIN
+	- missing OAuth config
+	- token failure
+	- non-200 responses
+	- timeout
+	- invalid JSON
+	- no vehicle data returned
+- Scope boundaries:
+	- AutoCheck only
+	- VIN Specifications only
+	- no CARFAX live integration yet
+	- no QuickCheck endpoint yet
+	- no worker/queue redesign
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

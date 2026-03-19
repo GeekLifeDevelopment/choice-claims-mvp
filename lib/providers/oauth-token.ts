@@ -117,14 +117,15 @@ export async function getOAuthToken(config: OAuthTokenRequestConfig): Promise<OA
   }
 
   const json = (await response.json()) as Partial<OAuthTokenResponse>
+  const parsedExpiresIn = Number(json.expires_in)
 
-  if (!json.access_token || !json.token_type || typeof json.expires_in !== 'number') {
+  if (!json.access_token || !json.token_type || !Number.isFinite(parsedExpiresIn) || parsedExpiresIn <= 0) {
     return null
   }
 
   return cacheToken(config, {
     access_token: json.access_token,
     token_type: json.token_type,
-    expires_in: json.expires_in
+    expires_in: parsedExpiresIn
   })
 }
