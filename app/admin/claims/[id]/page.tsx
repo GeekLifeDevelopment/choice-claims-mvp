@@ -132,6 +132,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       vinDataProvider: true,
       vinDataFetchedAt: true,
       vinDataResult: true,
+      vinDataRawPayload: true,
+      vinDataProviderResultCode: true,
+      vinDataProviderResultMessage: true,
       vinLookupAttemptCount: true,
       vinLookupLastError: true,
       vinLookupLastFailedAt: true,
@@ -273,6 +276,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               : '—'}
           </p>
           <p>
+            <span className="font-medium text-slate-900">Provider Result Code:</span>{' '}
+            {claim.vinDataProviderResultCode !== null ? String(claim.vinDataProviderResultCode) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Provider Result Message:</span>{' '}
+            {claim.vinDataProviderResultMessage || '—'}
+          </p>
+          <p>
             <span className="font-medium text-slate-900">Year:</span>{' '}
             {vinDataYear !== null ? String(vinDataYear) : '—'}
           </p>
@@ -306,6 +317,32 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             <span className="font-medium text-slate-900">Last Job ID:</span>{' '}
             {claim.vinLookupLastJobId || '—'}
           </p>
+        </div>
+
+        <div className="space-y-2 pt-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+            Normalized Provider Result JSON
+          </p>
+          {claim.vinDataResult ? (
+            <pre className="max-h-[20rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
+              {formatDebugJson(claim.vinDataResult)}
+            </pre>
+          ) : (
+            <p className="text-slate-600">No normalized provider data persisted yet.</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+            Raw Provider Payload JSON
+          </p>
+          {claim.vinDataRawPayload ? (
+            <pre className="max-h-[20rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
+              {formatDebugJson(claim.vinDataRawPayload)}
+            </pre>
+          ) : (
+            <p className="text-slate-600">No raw provider payload persisted yet.</p>
+          )}
         </div>
       </div>
 

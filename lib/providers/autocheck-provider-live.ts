@@ -482,28 +482,22 @@ export class AutoCheckProviderLive implements VinDataProvider {
       year,
       make,
       model,
+      trim: toNullableString(vehicle.trim),
+      vehicleClass: toNullableString(vehicle.class),
+      country: toNullableString(vehicle.country),
+      bodyStyle: toNullableString(vehicle.bodyStyle),
+      doors: toNullableString(vehicle.doors),
+      drivetrain: toNullableString(vehicle.drivetrain),
+      transmissionType: toNullableString(vehicle.transmissionType),
+      wheelSize: toNullableString(vehicle.wheelSize),
+      engineSize: toNullableString(vehicle.engineSize),
+      cylinders: toNullableString(vehicle.cylinders),
+      horsepower: toNullableString(vehicle.horsepower),
+      eventCount: toNullableNumber(vehicle.eventCount),
+      providerResultCode: resultCode,
+      providerResultMessage: resultMessage,
       provider: this.name,
-      raw: {
-        vehicleCount,
-        vehicle,
-        source,
-        normalized: {
-          trim: toNullableString(vehicle.trim),
-          vehicleClass: toNullableString(vehicle.class),
-          country: toNullableString(vehicle.country),
-          bodyStyle: toNullableString(vehicle.bodyStyle),
-          doors: toNullableString(vehicle.doors),
-          drivetrain: toNullableString(vehicle.drivetrain),
-          transmissionType: toNullableString(vehicle.transmissionType),
-          wheelSize: toNullableString(vehicle.wheelSize),
-          engineSize: toNullableString(vehicle.engineSize),
-          cylinders: toNullableString(vehicle.cylinders),
-          horsepower: toNullableString(vehicle.horsepower),
-          eventCount: toNullableNumber(vehicle.eventCount),
-          providerResultCode: resultCode,
-          providerResultMessage: resultMessage
-        }
-      }
+      raw: payload,
     }
   }
 }
