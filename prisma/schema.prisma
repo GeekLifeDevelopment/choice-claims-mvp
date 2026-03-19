@@ -21,8 +21,11 @@ model Claim {
   claimantPhone        String?
   rawSubmissionPayload Json
   vinDataResult        Json?
+  vinDataRawPayload    Json?
   vinDataProvider      String?
   vinDataFetchedAt     DateTime?
+  vinDataProviderResultCode Int?
+  vinDataProviderResultMessage String?
   vinLookupAttemptCount Int      @default(0)
   vinLookupLastError    String?
   vinLookupLastFailedAt DateTime?

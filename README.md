@@ -637,7 +637,7 @@ Sprint 3 AutoCheck live VIN Specifications integration (Ticket 4)
 	- otherwise AutoCheck stub remains active
 - Result handling:
 	- normalizes `vin`, `year`, `make`, `model`
-	- preserves provider raw payload in `vinDataResult.raw`
+	- preserves provider response data for downstream persistence
 - Failure handling includes:
 	- missing VIN
 	- missing OAuth config
@@ -667,6 +667,18 @@ Sprint 3 AutoCheck live hardening (Ticket 5)
 - Sandbox no-data and odd response-shape cases are treated as safe `ProviderFailed` outcomes rather than worker crashes.
 - Worker failure handling now records provider error codes safely in logs/audit reasons while keeping existing queue/worker flow unchanged.
 - Known sandbox test VINs remain the expected happy-path verification route for `ReadyForAI`.
+
+Sprint 3 provider persistence cleanup (Ticket 6)
+
+- Claim persistence now stores normalized provider result and raw provider payload separately:
+	- `vinDataResult` stores normalized VIN attributes for AI/admin usage.
+	- `vinDataRawPayload` stores raw provider JSON for debugging.
+- Provider metadata is stored alongside result payloads:
+	- `vinDataProvider`
+	- `vinDataFetchedAt`
+	- `vinDataProviderResultCode` (when available)
+	- `vinDataProviderResultMessage` (when available)
+- Success-path persistence is explicit and retry-safe so failed retries do not overwrite prior successful VIN provider data.
 
 Files & structure
 

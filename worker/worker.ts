@@ -36,6 +36,19 @@ function logError(message: string, details?: unknown) {
   console.error(`[WORKER] ${message}`)
 }
 
+function asOptionalJsonField(
+  key: string,
+  value: string | number | null | undefined
+): Record<string, Prisma.InputJsonValue> {
+  if (value === null || value === undefined) {
+    return {}
+  }
+
+  return {
+    [key]: value
+  }
+}
+
 async function run() {
   const { connection, prefix } = getQueueRuntimeConfig()
 
@@ -131,9 +144,6 @@ async function run() {
           where: { id: claim.id },
           data: {
             status: ClaimStatus.ProviderFailed,
-            vinDataProvider: null,
-            vinDataFetchedAt: null,
-            vinDataResult: Prisma.JsonNull,
             vinLookupLastError: errorMessage,
             vinLookupLastFailedAt: new Date()
           }
@@ -216,23 +226,40 @@ async function run() {
 
         const providerResult = await provider.lookupVinData(vin)
 
-        const persistedVinDataResult: Prisma.InputJsonValue = {
+        const persistedVinDataResult: Prisma.InputJsonObject = {
           vin: providerResult.vin,
-          year: providerResult.year,
-          make: providerResult.make,
-          model: providerResult.model,
           provider: providerResult.provider,
-          ...(providerResult.raw !== undefined
-            ? { raw: providerResult.raw as Prisma.InputJsonValue }
-            : {})
+          ...asOptionalJsonField('year', providerResult.year),
+          ...asOptionalJsonField('make', providerResult.make),
+          ...asOptionalJsonField('model', providerResult.model),
+          ...asOptionalJsonField('trim', providerResult.trim),
+          ...asOptionalJsonField('vehicleClass', providerResult.vehicleClass),
+          ...asOptionalJsonField('country', providerResult.country),
+          ...asOptionalJsonField('bodyStyle', providerResult.bodyStyle),
+          ...asOptionalJsonField('doors', providerResult.doors),
+          ...asOptionalJsonField('drivetrain', providerResult.drivetrain),
+          ...asOptionalJsonField('transmissionType', providerResult.transmissionType),
+          ...asOptionalJsonField('wheelSize', providerResult.wheelSize),
+          ...asOptionalJsonField('engineSize', providerResult.engineSize),
+          ...asOptionalJsonField('cylinders', providerResult.cylinders),
+          ...asOptionalJsonField('horsepower', providerResult.horsepower),
+          ...asOptionalJsonField('eventCount', providerResult.eventCount),
+          ...asOptionalJsonField('providerResultCode', providerResult.providerResultCode),
+          ...asOptionalJsonField('providerResultMessage', providerResult.providerResultMessage)
         }
 
         await prisma.claim.update({
           where: { id: claim.id },
           data: {
             vinDataResult: persistedVinDataResult,
+            vinDataRawPayload:
+              providerResult.raw !== undefined
+                ? (providerResult.raw as Prisma.InputJsonValue)
+                : Prisma.JsonNull,
             vinDataProvider: provider.name,
             vinDataFetchedAt: new Date(),
+            vinDataProviderResultCode: providerResult.providerResultCode ?? null,
+            vinDataProviderResultMessage: providerResult.providerResultMessage ?? null,
             status: ClaimStatus.ReadyForAI,
             vinLookupLastError: null,
             vinLookupLastFailedAt: null
