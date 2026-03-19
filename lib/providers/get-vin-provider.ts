@@ -5,18 +5,22 @@ import { hasExperianOAuthConfig } from './config'
 import type { VinDataProvider } from './provider-interface'
 import type { VinProviderName } from './types'
 
+const DEFAULT_PROVIDER: VinProviderName = 'carfax'
+
 function normalizeProviderName(value: string | undefined): VinProviderName {
-  if (value?.trim().toLowerCase() === 'autocheck') {
+  const normalized = value?.trim().toLowerCase()
+
+  if (normalized === 'autocheck') {
     return 'autocheck'
   }
 
-  return 'carfax'
+  return DEFAULT_PROVIDER
 }
 
 export function getVinDataProvider(providerName?: string): VinDataProvider {
-  const selectedProvider = normalizeProviderName(providerName ?? process.env.VIN_DATA_PROVIDER)
+  const requestedProvider = normalizeProviderName(providerName ?? process.env.VIN_DATA_PROVIDER)
 
-  if (selectedProvider === 'autocheck') {
+  if (requestedProvider === 'autocheck') {
     if (hasExperianOAuthConfig()) {
       return new AutoCheckProviderLive()
     }

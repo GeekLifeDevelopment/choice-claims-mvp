@@ -13,6 +13,7 @@ export type ProviderConfigStatus = {
 
 export type ExperianOAuthConfig = {
   baseUrl: string | null
+  tokenUrl: string | null
   username: string | null
   password: string | null
   clientId: string | null
@@ -26,6 +27,7 @@ export type ExperianVinSpecsConfig = {
 
 const DEFAULT_EXPERIAN_VINSPECS_TARGET_PATH = '/automotive/accuselect/v1/vinspecifications'
 const DEFAULT_EXPERIAN_VINSPECS_QUERY_PARAM = 'vinlist'
+const DEFAULT_EXPERIAN_TOKEN_PATH = '/oauth2/v1/token'
 
 function readOptionalEnv(name: string): string | null {
   const value = process.env[name]?.trim()
@@ -44,6 +46,27 @@ function parseProviderTimeoutMs(rawValue: string | null): number {
   }
 
   return Math.floor(parsed)
+}
+
+function normalizeBaseUrl(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const normalized = value.replace(/\/+$/, '')
+  return normalized || null
+}
+
+function getDerivedExperianTokenUrl(baseUrl: string | null): string | null {
+  if (!baseUrl) {
+    return null
+  }
+
+  try {
+    return new URL(DEFAULT_EXPERIAN_TOKEN_PATH, `${baseUrl}/`).toString()
+  } catch {
+    return null
+  }
 }
 
 function normalizeTargetPath(value: string | null): string {
@@ -75,8 +98,12 @@ export function getProviderTimeoutMs(): number {
 }
 
 export function getExperianOAuthConfig(): ExperianOAuthConfig {
+  const baseUrl = normalizeBaseUrl(readOptionalEnv('EXPERIAN_BASE_URL'))
+  const explicitTokenUrl = readOptionalEnv('EXPERIAN_TOKEN_URL')
+
   return {
-    baseUrl: readOptionalEnv('EXPERIAN_BASE_URL'),
+    baseUrl,
+    tokenUrl: explicitTokenUrl ?? getDerivedExperianTokenUrl(baseUrl),
     username: readOptionalEnv('EXPERIAN_USERNAME'),
     password: readOptionalEnv('EXPERIAN_PASSWORD'),
     clientId: readOptionalEnv('EXPERIAN_CLIENT_ID'),
@@ -106,6 +133,7 @@ export function hasExperianOAuthConfig(): boolean {
 
   return Boolean(
     config.baseUrl &&
+      config.tokenUrl &&
       config.username &&
       config.password &&
       config.clientId &&
