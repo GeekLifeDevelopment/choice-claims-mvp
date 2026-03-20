@@ -11,6 +11,7 @@ import { buildDedupeKeyDetails, type DedupeSource } from './build-dedupe-key'
 import { generateClaimNumber } from './generate-claim-number'
 import { buildVinLookupJobPayload } from '../queue/build-vin-lookup-job'
 import { enqueueVinLookupJob } from '../queue/enqueue-vin-lookup-job'
+import { evaluateAndStoreClaimRules } from '../review/evaluate-and-store-claim-rules'
 
 const CLAIM_NUMBER_MAX_ATTEMPTS = 5
 const COGNITO_REPLAY_WINDOW_MS = 2 * 60 * 1000
@@ -129,6 +130,34 @@ function logClaimPersistenceError(message: string, details?: unknown) {
   console.error(`[CLAIM_PERSISTENCE] ${message}`)
 }
 
+async function evaluateAndStoreClaimRulesBestEffort(claimId: string, context: string): Promise<void> {
+  try {
+    const evaluation = await evaluateAndStoreClaimRules(claimId)
+
+    if (!evaluation) {
+      logClaimPersistenceError('rule evaluation skipped; claim not found', {
+        claimId,
+        context
+      })
+      return
+    }
+
+    logClaimPersistence('rule evaluation persisted', {
+      claimId,
+      context,
+      flagCount: evaluation.result.flags.length,
+      evaluatedAt: evaluation.evaluatedAt,
+      error: evaluation.error
+    })
+  } catch (error) {
+    logClaimPersistenceError('rule evaluation persistence failed unexpectedly', {
+      claimId,
+      context,
+      error
+    })
+  }
+}
+
 async function getExistingClaimByDedupeKey(dedupeKey: string): Promise<ClaimSummary | null> {
   return prisma.claim.findUnique({
     where: { dedupeKey },
@@ -240,6 +269,8 @@ async function buildDuplicateResult(input: {
     cognitoPayloadId: replayIdentity.cognitoPayloadId,
     cognitoEntryNumber: replayIdentity.cognitoEntryNumber
   })
+
+  await evaluateAndStoreClaimRulesBestEffort(input.existingClaim.id, 'duplicate_submission')
 
   return {
     ok: true,
@@ -476,6 +507,11 @@ export async function createClaimFromSubmission(
           auditLogId: enqueueAuditResult.auditLogId
         })
       }
+
+      await evaluateAndStoreClaimRulesBestEffort(
+        claimAfterEnqueue.id,
+        'claim_created_and_enqueued'
+      )
 
       return {
         ok: true,

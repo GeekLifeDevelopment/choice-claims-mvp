@@ -792,6 +792,21 @@ Sprint 4 evaluation input flow (Ticket 2)
 - This module is the handoff point for upcoming rules and AI work.
 - No persistence or schema changes were introduced in this ticket.
 
+Sprint 4 persisted deterministic rules (Ticket 4)
+
+- Deterministic rule evaluation results are now persisted on each claim as the first stored review artifact.
+- Persisted fields include latest flags JSON, evaluation timestamp, rule version, and last evaluation error.
+- Evaluation is rerunnable and idempotent for latest-state storage: each run overwrites prior stored rule results.
+- This ticket does not add AI generation, queue/worker changes, or provider behavior changes.
+
+Sprint 4 lifecycle auto-evaluation follow-up
+
+- Rule evaluation now runs automatically as best-effort at key lifecycle points:
+	- claim created / duplicate claim reuse
+	- provider result persistence and status updates (including `ReadyForAI` / failure states)
+	- admin manual retry status changes and enqueue flow
+- Evaluation failures are logged and do not block intake, worker processing, or retry flows.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

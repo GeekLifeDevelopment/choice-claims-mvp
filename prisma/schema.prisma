@@ -33,6 +33,10 @@ model Claim {
   vinLookupLastJobId    String?
   vinLookupLastJobName  String?
   vinLookupLastQueueName String?
+  reviewRuleFlags       Json?
+  reviewRuleEvaluatedAt DateTime?
+  reviewRuleVersion     String?
+  reviewRuleLastError   String?
   submittedAt          DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
