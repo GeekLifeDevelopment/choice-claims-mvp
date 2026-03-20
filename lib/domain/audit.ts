@@ -6,4 +6,5 @@ export type AuditAction =
   | 'vin_lookup_requeued'
   | 'vin_data_fetched'
   | 'vin_data_fetch_failed'
+  | 'review_decision_changed'
   | 'intake_validation_failed'

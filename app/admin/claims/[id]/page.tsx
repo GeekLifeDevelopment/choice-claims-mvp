@@ -30,6 +30,27 @@ function formatMetadataPreview(value: unknown): string {
   return serialized.length > 180 ? `${serialized.slice(0, 177)}...` : serialized
 }
 
+function formatReviewDecisionChangeMetadata(value: unknown): {
+  fromDecision: string
+  toDecision: string
+  reviewer: string
+  notes: string
+} | null {
+  const metadata = asRecord(value)
+  const toDecision = getOptionalString(metadata.toDecision)
+
+  if (!toDecision) {
+    return null
+  }
+
+  return {
+    fromDecision: getOptionalString(metadata.fromDecision) || 'Unset',
+    toDecision,
+    reviewer: getOptionalString(metadata.reviewer) || '—',
+    notes: getOptionalString(metadata.notes) || '—'
+  }
+}
+
 function formatDebugJson(value: unknown): string {
   if (value == null) {
     return ''
@@ -734,7 +755,29 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         <tr key={auditLog.id} className="border-b last:border-0 align-top">
                           <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
                           <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
-                          <td className="py-2 pr-4 text-slate-700">{formatMetadataPreview(auditLog.metadata)}</td>
+                          <td className="py-2 pr-4 text-slate-700">
+                            {auditLog.action === 'review_decision_changed' ? (
+                              (() => {
+                                const change = formatReviewDecisionChangeMetadata(auditLog.metadata)
+                                if (!change) {
+                                  return formatMetadataPreview(auditLog.metadata)
+                                }
+
+                                return (
+                                  <div className="space-y-1">
+                                    <p>
+                                      Decision changed: <span className="font-medium">{change.fromDecision}</span>{' '}
+                                      -&gt; <span className="font-medium">{change.toDecision}</span>
+                                    </p>
+                                    <p>Reviewer: {change.reviewer}</p>
+                                    <p>Notes: {change.notes}</p>
+                                  </div>
+                                )
+                              })()
+                            ) : (
+                              formatMetadataPreview(auditLog.metadata)
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
