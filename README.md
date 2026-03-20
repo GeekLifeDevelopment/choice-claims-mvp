@@ -518,6 +518,17 @@ Ticket 6 scope boundaries
 - No real CARFAX API calls.
 - No real AutoCheck API calls.
 - No persistence of provider results yet.
+
+Sprint 4 deterministic review rules (Ticket 3)
+
+- Deterministic rules now evaluate `ClaimEvaluationInput` and return rule flags in memory.
+- Rules currently generate flags for:
+	- missing data (for example VIN/provider data)
+	- provider warnings/failures
+	- attachment issues
+	- enrichment signals (title problem, accident, recall, high event count)
+- Rules are null-safe and handle partial snapshots without crashing.
+- Rules are read-only for this ticket: no DB persistence, no migrations, and no UI wiring yet.
 - No claim status updates from provider results yet.
 - No retry logic yet.
 - No failure-state UI yet.
