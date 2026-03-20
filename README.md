@@ -807,6 +807,13 @@ Sprint 4 lifecycle auto-evaluation follow-up
 	- admin manual retry status changes and enqueue flow
 - Evaluation failures are logged and do not block intake, worker processing, or retry flows.
 
+Sprint 4 async review summary scaffold (Ticket 5)
+
+- Queue/job scaffold now exists for async review summary generation (`review-summary` / `generate-review-summary`).
+- Claims now persist review summary lifecycle state (status, enqueue/generated timestamps, job ID, version, last error).
+- Eligible claims (`ReadyForAI` with completed rule evaluation) can be queued via review summary enqueue service.
+- Real AI summary text generation is intentionally deferred to the next ticket; this is infrastructure only.
+
 Files & structure
 
 - `app/` — Next.js App Router pages and layout

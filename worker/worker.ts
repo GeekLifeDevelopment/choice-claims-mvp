@@ -11,6 +11,7 @@ import { getQueueRuntimeConfig } from '../lib/queue/config'
 import { JOB_NAMES } from '../lib/queue/job-names'
 import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
+import { enqueueReviewSummaryForClaim } from '../lib/review/enqueue-review-summary'
 import { evaluateAndStoreClaimRules } from '../lib/review/evaluate-and-store-claim-rules'
 import {
   getAutoCheck429RetryDelayMs,
@@ -81,6 +82,28 @@ async function evaluateClaimRulesBestEffort(claimId: string, context: string): P
     })
   } catch (error) {
     logError('rule evaluation failed', {
+      claimId,
+      context,
+      error
+    })
+  }
+}
+
+async function enqueueReviewSummaryBestEffort(claimId: string, context: string): Promise<void> {
+  try {
+    const result = await enqueueReviewSummaryForClaim(claimId, 'rules_ready')
+
+    log('review summary enqueue attempted', {
+      claimId,
+      context,
+      enqueued: result.enqueued,
+      reason: result.reason,
+      queueName: result.queueName,
+      jobName: result.jobName,
+      jobId: result.jobId
+    })
+  } catch (error) {
+    logError('review summary enqueue failed unexpectedly', {
       claimId,
       context,
       error
@@ -327,6 +350,7 @@ async function run() {
         })
 
         await evaluateClaimRulesBestEffort(claim.id, 'worker_provider_data_saved_ready_for_ai')
+        await enqueueReviewSummaryBestEffort(claim.id, 'worker_ready_for_ai_after_rules')
 
         const fetchedAuditResult = await logVinDataFetchedAudit({
           claimId: claim.id,

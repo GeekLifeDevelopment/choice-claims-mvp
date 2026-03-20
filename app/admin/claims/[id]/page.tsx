@@ -236,6 +236,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       reviewRuleEvaluatedAt: true,
       reviewRuleVersion: true,
       reviewRuleLastError: true,
+      reviewSummaryStatus: true,
+      reviewSummaryEnqueuedAt: true,
+      reviewSummaryGeneratedAt: true,
+      reviewSummaryLastError: true,
+      reviewSummaryJobId: true,
+      reviewSummaryVersion: true,
       rawSubmissionPayload: true,
       submittedAt: true,
       attachments: {
@@ -602,6 +608,38 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </pre>
           </div>
         ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Review Summary Pipeline</h2>
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Summary Status:</span>{' '}
+            {claim.reviewSummaryStatus || 'NotRequested'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Summary Version:</span>{' '}
+            {claim.reviewSummaryVersion || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Enqueued At:</span>{' '}
+            {claim.reviewSummaryEnqueuedAt ? formatDate(claim.reviewSummaryEnqueuedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Generated At:</span>{' '}
+            {claim.reviewSummaryGeneratedAt ? formatDate(claim.reviewSummaryGeneratedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Summary Job ID:</span>{' '}
+            {claim.reviewSummaryJobId || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Error:</span>{' '}
+            <span className={claim.reviewSummaryLastError ? 'font-medium text-red-700' : ''}>
+              {claim.reviewSummaryLastError || '—'}
+            </span>
+          </p>
+        </div>
       </div>
 
       {claim.attachments.length === 0 ? (

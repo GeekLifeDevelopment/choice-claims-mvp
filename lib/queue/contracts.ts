@@ -3,7 +3,8 @@ import type { JobPayloadByName } from './job-payloads'
 import { QUEUE_NAMES, type QueueName } from './queue-names'
 
 export const JOB_QUEUE_BINDINGS = {
-  [JOB_NAMES.LOOKUP_VIN_DATA]: QUEUE_NAMES.VIN_DATA
+  [JOB_NAMES.LOOKUP_VIN_DATA]: QUEUE_NAMES.VIN_DATA,
+  [JOB_NAMES.GENERATE_REVIEW_SUMMARY]: QUEUE_NAMES.REVIEW_SUMMARY
 } as const satisfies Record<JobName, QueueName>
 
 export type QueueNameByJobName = typeof JOB_QUEUE_BINDINGS
