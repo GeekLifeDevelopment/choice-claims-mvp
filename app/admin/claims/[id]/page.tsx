@@ -69,6 +69,10 @@ function getPersistedRuleFlags(value: unknown): PersistedRuleFlag[] {
 
   return value
     .map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return null
+      }
+
       const record = asRecord(item)
       const code = getOptionalString(record.code)
       const severity = getOptionalString(record.severity)

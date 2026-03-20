@@ -90,7 +90,7 @@ export async function evaluateAndStoreClaimRules(
     await prisma.claim.update({
       where: { id: claimId },
       data: {
-        reviewRuleFlags: [] as Prisma.InputJsonValue,
+        reviewRuleFlags: Prisma.DbNull,
         reviewRuleEvaluatedAt: evaluatedAt,
         reviewRuleVersion: REVIEW_RULE_VERSION,
         reviewRuleLastError: message

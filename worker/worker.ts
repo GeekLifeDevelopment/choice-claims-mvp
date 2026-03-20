@@ -577,7 +577,15 @@ async function run() {
         }
       })
 
-      if (!existingClaim || existingClaim.status === ClaimStatus.ProviderFailed) {
+      if (!existingClaim) {
+        return
+      }
+
+      if (existingClaim.status === ClaimStatus.ProviderFailed) {
+        await evaluateClaimRulesBestEffort(
+          existingClaim.id,
+          'worker_failed_handler_existing_provider_failed'
+        )
         return
       }
 
