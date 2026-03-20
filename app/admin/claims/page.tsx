@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Prisma } from '@prisma/client'
 import { ClaimStatus } from '../../../lib/domain/claims'
 import { prisma } from '../../../lib/prisma'
+import { isFinalReviewDecision } from '../../../lib/review/claim-lock'
 
 export const dynamic = 'force-dynamic'
 
@@ -481,6 +482,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
 
                 const summaryStatus = claim.reviewSummaryStatus || 'NotRequested'
                 const decision = claim.reviewDecision || 'Unset'
+                const locked = isFinalReviewDecision(claim.reviewDecision)
                 const ruleFlagCount = getRuleFlagCount(claim.reviewRuleFlags)
                 const needsReviewNow =
                   claim.reviewDecision == null &&
@@ -524,7 +526,11 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
                     <td className="py-2 pr-4">{claim.claimantName || '—'}</td>
                     <td className="py-2 pr-4">{claim.vin || '—'}</td>
                     <td className="py-2 pr-4">
-                      {needsReviewNow ? (
+                      {locked ? (
+                        <span className="inline-flex items-center rounded-md border border-slate-400 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          Locked
+                        </span>
+                      ) : needsReviewNow ? (
                         <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
                           Needs Action
                         </span>

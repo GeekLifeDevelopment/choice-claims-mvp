@@ -4,6 +4,7 @@ import { prisma } from '../prisma'
 import { buildReviewSummaryJobPayload } from '../queue/build-review-summary-job'
 import { enqueueReviewSummaryJob } from '../queue/enqueue-review-summary-job'
 import type { ReviewSummaryJobSource } from '../queue/job-payloads'
+import { isClaimLockedForProcessing } from './claim-lock'
 
 const REVIEW_SUMMARY_VERSION = 'sprint4-ticket5-v1'
 
@@ -18,6 +19,7 @@ export type ReviewSummaryStatus = (typeof REVIEW_SUMMARY_STATUS)[keyof typeof RE
 
 export type EnqueueReviewSummaryIneligibleReason =
   | 'not_found'
+  | 'locked_final_decision'
   | 'not_ready_for_ai'
   | 'missing_rule_evaluation'
   | 'already_queued'
@@ -40,6 +42,7 @@ export async function enqueueReviewSummaryForClaim(
     select: {
       id: true,
       claimNumber: true,
+      reviewDecision: true,
       status: true,
       reviewRuleEvaluatedAt: true,
       reviewSummaryStatus: true
@@ -51,6 +54,14 @@ export async function enqueueReviewSummaryForClaim(
       enqueued: false,
       claimId,
       reason: 'not_found'
+    }
+  }
+
+  if (isClaimLockedForProcessing(claim)) {
+    return {
+      enqueued: false,
+      claimId: claim.id,
+      reason: 'locked_final_decision'
     }
   }
 

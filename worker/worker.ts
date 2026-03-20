@@ -14,6 +14,7 @@ import { QUEUE_NAMES } from '../lib/queue/queue-names'
 import { processReviewSummaryJob } from '../lib/review/process-review-summary-job'
 import { enqueueReviewSummaryForClaim } from '../lib/review/enqueue-review-summary'
 import { evaluateAndStoreClaimRules } from '../lib/review/evaluate-and-store-claim-rules'
+import { isClaimLockedForProcessing } from '../lib/review/claim-lock'
 import {
   getAutoCheck429RetryDelayMs,
   isAutoCheckSandboxRateLimitMitigationEnabled,
@@ -155,6 +156,7 @@ async function run() {
         select: {
           id: true,
           claimNumber: true,
+          reviewDecision: true,
           status: true,
           source: true,
           vin: true
@@ -173,6 +175,23 @@ async function run() {
         })
 
         throw new Error(`Claim not found for claimId=${payload.claimId}`)
+      }
+
+      if (isClaimLockedForProcessing(claim)) {
+        log('vin lookup job skipped because claim is locked by final reviewer decision', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          reviewDecision: claim.reviewDecision
+        })
+
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'locked_final_decision'
+        }
       }
 
       await prisma.claim.update({
@@ -596,6 +615,7 @@ async function run() {
         select: {
           id: true,
           claimNumber: true,
+          reviewDecision: true,
           status: true,
           source: true,
           vin: true
@@ -603,6 +623,18 @@ async function run() {
       })
 
       if (!existingClaim) {
+        return
+      }
+
+      if (isClaimLockedForProcessing(existingClaim)) {
+        log('failed handler skipped status mutation because claim is locked by final reviewer decision', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job?.name,
+          jobId: job?.id,
+          claimId: existingClaim.id,
+          claimNumber: existingClaim.claimNumber,
+          reviewDecision: existingClaim.reviewDecision
+        })
         return
       }
 
@@ -718,6 +750,18 @@ async function run() {
 
         if (!result.ok) {
           logError('review summary job failed', {
+            queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: payload.claimId,
+            reason: result.reason
+          })
+
+          return result
+        }
+
+        if (result.status === 'skipped') {
+          log('review summary job skipped', {
             queueName: QUEUE_NAMES.REVIEW_SUMMARY,
             jobName: job.name,
             jobId: job.id,

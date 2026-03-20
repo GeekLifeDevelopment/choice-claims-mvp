@@ -155,6 +155,11 @@ Project purpose and scope
 	- reviewer decision changes now write `review_decision_changed` audit events
 	- audit metadata includes previous decision, new decision, notes, and reviewer
 	- decision-change audit entries are visible in claim detail audit logs
+- Sprint 5 Ticket 2 adds final decision lock behavior:
+	- `Approved` and `Denied` are treated as final reviewer decisions for processing lock purposes
+	- final decision lock blocks VIN retry, summary enqueue/regenerate, and worker processing for queued jobs
+	- lock is a workflow safety layer and does not alter existing status lifecycle semantics
+	- override mode is not implemented in this ticket
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 

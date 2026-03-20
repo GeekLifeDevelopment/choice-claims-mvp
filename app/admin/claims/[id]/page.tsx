@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ClaimStatus } from '../../../../lib/domain/claims'
 import { prisma } from '../../../../lib/prisma'
+import { isClaimLockedForProcessing } from '../../../../lib/review/claim-lock'
 
 export const dynamic = 'force-dynamic'
 
@@ -213,10 +214,18 @@ function getRetryBannerMessage(retryParam: string | undefined): string | null {
     return 'Retry failed: unable to enqueue VIN lookup job.'
   }
 
+  if (retryParam === 'locked_final_decision') {
+    return 'Retry blocked: this claim is locked by a final reviewer decision.'
+  }
+
   return null
 }
 
 function getRetryBannerClassName(retryParam: string | undefined): string {
+  if (retryParam === 'locked_final_decision') {
+    return 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'
+  }
+
   if (retryParam === 'queued') {
     return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
   }
@@ -343,6 +352,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const endpointErrors = getEndpointErrors(resolvedRawProviderPayload)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
+  const claimLockedForProcessing = isClaimLockedForProcessing(claim)
 
   return (
     <section className="card space-y-4">
@@ -364,6 +374,13 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       {reviewDecisionBannerMessage ? (
         <p className={getReviewDecisionBannerClassName(resolvedSearchParams.reviewDecision)}>
           {reviewDecisionBannerMessage}
+        </p>
+      ) : null}
+
+      {claimLockedForProcessing ? (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Claim is locked for processing because reviewer decision is final ({claim.reviewDecision}).
+          Retry/regenerate processing is blocked until override mode is added.
         </p>
       ) : null}
 
@@ -506,9 +523,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
             <button
               type="submit"
+              disabled={claimLockedForProcessing}
               className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
             >
-              Retry VIN Lookup
+              {claimLockedForProcessing ? 'Retry VIN Lookup (Locked)' : 'Retry VIN Lookup'}
             </button>
           </form>
         ) : null}
