@@ -37,6 +37,13 @@ model Claim {
   reviewRuleEvaluatedAt DateTime?
   reviewRuleVersion     String?
   reviewRuleLastError   String?
+  reviewSummaryStatus      String?
+  reviewSummaryEnqueuedAt  DateTime?
+  reviewSummaryGeneratedAt DateTime?
+  reviewSummaryText        String?
+  reviewSummaryLastError   String?
+  reviewSummaryJobId       String?
+  reviewSummaryVersion     String?
   submittedAt          DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

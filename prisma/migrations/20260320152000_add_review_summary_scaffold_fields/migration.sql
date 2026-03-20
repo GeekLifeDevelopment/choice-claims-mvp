@@ -1,0 +1,8 @@
+ALTER TABLE "Claim"
+ADD COLUMN IF NOT EXISTS "reviewSummaryStatus" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewSummaryEnqueuedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "reviewSummaryGeneratedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "reviewSummaryText" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewSummaryLastError" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewSummaryJobId" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewSummaryVersion" TEXT;
