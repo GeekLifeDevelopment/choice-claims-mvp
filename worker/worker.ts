@@ -9,8 +9,9 @@ import { ClaimStatus } from '../lib/domain/claims'
 import { prisma } from '../lib/prisma'
 import { getQueueRuntimeConfig } from '../lib/queue/config'
 import { JOB_NAMES } from '../lib/queue/job-names'
-import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
+import type { ReviewSummaryJobPayload, VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
+import { processReviewSummaryJob } from '../lib/review/process-review-summary-job'
 import { enqueueReviewSummaryForClaim } from '../lib/review/enqueue-review-summary'
 import { evaluateAndStoreClaimRules } from '../lib/review/evaluate-and-store-claim-rules'
 import {
@@ -678,12 +679,139 @@ async function run() {
     })
   })
 
+  log('starting', {
+    queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+    prefix
+  })
+
+  const reviewSummaryWorker = new Worker(
+    QUEUE_NAMES.REVIEW_SUMMARY,
+    async (job: Job) => {
+      log('review summary job start', {
+        queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+        jobName: job.name,
+        jobId: job.id,
+        payload: job.data,
+        attemptsMade: job.attemptsMade + 1,
+        attemptsAllowed: job.opts.attempts
+      })
+
+      if (job.name !== JOB_NAMES.GENERATE_REVIEW_SUMMARY) {
+        const message = `Unsupported job name: ${job.name}`
+
+        logError('review summary job failed', {
+          queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+          jobName: job.name,
+          jobId: job.id,
+          error: message
+        })
+
+        return {
+          ok: false,
+          error: message
+        }
+      }
+
+      try {
+        const payload = job.data as ReviewSummaryJobPayload
+        const result = await processReviewSummaryJob(payload.claimId)
+
+        if (!result.ok) {
+          logError('review summary job failed', {
+            queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: payload.claimId,
+            reason: result.reason
+          })
+
+          return result
+        }
+
+        log('review summary job success', {
+          queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: payload.claimId,
+          status: result.status
+        })
+
+        return result
+      } catch (error) {
+        const payload = job.data as Partial<ReviewSummaryJobPayload>
+        const claimId = typeof payload.claimId === 'string' ? payload.claimId : null
+        const errorMessage = error instanceof Error ? error.message : 'Unknown review summary worker error.'
+
+        if (claimId) {
+          try {
+            await prisma.claim.update({
+              where: { id: claimId },
+              data: {
+                reviewSummaryStatus: 'Failed',
+                reviewSummaryLastError: errorMessage
+              }
+            })
+          } catch (persistError) {
+            logError('review summary failure persistence failed', {
+              queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+              jobName: job.name,
+              jobId: job.id,
+              claimId,
+              error: persistError
+            })
+          }
+        }
+
+        logError('review summary job failed', {
+          queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+          jobName: job.name,
+          jobId: job.id,
+          claimId,
+          error: errorMessage
+        })
+
+        return {
+          ok: false,
+          error: errorMessage
+        }
+      }
+    },
+    {
+      connection,
+      prefix
+    }
+  )
+
+  reviewSummaryWorker.on('ready', () => {
+    log('connected to redis', {
+      queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+      prefix
+    })
+  })
+
+  reviewSummaryWorker.on('completed', (job) => {
+    log('job completed', {
+      queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+      jobName: job.name,
+      jobId: job.id
+    })
+  })
+
+  reviewSummaryWorker.on('failed', (job, error) => {
+    logError('job failed', {
+      queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+      jobName: job?.name,
+      jobId: job?.id,
+      error: error.message
+    })
+  })
+
   const shutdown = async (signal: string) => {
     log(`shutdown requested (${signal})`)
 
     try {
-      await worker.close()
-      log('worker closed')
+      await Promise.all([worker.close(), reviewSummaryWorker.close()])
+      log('workers closed')
       process.exit(0)
     } catch (error) {
       logError('worker close failed', error)
