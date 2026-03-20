@@ -11,6 +11,7 @@ import { getQueueRuntimeConfig } from '../lib/queue/config'
 import { JOB_NAMES } from '../lib/queue/job-names'
 import type { VinLookupJobPayload } from '../lib/queue/job-payloads'
 import { QUEUE_NAMES } from '../lib/queue/queue-names'
+import { evaluateAndStoreClaimRules } from '../lib/review/evaluate-and-store-claim-rules'
 import {
   getAutoCheck429RetryDelayMs,
   isAutoCheckSandboxRateLimitMitigationEnabled,
@@ -57,6 +58,34 @@ function asOptionalJsonField(
 
 function isRateLimitedProviderLookupError(error: unknown): boolean {
   return isProviderLookupError(error) && error.status === 429 && error.reason === 'http_429_rate_limited'
+}
+
+async function evaluateClaimRulesBestEffort(claimId: string, context: string): Promise<void> {
+  try {
+    const evaluation = await evaluateAndStoreClaimRules(claimId)
+
+    if (!evaluation) {
+      logError('rule evaluation skipped; claim not found', {
+        claimId,
+        context
+      })
+      return
+    }
+
+    log('rule evaluation persisted', {
+      claimId,
+      context,
+      evaluatedAt: evaluation.evaluatedAt,
+      flagCount: evaluation.result.flags.length,
+      error: evaluation.error
+    })
+  } catch (error) {
+    logError('rule evaluation failed', {
+      claimId,
+      context,
+      error
+    })
+  }
 }
 
 async function run() {
@@ -169,6 +198,8 @@ async function run() {
           attemptsMade,
           attemptsAllowed
         })
+
+        await evaluateClaimRulesBestEffort(claim.id, 'worker_missing_vin_failed')
 
         const failedAuditResult = await logVinDataFetchFailedAudit({
           claimId: claim.id,
@@ -295,6 +326,8 @@ async function run() {
           attemptsAllowed
         })
 
+        await evaluateClaimRulesBestEffort(claim.id, 'worker_provider_data_saved_ready_for_ai')
+
         const fetchedAuditResult = await logVinDataFetchedAudit({
           claimId: claim.id,
           claimNumber: claim.claimNumber,
@@ -399,6 +432,8 @@ async function run() {
             attemptsMade,
             attemptsAllowed
           })
+
+          await evaluateClaimRulesBestEffort(claim.id, 'worker_provider_lookup_failed')
         } catch (updateError) {
           logError('failed to persist claim failure state', {
             queueName: QUEUE_NAMES.VIN_DATA,
@@ -558,6 +593,8 @@ async function run() {
           vinLookupLastQueueName: QUEUE_NAMES.VIN_DATA
         }
       })
+
+      await evaluateClaimRulesBestEffort(existingClaim.id, 'worker_failed_handler_processing_error')
 
       const failedAuditResult = await logVinDataFetchFailedAudit({
         claimId: existingClaim.id,

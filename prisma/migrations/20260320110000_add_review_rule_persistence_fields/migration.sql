@@ -1,0 +1,5 @@
+ALTER TABLE "Claim"
+ADD COLUMN IF NOT EXISTS "reviewRuleFlags" JSONB,
+ADD COLUMN IF NOT EXISTS "reviewRuleEvaluatedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "reviewRuleVersion" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewRuleLastError" TEXT;

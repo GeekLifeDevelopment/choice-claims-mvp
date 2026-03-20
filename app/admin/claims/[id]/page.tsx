@@ -56,6 +56,33 @@ function getOptionalNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null
 }
 
+type PersistedRuleFlag = {
+  code: string
+  severity: string
+  message: string
+}
+
+function getPersistedRuleFlags(value: unknown): PersistedRuleFlag[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item) => {
+      const record = asRecord(item)
+      const code = getOptionalString(record.code)
+      const severity = getOptionalString(record.severity)
+      const message = getOptionalString(record.message)
+
+      if (!code || !severity || !message) {
+        return null
+      }
+
+      return { code, severity, message }
+    })
+    .filter((flag): flag is PersistedRuleFlag => Boolean(flag))
+}
+
 function getProviderSourceHint(normalized: Record<string, unknown>, raw: unknown): string | null {
   const rawRecord = asRecord(raw)
   const rawSource = getOptionalString(rawRecord.source)
@@ -201,6 +228,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       vinLookupLastJobId: true,
       vinLookupLastJobName: true,
       vinLookupLastQueueName: true,
+      reviewRuleFlags: true,
+      reviewRuleEvaluatedAt: true,
+      reviewRuleVersion: true,
+      reviewRuleLastError: true,
       rawSubmissionPayload: true,
       submittedAt: true,
       attachments: {
@@ -245,6 +276,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
   const endpointErrors = getEndpointErrors(resolvedRawProviderPayload)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
+  const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
 
   return (
     <section className="card space-y-4">
@@ -510,6 +542,62 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </table>
           </div>
         )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Review Rule Evaluation</h2>
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Last Evaluated At:</span>{' '}
+            {claim.reviewRuleEvaluatedAt ? formatDate(claim.reviewRuleEvaluatedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Rule Version:</span>{' '}
+            {claim.reviewRuleVersion || '—'}
+          </p>
+          <p className="sm:col-span-2">
+            <span className="font-medium text-slate-900">Last Error:</span>{' '}
+            <span className={claim.reviewRuleLastError ? 'font-medium text-red-700' : ''}>
+              {claim.reviewRuleLastError || '—'}
+            </span>
+          </p>
+        </div>
+
+        {persistedRuleFlags.length === 0 ? (
+          <p className="text-slate-600">No persisted rule flags yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-slate-600">
+                  <th className="py-2 pr-4 font-medium">Code</th>
+                  <th className="py-2 pr-4 font-medium">Severity</th>
+                  <th className="py-2 pr-4 font-medium">Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {persistedRuleFlags.map((flag) => (
+                  <tr key={`${flag.code}-${flag.message}`} className="border-b last:border-0 align-top">
+                    <td className="py-2 pr-4 font-medium text-slate-900">{flag.code}</td>
+                    <td className="py-2 pr-4 text-slate-700">{flag.severity}</td>
+                    <td className="py-2 pr-4 text-slate-700">{flag.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {claim.reviewRuleFlags ? (
+          <div className="space-y-2 pt-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+              Persisted Rule Flags JSON
+            </p>
+            <pre className="max-h-[16rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
+              {formatDebugJson(claim.reviewRuleFlags)}
+            </pre>
+          </div>
+        ) : null}
       </div>
 
       {claim.attachments.length === 0 ? (
