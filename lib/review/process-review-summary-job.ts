@@ -3,6 +3,7 @@ import { ClaimStatus } from '../domain/claims'
 import { prisma } from '../prisma'
 import { buildClaimEvaluationInput, type ClaimEvaluationInput } from './claim-evaluation-input'
 import { buildReviewSummaryPrompt } from './build-review-summary-prompt'
+import { isClaimLockedForProcessing } from './claim-lock'
 
 const REVIEW_SUMMARY_VERSION = 'v1'
 const DEFAULT_OPENAI_MODEL = process.env.REVIEW_SUMMARY_MODEL || 'gpt-4.1-mini'
@@ -19,6 +20,7 @@ const REVIEW_SUMMARY_CLAIM_SELECT = {
   id: true,
   claimNumber: true,
   status: true,
+  reviewDecision: true,
   vin: true,
   vinDataResult: true,
   reviewRuleFlags: true,
@@ -38,7 +40,7 @@ type ReviewSummaryClaim = Prisma.ClaimGetPayload<{ select: typeof REVIEW_SUMMARY
 export type ProcessReviewSummaryJobResult = {
   ok: boolean
   claimId: string
-  status: 'generated' | 'failed'
+  status: 'generated' | 'failed' | 'skipped'
   reason?: string
 }
 
@@ -213,6 +215,15 @@ export async function processReviewSummaryJob(claimId: string): Promise<ProcessR
       claimId,
       status: 'failed',
       reason: 'Claim not found for review summary job.'
+    }
+  }
+
+  if (isClaimLockedForProcessing(claim)) {
+    return {
+      ok: true,
+      claimId: claim.id,
+      status: 'skipped',
+      reason: 'locked_final_decision'
     }
   }
 

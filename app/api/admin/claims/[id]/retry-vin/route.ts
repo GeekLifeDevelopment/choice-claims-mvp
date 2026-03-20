@@ -4,6 +4,7 @@ import { ClaimStatus } from '../../../../../../lib/domain/claims'
 import { prisma } from '../../../../../../lib/prisma'
 import { buildVinLookupJobPayload } from '../../../../../../lib/queue/build-vin-lookup-job'
 import { enqueueVinLookupJob } from '../../../../../../lib/queue/enqueue-vin-lookup-job'
+import { isClaimLockedForProcessing } from '../../../../../../lib/review/claim-lock'
 import { evaluateAndStoreClaimRules } from '../../../../../../lib/review/evaluate-and-store-claim-rules'
 
 type RouteContext = {
@@ -55,6 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
       id: true,
       claimNumber: true,
       status: true,
+      reviewDecision: true,
       source: true,
       vin: true
     }
@@ -62,6 +64,12 @@ export async function POST(request: Request, context: RouteContext) {
 
   if (!claim) {
     return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'not-found'), { status: 303 })
+  }
+
+  if (isClaimLockedForProcessing(claim)) {
+    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'locked_final_decision'), {
+      status: 303
+    })
   }
 
   if (!RETRYABLE_STATUSES.has(claim.status)) {
