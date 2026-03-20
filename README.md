@@ -147,6 +147,10 @@ Project purpose and scope
 	- claims now store `reviewDecision`, `reviewDecisionSetAt`, `reviewDecisionNotes`, `reviewDecisionBy`, and `reviewDecisionVersion`
 	- reviewer decision is a separate reviewer workflow layer and does not change provider/async claim status
 	- reviewer decision and notes can be saved and updated from admin claim detail
+- Ticket 9 improves admin claims list as a reviewer queue:
+	- claims list supports server-side filtering by async status, reviewer decision, and summary status
+	- claims list supports reviewer-focused sorting (submitted, updated, evaluated, summarized)
+	- queue presets and compact columns are intended for internal reviewer workflow triage
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
