@@ -239,6 +239,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       reviewSummaryStatus: true,
       reviewSummaryEnqueuedAt: true,
       reviewSummaryGeneratedAt: true,
+      reviewSummaryText: true,
       reviewSummaryLastError: true,
       reviewSummaryJobId: true,
       reviewSummaryVersion: true,
@@ -640,6 +641,17 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </span>
           </p>
         </div>
+
+        {claim.reviewSummaryText ? (
+          <div className="space-y-2 pt-2">
+            <h3 className="text-base font-semibold text-slate-900">Review Summary</h3>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <pre className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                {claim.reviewSummaryText}
+              </pre>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {claim.attachments.length === 0 ? (
