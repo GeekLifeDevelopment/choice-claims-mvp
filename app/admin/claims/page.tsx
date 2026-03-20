@@ -64,6 +64,7 @@ const CLAIM_ROW_SELECT = {
   id: true,
   claimNumber: true,
   status: true,
+  reviewDecision: true,
   claimantName: true,
   vin: true,
   vinDataProvider: true,
@@ -166,6 +167,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
               <tr className="border-b text-left text-slate-600">
                 <th className="py-2 pr-4 font-medium">Claim #</th>
                 <th className="py-2 pr-4 font-medium">Async Status</th>
+                <th className="py-2 pr-4 font-medium">Review Decision</th>
                 <th className="py-2 pr-4 font-medium">Provider</th>
                 <th className="py-2 pr-4 font-medium">Fetched</th>
                 <th className="py-2 pr-4 font-medium">Provider Result</th>
@@ -219,6 +221,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
                     <td className="py-2 pr-4">
                       <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
                     </td>
+                    <td className="py-2 pr-4 text-slate-700">{claim.reviewDecision || '—'}</td>
                     <td className="py-2 pr-4">{claim.vinDataProvider || '—'}</td>
                     <td className="py-2 pr-4 text-slate-700">
                       {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}

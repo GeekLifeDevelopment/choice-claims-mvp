@@ -1,0 +1,6 @@
+ALTER TABLE "Claim"
+ADD COLUMN IF NOT EXISTS "reviewDecision" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewDecisionSetAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "reviewDecisionNotes" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewDecisionBy" TEXT,
+ADD COLUMN IF NOT EXISTS "reviewDecisionVersion" TEXT;

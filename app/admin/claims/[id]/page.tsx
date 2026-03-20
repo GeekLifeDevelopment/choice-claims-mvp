@@ -168,7 +168,7 @@ function getStatusBadgeClassName(status: string): string {
 
 type PageProps = {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ retry?: string }>
+  searchParams: Promise<{ retry?: string; reviewDecision?: string }>
 }
 
 function getRetryBannerMessage(retryParam: string | undefined): string | null {
@@ -203,10 +203,39 @@ function getRetryBannerClassName(retryParam: string | undefined): string {
   return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
+function getReviewDecisionBannerMessage(value: string | undefined): string | null {
+  if (value === 'saved') {
+    return 'Reviewer decision was saved successfully.'
+  }
+
+  if (value === 'invalid') {
+    return 'Save failed: review decision is invalid.'
+  }
+
+  if (value === 'not-found') {
+    return 'Save failed: claim was not found.'
+  }
+
+  if (value === 'error') {
+    return 'Save failed: unable to update reviewer decision.'
+  }
+
+  return null
+}
+
+function getReviewDecisionBannerClassName(value: string | undefined): string {
+  if (value === 'saved') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
+}
+
 export default async function AdminClaimDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
   const resolvedSearchParams = await searchParams
   const retryBannerMessage = getRetryBannerMessage(resolvedSearchParams.retry)
+  const reviewDecisionBannerMessage = getReviewDecisionBannerMessage(resolvedSearchParams.reviewDecision)
 
   const claim = await prisma.claim.findUnique({
     where: { id },
@@ -243,6 +272,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       reviewSummaryLastError: true,
       reviewSummaryJobId: true,
       reviewSummaryVersion: true,
+      reviewDecision: true,
+      reviewDecisionSetAt: true,
+      reviewDecisionNotes: true,
+      reviewDecisionBy: true,
+      reviewDecisionVersion: true,
       rawSubmissionPayload: true,
       submittedAt: true,
       attachments: {
@@ -304,6 +338,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       {retryBannerMessage ? (
         <p className={getRetryBannerClassName(resolvedSearchParams.retry)}>{retryBannerMessage}</p>
+      ) : null}
+
+      {reviewDecisionBannerMessage ? (
+        <p className={getReviewDecisionBannerClassName(resolvedSearchParams.reviewDecision)}>
+          {reviewDecisionBannerMessage}
+        </p>
       ) : null}
 
       <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
@@ -379,6 +419,64 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </table>
           </div>
         )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">Reviewer Decision</h2>
+
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Current Decision:</span>{' '}
+            {claim.reviewDecision || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Updated:</span>{' '}
+            {claim.reviewDecisionSetAt ? formatDate(claim.reviewDecisionSetAt) : '—'}
+          </p>
+          <p className="sm:col-span-2">
+            <span className="font-medium text-slate-900">Current Notes:</span>{' '}
+            {claim.reviewDecisionNotes || '—'}
+          </p>
+        </div>
+
+        <form
+          method="post"
+          action={`/api/admin/claims/${claim.id}/review-decision`}
+          className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm text-slate-700">
+              <span className="font-medium text-slate-900">Decision</span>
+              <select
+                name="decision"
+                defaultValue={claim.reviewDecision || 'NeedsReview'}
+                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+              >
+                <option value="NeedsReview">NeedsReview</option>
+                <option value="Approved">Approved</option>
+                <option value="Denied">Denied</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="block space-y-1 text-sm text-slate-700">
+            <span className="font-medium text-slate-900">Notes</span>
+            <textarea
+              name="notes"
+              defaultValue={claim.reviewDecisionNotes || ''}
+              rows={4}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+              placeholder="Add reviewer notes"
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
+          >
+            Save Reviewer Decision
+          </button>
+        </form>
       </div>
 
       <div className="space-y-2">
