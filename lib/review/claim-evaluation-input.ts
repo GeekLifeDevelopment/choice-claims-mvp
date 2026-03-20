@@ -41,7 +41,7 @@ function buildReadiness(snapshot: ClaimReviewSnapshot): ClaimEvaluationInput['re
 
 // Usage example for future pipeline tickets:
 // const input = await getClaimEvaluationInput(claimId)
-// runDeterministicRules(input)
+// runClaimRules(input)
 // generateAiSummary(input)
 export function buildClaimEvaluationInput(claim: ClaimReviewSnapshotInput): ClaimEvaluationInput {
   const snapshot = buildClaimReviewSnapshot(claim)
