@@ -151,6 +151,10 @@ Project purpose and scope
 	- claims list supports server-side filtering by async status, reviewer decision, and summary status
 	- claims list supports reviewer-focused sorting (submitted, updated, evaluated, summarized)
 	- queue presets and compact columns are intended for internal reviewer workflow triage
+- Sprint 5 Ticket 1 adds reviewer decision audit history:
+	- reviewer decision changes now write `review_decision_changed` audit events
+	- audit metadata includes previous decision, new decision, notes, and reviewer
+	- decision-change audit entries are visible in claim detail audit logs
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 

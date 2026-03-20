@@ -94,6 +94,15 @@ type LogVinDataFetchFailedInput = CommonAuditInput & {
   errorMessage?: string
 }
 
+type LogReviewDecisionChangedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  fromDecision?: string | null
+  toDecision: string
+  notes?: string | null
+  reviewer?: string | null
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -237,6 +246,22 @@ export async function logVinDataFetchFailedAudit(input: LogVinDataFetchFailedInp
       provider: input.provider,
       reason: input.reason,
       errorMessage: input.errorMessage
+    }
+  })
+}
+
+export async function logReviewDecisionChangedAudit(input: LogReviewDecisionChangedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'review_decision_changed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      fromDecision: input.fromDecision ?? null,
+      toDecision: input.toDecision,
+      notes: input.notes ?? null,
+      reviewer: input.reviewer ?? null
     }
   })
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { logReviewDecisionChangedAudit } from '../../../../../../lib/audit/intake-audit-log'
 import { prisma } from '../../../../../../lib/prisma'
 
 type RouteContext = {
@@ -30,7 +31,11 @@ export async function POST(request: Request, context: RouteContext) {
 
   const claim = await prisma.claim.findUnique({
     where: { id },
-    select: { id: true }
+    select: {
+      id: true,
+      claimNumber: true,
+      reviewDecision: true
+    }
   })
 
   if (!claim) {
@@ -38,14 +43,30 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        reviewDecision: decision,
-        reviewDecisionSetAt: new Date(),
-        reviewDecisionNotes: notes.length > 0 ? notes : null,
-        reviewDecisionBy: 'admin',
-        reviewDecisionVersion: REVIEW_DECISION_VERSION
+    const reviewer = 'admin'
+
+    await prisma.$transaction(async (tx) => {
+      await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          reviewDecision: decision,
+          reviewDecisionSetAt: new Date(),
+          reviewDecisionNotes: notes.length > 0 ? notes : null,
+          reviewDecisionBy: reviewer,
+          reviewDecisionVersion: REVIEW_DECISION_VERSION
+        }
+      })
+
+      if (claim.reviewDecision !== decision) {
+        await logReviewDecisionChangedAudit({
+          client: tx,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          fromDecision: claim.reviewDecision,
+          toDecision: decision,
+          notes,
+          reviewer
+        })
       }
     })
 
