@@ -44,6 +44,11 @@ model Claim {
   reviewSummaryLastError   String?
   reviewSummaryJobId       String?
   reviewSummaryVersion     String?
+  reviewDecision           String?
+  reviewDecisionSetAt      DateTime?
+  reviewDecisionNotes      String?
+  reviewDecisionBy         String?
+  reviewDecisionVersion    String?
   submittedAt          DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

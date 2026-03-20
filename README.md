@@ -143,6 +143,10 @@ Project purpose and scope
 	- Cognito file URLs are preserved as external references for now
 	- `storageKey` remains a placeholder for future app-managed ingestion (S3)
 	- files are not downloaded or migrated yet in this ticket
+- Ticket 8 adds reviewer decision workflow fields and admin controls:
+	- claims now store `reviewDecision`, `reviewDecisionSetAt`, `reviewDecisionNotes`, `reviewDecisionBy`, and `reviewDecisionVersion`
+	- reviewer decision is a separate reviewer workflow layer and does not change provider/async claim status
+	- reviewer decision and notes can be saved and updated from admin claim detail
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
