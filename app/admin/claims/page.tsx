@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { Prisma } from '@prisma/client'
 import { ClaimStatus } from '../../../lib/domain/claims'
 import { prisma } from '../../../lib/prisma'
 
@@ -59,6 +60,30 @@ type PageProps = {
   searchParams: Promise<{ status?: string }>
 }
 
+const CLAIM_ROW_SELECT = {
+  id: true,
+  claimNumber: true,
+  status: true,
+  claimantName: true,
+  vin: true,
+  vinDataProvider: true,
+  vinDataFetchedAt: true,
+  vinDataResult: true,
+  vinDataProviderResultCode: true,
+  vinDataProviderResultMessage: true,
+  vinLookupAttemptCount: true,
+  vinLookupLastError: true,
+  submittedAt: true,
+  attachments: {
+    select: {
+      id: true,
+      sourceUrl: true
+    }
+  }
+} satisfies Prisma.ClaimSelect
+
+type ClaimRow = Prisma.ClaimGetPayload<{ select: typeof CLAIM_ROW_SELECT }>
+
 export default async function AdminClaimsPage({ searchParams }: PageProps) {
   const resolvedSearchParams = await searchParams
   const requestedStatus = resolvedSearchParams.status
@@ -67,37 +92,30 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
       ? (requestedStatus as ClaimStatus)
       : 'all'
 
-  const claims = await prisma.claim.findMany({
-    where: selectedStatus === 'all' ? undefined : { status: selectedStatus },
-    orderBy: { submittedAt: 'desc' },
-    take: 25,
-    select: {
-      id: true,
-      claimNumber: true,
-      status: true,
-      claimantName: true,
-      vin: true,
-      vinDataProvider: true,
-      vinDataFetchedAt: true,
-      vinDataResult: true,
-      vinDataProviderResultCode: true,
-      vinDataProviderResultMessage: true,
-      vinLookupAttemptCount: true,
-      vinLookupLastError: true,
-      submittedAt: true,
-      attachments: {
-        select: {
-          id: true,
-          sourceUrl: true
-        }
-      }
-    }
-  })
+  let dbError: string | null = null
+  let claims: ClaimRow[] = []
 
-  console.info('[ADMIN_CLAIMS] loaded claims from prisma', {
-    count: claims.length,
-    claimNumbers: claims.slice(0, 5).map((claim) => claim.claimNumber)
-  })
+  try {
+    claims = await prisma.claim.findMany({
+      where: selectedStatus === 'all' ? undefined : { status: selectedStatus },
+      orderBy: { submittedAt: 'desc' },
+      take: 25,
+      select: CLAIM_ROW_SELECT
+    })
+
+    console.info('[ADMIN_CLAIMS] loaded claims from prisma', {
+      count: claims.length,
+      claimNumbers: claims.slice(0, 5).map((claim) => claim.claimNumber)
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown database error'
+    dbError = message
+
+    console.error('[ADMIN_CLAIMS] failed to load claims from prisma', {
+      selectedStatus,
+      message
+    })
+  }
 
   return (
     <section className="card">
@@ -131,9 +149,17 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
         ))}
       </div>
 
-      {claims.length === 0 ? (
+      {dbError ? (
+        <div className="mt-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          Unable to load claims right now because the database is not reachable.
+          <br />
+          <span className="text-red-700">Details: {dbError}</span>
+        </div>
+      ) : null}
+
+      {!dbError && claims.length === 0 ? (
         <p className="mt-4 text-slate-600">No claims submitted yet.</p>
-      ) : (
+      ) : !dbError ? (
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
@@ -226,7 +252,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
     </section>
   )
 }
