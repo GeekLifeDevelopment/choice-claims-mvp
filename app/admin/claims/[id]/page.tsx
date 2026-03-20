@@ -340,242 +340,23 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Raw Submission Data</h2>
-        {!claim.rawSubmissionPayload ? (
-          <p className="text-slate-600">Raw submission payload is not available for this claim.</p>
-        ) : (
+        <h2 className="text-lg font-semibold text-slate-900">Review Summary</h2>
+        {claim.reviewSummaryText ? (
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600">
-              Developer JSON Debug
-            </p>
-            <pre className="max-h-[28rem] overflow-auto text-xs leading-5 text-slate-800">
-              {formatDebugJson(claim.rawSubmissionPayload)}
+            <pre className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+              {claim.reviewSummaryText}
             </pre>
           </div>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
-        {claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError ? (
-          <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
-            <button
-              type="submit"
-              className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
-            >
-              Retry VIN Lookup
-            </button>
-          </form>
-        ) : null}
-        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-          <p>
-            <span className="font-medium text-slate-900">Async Status:</span>{' '}
-            <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Provider Endpoint:</span>{' '}
-            {providerEndpointHint || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Endpoints Attempted:</span>{' '}
-            {endpointAttempts.length > 0 ? endpointAttempts.join(', ') : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Optional Endpoint Failures:</span>{' '}
-            {endpointErrors.length > 0 ? String(endpointErrors.length) : '0'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Provider Source Hint:</span>{' '}
-            {providerSourceHint || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
-            {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Retry Requested At:</span>{' '}
-            {claim.vinLookupRetryRequestedAt ? formatDate(claim.vinLookupRetryRequestedAt) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">VIN Result Summary:</span>{' '}
-            {vinDataYear !== null || vinDataMake || vinDataModel
-              ? `${vinDataYear !== null ? `${vinDataYear} ` : ''}${vinDataMake ?? ''} ${vinDataModel ?? ''}`.trim()
-              : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Provider Result Code:</span>{' '}
-            {claim.vinDataProviderResultCode !== null ? String(claim.vinDataProviderResultCode) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Provider Result Message:</span>{' '}
-            {claim.vinDataProviderResultMessage || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Year:</span>{' '}
-            {vinDataYear !== null ? String(vinDataYear) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Make / Model:</span>{' '}
-            {vinDataMake || vinDataModel ? `${vinDataMake ?? '—'} / ${vinDataModel ?? '—'}` : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Run Attempt Count:</span>{' '}
-            {String(claim.vinLookupAttemptCount)}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Last Failed At:</span>{' '}
-            {claim.vinLookupLastFailedAt ? formatDate(claim.vinLookupLastFailedAt) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Last Error:</span>{' '}
-            <span className={claim.vinLookupLastError ? 'font-medium text-red-700' : ''}>
-              {claim.vinLookupLastError || '—'}
-            </span>
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Last Queue:</span>{' '}
-            {claim.vinLookupLastQueueName || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Last Job Name:</span>{' '}
-            {claim.vinLookupLastJobName || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Last Job ID:</span>{' '}
-            {claim.vinLookupLastJobId || '—'}
-          </p>
-        </div>
-
-        <div className="space-y-2 pt-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
-            Normalized Provider Result JSON
-          </p>
-          <p className="text-xs text-slate-500">
-            App-friendly normalized provider fields used for AI workflows and admin summaries.
-          </p>
-          {claim.vinDataResult ? (
-            <pre className="max-h-[20rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
-              {formatDebugJson(claim.vinDataResult)}
-            </pre>
-          ) : (
-            <p className="text-slate-600">No normalized provider data persisted yet.</p>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          {endpointErrors.length > 0 ? (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-800">
-                Optional Endpoint Failures
-              </p>
-              <ul className="space-y-1 text-xs text-amber-900">
-                {endpointErrors.map((entry) => (
-                  <li key={entry.endpoint}>
-                    <span className="font-medium">{entry.endpoint}:</span> {entry.message}
-                    {entry.status !== undefined ? ` (status ${entry.status})` : ''}
-                    {entry.reason ? ` [${entry.reason}]` : ''}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
-            Raw Provider Payload JSON
-          </p>
-          <p className="text-xs text-slate-500">
-            Original provider payload retained for sandbox/live debugging and issue triage.
-          </p>
-          {usingLegacyEmbeddedRawPayload ? (
-            <p className="text-xs text-amber-700">
-              Showing legacy embedded raw payload from normalized result.
-            </p>
-          ) : null}
-          {resolvedRawProviderPayload ? (
-            <pre className="max-h-[20rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
-              {formatDebugJson(resolvedRawProviderPayload)}
-            </pre>
-          ) : (
-            <p className="text-slate-600">No raw provider payload persisted yet.</p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Latest Async Audit Events</h2>
-        {asyncAuditLogs.length === 0 ? (
-          <p className="text-slate-600">No async-specific audit events yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-slate-600">
-                  <th className="py-2 pr-4 font-medium">Created</th>
-                  <th className="py-2 pr-4 font-medium">Action</th>
-                  <th className="py-2 pr-4 font-medium">Attempts</th>
-                  <th className="py-2 pr-4 font-medium">Provider</th>
-                  <th className="py-2 pr-4 font-medium">Error / Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {asyncAuditLogs.map((auditLog) => {
-                  const metadata = asRecord(auditLog.metadata)
-                  const attemptsMade = getOptionalNumber(metadata.attemptsMade)
-                  const attemptsAllowed = getOptionalNumber(metadata.attemptsAllowed)
-                  const provider = getOptionalString(metadata.provider)
-                  const errorMessage = getOptionalString(metadata.errorMessage)
-                  const reason = getOptionalString(metadata.reason)
-
-                  return (
-                    <tr key={auditLog.id} className="border-b last:border-0 align-top">
-                      <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
-                      <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
-                      <td className="py-2 pr-4 text-slate-700">
-                        {attemptsMade !== null && attemptsAllowed !== null
-                          ? `${attemptsMade}/${attemptsAllowed}`
-                          : '—'}
-                      </td>
-                      <td className="py-2 pr-4 text-slate-700">{provider || '—'}</td>
-                      <td className="py-2 pr-4 text-slate-700">
-                        {errorMessage ? (
-                          <span className="font-medium text-red-700">{errorMessage}</span>
-                        ) : (
-                          reason || '—'
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <p className="text-slate-600">No review summary yet.</p>
         )}
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Review Rule Evaluation</h2>
-        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-          <p>
-            <span className="font-medium text-slate-900">Last Evaluated At:</span>{' '}
-            {claim.reviewRuleEvaluatedAt ? formatDate(claim.reviewRuleEvaluatedAt) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Rule Version:</span>{' '}
-            {claim.reviewRuleVersion || '—'}
-          </p>
-          <p className="sm:col-span-2">
-            <span className="font-medium text-slate-900">Last Error:</span>{' '}
-            <span className={claim.reviewRuleLastError ? 'font-medium text-red-700' : ''}>
-              {claim.reviewRuleLastError || '—'}
-            </span>
-          </p>
-        </div>
+        <h2 className="text-lg font-semibold text-slate-900">Rule Flags</h2>
 
         {persistedRuleFlags.length === 0 ? (
-          <p className="text-slate-600">No persisted rule flags yet.</p>
+          <p className="text-slate-600">No rule flags</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -598,36 +379,103 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </table>
           </div>
         )}
-
-        {claim.reviewRuleFlags ? (
-          <div className="space-y-2 pt-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
-              Persisted Rule Flags JSON
-            </p>
-            <pre className="max-h-[16rem] overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800">
-              {formatDebugJson(claim.reviewRuleFlags)}
-            </pre>
-          </div>
-        ) : null}
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Review Summary Pipeline</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
+        {claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError ? (
+          <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
+            >
+              Retry VIN Lookup
+            </button>
+          </form>
+        ) : null}
+
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Year:</span>{' '}
+            {vinDataYear !== null ? String(vinDataYear) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Make:</span> {vinDataMake || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Model:</span> {vinDataModel || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Provider Endpoint:</span>{' '}
+            {providerEndpointHint || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
+            {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Attachments</h2>
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Attachment Count:</span> {claim.attachments.length}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Has Attachments:</span>{' '}
+            {claim.attachments.length > 0 ? 'Yes' : 'No'}
+          </p>
+        </div>
+
+        {claim.attachments.length === 0 ? (
+          <p className="text-slate-600">No attachments linked to this claim.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-slate-600">
+                  <th className="py-2 pr-4 font-medium">Filename</th>
+                  <th className="py-2 pr-4 font-medium">MIME Type</th>
+                  <th className="py-2 pr-4 font-medium">Size</th>
+                  <th className="py-2 pr-4 font-medium">Has File URL</th>
+                  <th className="py-2 pr-4 font-medium">External ID</th>
+                  <th className="py-2 pr-4 font-medium">Storage Key</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claim.attachments.map((attachment) => (
+                  <tr key={attachment.id} className="border-b last:border-0">
+                    <td className="py-2 pr-4 text-slate-900">{attachment.filename}</td>
+                    <td className="py-2 pr-4">{attachment.mimeType || '—'}</td>
+                    <td className="py-2 pr-4">{formatFileSize(attachment.fileSize)}</td>
+                    <td className="py-2 pr-4">{attachment.sourceUrl ? 'Yes' : 'No'}</td>
+                    <td className="py-2 pr-4">{attachment.externalId || '—'}</td>
+                    <td className="py-2 pr-4">{attachment.storageKey || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Pipeline Status</h2>
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Status:</span>{' '}
+            <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
+          </p>
           <p>
             <span className="font-medium text-slate-900">Summary Status:</span>{' '}
             {claim.reviewSummaryStatus || 'NotRequested'}
           </p>
           <p>
-            <span className="font-medium text-slate-900">Summary Version:</span>{' '}
-            {claim.reviewSummaryVersion || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Enqueued At:</span>{' '}
-            {claim.reviewSummaryEnqueuedAt ? formatDate(claim.reviewSummaryEnqueuedAt) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Generated At:</span>{' '}
+            <span className="font-medium text-slate-900">Summary Generated At:</span>{' '}
             {claim.reviewSummaryGeneratedAt ? formatDate(claim.reviewSummaryGeneratedAt) : '—'}
           </p>
           <p>
@@ -635,82 +483,235 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             {claim.reviewSummaryJobId || '—'}
           </p>
           <p>
-            <span className="font-medium text-slate-900">Last Error:</span>{' '}
-            <span className={claim.reviewSummaryLastError ? 'font-medium text-red-700' : ''}>
-              {claim.reviewSummaryLastError || '—'}
-            </span>
+            <span className="font-medium text-slate-900">Rule Evaluated At:</span>{' '}
+            {claim.reviewRuleEvaluatedAt ? formatDate(claim.reviewRuleEvaluatedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
+            {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Retry Requested At:</span>{' '}
+            {claim.vinLookupRetryRequestedAt ? formatDate(claim.vinLookupRetryRequestedAt) : '—'}
           </p>
         </div>
-
-        {claim.reviewSummaryText ? (
-          <div className="space-y-2 pt-2">
-            <h3 className="text-base font-semibold text-slate-900">Review Summary</h3>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <pre className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                {claim.reviewSummaryText}
-              </pre>
-            </div>
-          </div>
-        ) : null}
       </div>
 
-      {claim.attachments.length === 0 ? (
-        <p className="text-slate-600">No attachments linked to this claim.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-slate-600">
-                <th className="py-2 pr-4 font-medium">Filename</th>
-                <th className="py-2 pr-4 font-medium">MIME Type</th>
-                <th className="py-2 pr-4 font-medium">Size</th>
-                <th className="py-2 pr-4 font-medium">Has File URL</th>
-                <th className="py-2 pr-4 font-medium">External ID</th>
-                <th className="py-2 pr-4 font-medium">Storage Key</th>
-              </tr>
-            </thead>
-            <tbody>
-              {claim.attachments.map((attachment) => (
-                <tr key={attachment.id} className="border-b last:border-0">
-                  <td className="py-2 pr-4 text-slate-900">{attachment.filename}</td>
-                  <td className="py-2 pr-4">{attachment.mimeType || '—'}</td>
-                  <td className="py-2 pr-4">{formatFileSize(attachment.fileSize)}</td>
-                  <td className="py-2 pr-4">{attachment.sourceUrl ? 'Yes' : 'No'}</td>
-                  <td className="py-2 pr-4">{attachment.externalId || '—'}</td>
-                  <td className="py-2 pr-4">{attachment.storageKey || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Audit Logs</h2>
-        {claim.auditLogs.length === 0 ? (
-          <p className="text-slate-600">No audit logs linked to this claim yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-slate-600">
-                  <th className="py-2 pr-4 font-medium">Created</th>
-                  <th className="py-2 pr-4 font-medium">Action</th>
-                  <th className="py-2 pr-4 font-medium">Metadata</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claim.auditLogs.map((auditLog) => (
-                  <tr key={auditLog.id} className="border-b last:border-0 align-top">
-                    <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
-                    <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
-                    <td className="py-2 pr-4 text-slate-700">{formatMetadataPreview(auditLog.metadata)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <h2 className="text-lg font-semibold text-slate-900">Debug Data</h2>
+
+        <details className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-900">Raw Submission Data</summary>
+          <div className="mt-3">
+            {!claim.rawSubmissionPayload ? (
+              <p className="text-slate-600">Raw submission payload is not available for this claim.</p>
+            ) : (
+              <pre className="max-h-[28rem] overflow-auto text-xs leading-5 text-slate-800">
+                {formatDebugJson(claim.rawSubmissionPayload)}
+              </pre>
+            )}
           </div>
-        )}
+        </details>
+
+        <details className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-900">Provider JSON</summary>
+          <div className="mt-3 space-y-3">
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600">
+                Normalized Provider Result JSON
+              </p>
+              {claim.vinDataResult ? (
+                <pre className="max-h-[20rem] overflow-auto text-xs leading-5 text-slate-800">
+                  {formatDebugJson(claim.vinDataResult)}
+                </pre>
+              ) : (
+                <p className="text-slate-600">No normalized provider data persisted yet.</p>
+              )}
+            </div>
+
+            {endpointErrors.length > 0 ? (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-800">
+                  Optional Endpoint Failures
+                </p>
+                <ul className="space-y-1 text-xs text-amber-900">
+                  {endpointErrors.map((entry) => (
+                    <li key={entry.endpoint}>
+                      <span className="font-medium">{entry.endpoint}:</span> {entry.message}
+                      {entry.status !== undefined ? ` (status ${entry.status})` : ''}
+                      {entry.reason ? ` [${entry.reason}]` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div>
+              {usingLegacyEmbeddedRawPayload ? (
+                <p className="mb-2 text-xs text-amber-700">
+                  Showing legacy embedded raw payload from normalized result.
+                </p>
+              ) : null}
+              {resolvedRawProviderPayload ? (
+                <pre className="max-h-[20rem] overflow-auto text-xs leading-5 text-slate-800">
+                  {formatDebugJson(resolvedRawProviderPayload)}
+                </pre>
+              ) : (
+                <p className="text-slate-600">No raw provider payload persisted yet.</p>
+              )}
+            </div>
+          </div>
+        </details>
+
+        <details className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-900">Developer Debug</summary>
+          <div className="mt-3 space-y-4">
+            <div>
+              <p className="mb-2 text-sm font-medium text-slate-900">Latest Async Audit Events</p>
+              {asyncAuditLogs.length === 0 ? (
+                <p className="text-slate-600">No async-specific audit events yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-slate-600">
+                        <th className="py-2 pr-4 font-medium">Created</th>
+                        <th className="py-2 pr-4 font-medium">Action</th>
+                        <th className="py-2 pr-4 font-medium">Attempts</th>
+                        <th className="py-2 pr-4 font-medium">Provider</th>
+                        <th className="py-2 pr-4 font-medium">Error / Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {asyncAuditLogs.map((auditLog) => {
+                        const metadata = asRecord(auditLog.metadata)
+                        const attemptsMade = getOptionalNumber(metadata.attemptsMade)
+                        const attemptsAllowed = getOptionalNumber(metadata.attemptsAllowed)
+                        const provider = getOptionalString(metadata.provider)
+                        const errorMessage = getOptionalString(metadata.errorMessage)
+                        const reason = getOptionalString(metadata.reason)
+
+                        return (
+                          <tr key={auditLog.id} className="border-b last:border-0 align-top">
+                            <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
+                            <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
+                            <td className="py-2 pr-4 text-slate-700">
+                              {attemptsMade !== null && attemptsAllowed !== null
+                                ? `${attemptsMade}/${attemptsAllowed}`
+                                : '—'}
+                            </td>
+                            <td className="py-2 pr-4 text-slate-700">{provider || '—'}</td>
+                            <td className="py-2 pr-4 text-slate-700">
+                              {errorMessage ? (
+                                <span className="font-medium text-red-700">{errorMessage}</span>
+                              ) : (
+                                reason || '—'
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-medium text-slate-900">Audit Logs</p>
+              {claim.auditLogs.length === 0 ? (
+                <p className="text-slate-600">No audit logs linked to this claim yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-slate-600">
+                        <th className="py-2 pr-4 font-medium">Created</th>
+                        <th className="py-2 pr-4 font-medium">Action</th>
+                        <th className="py-2 pr-4 font-medium">Metadata</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {claim.auditLogs.map((auditLog) => (
+                        <tr key={auditLog.id} className="border-b last:border-0 align-top">
+                          <td className="py-2 pr-4 whitespace-nowrap">{formatDate(auditLog.createdAt)}</td>
+                          <td className="py-2 pr-4 text-slate-900">{auditLog.action}</td>
+                          <td className="py-2 pr-4 text-slate-700">{formatMetadataPreview(auditLog.metadata)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {claim.reviewRuleFlags ? (
+              <div>
+                <p className="mb-2 text-sm font-medium text-slate-900">Rule Flags JSON</p>
+                <pre className="max-h-[16rem] overflow-auto text-xs leading-5 text-slate-800">
+                  {formatDebugJson(claim.reviewRuleFlags)}
+                </pre>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Summary Version:</span>{' '}
+                {claim.reviewSummaryVersion || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Rule Version:</span>{' '}
+                {claim.reviewRuleVersion || '—'}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="font-medium text-slate-900">Rule Last Error:</span>{' '}
+                <span className={claim.reviewRuleLastError ? 'font-medium text-red-700' : ''}>
+                  {claim.reviewRuleLastError || '—'}
+                </span>
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Provider Source Hint:</span>{' '}
+                {providerSourceHint || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Endpoints Attempted:</span>{' '}
+                {endpointAttempts.length > 0 ? endpointAttempts.join(', ') : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Provider Result Code:</span>{' '}
+                {claim.vinDataProviderResultCode !== null ? String(claim.vinDataProviderResultCode) : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Provider Result Message:</span>{' '}
+                {claim.vinDataProviderResultMessage || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Run Attempt Count:</span>{' '}
+                {String(claim.vinLookupAttemptCount)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Last Failed At:</span>{' '}
+                {claim.vinLookupLastFailedAt ? formatDate(claim.vinLookupLastFailedAt) : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Last Queue:</span>{' '}
+                {claim.vinLookupLastQueueName || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Last Job Name:</span>{' '}
+                {claim.vinLookupLastJobName || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Last Job ID:</span>{' '}
+                {claim.vinLookupLastJobId || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Summary Enqueued At:</span>{' '}
+                {claim.reviewSummaryEnqueuedAt ? formatDate(claim.reviewSummaryEnqueuedAt) : '—'}
+              </p>
+            </div>
+          </div>
+        </details>
       </div>
     </section>
   )
