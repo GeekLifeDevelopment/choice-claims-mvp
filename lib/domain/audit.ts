@@ -4,6 +4,7 @@ export type AuditAction =
   | 'duplicate_replay_ignored'
   | 'vin_lookup_enqueued'
   | 'vin_lookup_requeued'
+  | 'review_summary_regenerate_queued'
   | 'vin_data_fetched'
   | 'vin_data_fetch_failed'
   | 'review_decision_changed'

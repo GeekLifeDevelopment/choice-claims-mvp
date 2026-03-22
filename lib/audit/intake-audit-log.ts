@@ -104,6 +104,19 @@ type LogReviewDecisionChangedInput = CommonAuditInput & {
   reviewer?: string | null
 }
 
+type LogReviewSummaryRegenerateQueuedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  queueName: string
+  jobName: string
+  jobId?: string
+  source: 'manual'
+  reason: 'manual_regenerate'
+  previousSummaryStatus: string
+  newSummaryStatus: string
+  reviewerDecision?: string
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -264,6 +277,26 @@ export async function logReviewDecisionChangedAudit(input: LogReviewDecisionChan
       toDecision: input.toDecision,
       notes: input.notes ?? null,
       reviewer: input.reviewer ?? null
+    }
+  })
+}
+
+export async function logReviewSummaryRegenerateQueuedAudit(input: LogReviewSummaryRegenerateQueuedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'review_summary_regenerate_queued',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      queueName: input.queueName,
+      jobName: input.jobName,
+      jobId: input.jobId,
+      source: input.source,
+      reason: input.reason,
+      previousSummaryStatus: input.previousSummaryStatus,
+      newSummaryStatus: input.newSummaryStatus,
+      reviewerDecision: input.reviewerDecision
     }
   })
 }

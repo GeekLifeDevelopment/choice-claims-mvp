@@ -166,6 +166,7 @@ function getEndpointErrors(raw: unknown): Array<{ endpoint: string; message: str
 const ASYNC_AUDIT_ACTIONS = new Set([
   'vin_lookup_enqueued',
   'vin_lookup_requeued',
+  'review_summary_regenerate_queued',
   'vin_data_fetched',
   'vin_data_fetch_failed'
 ])
@@ -190,7 +191,7 @@ function getStatusBadgeClassName(status: string): string {
 
 type PageProps = {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ retry?: string; reviewDecision?: string }>
+  searchParams: Promise<{ retry?: string; reviewDecision?: string; summaryRegenerate?: string }>
 }
 
 function getRetryBannerMessage(retryParam: string | undefined): string | null {
@@ -261,11 +262,87 @@ function getReviewDecisionBannerClassName(value: string | undefined): string {
   return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
+function getSummaryRegenerateBannerMessage(value: string | undefined): string | null {
+  if (value === 'queued') {
+    return 'Summary regeneration was queued successfully.'
+  }
+
+  if (value === 'not-found') {
+    return 'Summary regenerate failed: claim was not found.'
+  }
+
+  if (value === 'invalid-status') {
+    return 'Summary regenerate is only available when claim status is ReadyForAI.'
+  }
+
+  if (value === 'missing-rule-evaluation') {
+    return 'Summary regenerate blocked: rule evaluation is required first.'
+  }
+
+  if (value === 'already-queued') {
+    return 'Summary regenerate ignored: generation is already queued.'
+  }
+
+  if (value === 'enqueue-failed') {
+    return 'Summary regenerate failed: unable to enqueue summary job.'
+  }
+
+  if (value === 'locked_final_decision') {
+    return 'Summary regenerate blocked: this claim is locked by a final reviewer decision.'
+  }
+
+  if (value === 'error') {
+    return 'Summary regenerate failed unexpectedly.'
+  }
+
+  return null
+}
+
+function getSummaryRegenerateBannerClassName(value: string | undefined): string {
+  if (value === 'locked_final_decision') {
+    return 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'
+  }
+
+  if (value === 'queued') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
+}
+
+function getSummaryRegenerateDisabledReason(input: {
+  claimLockedForProcessing: boolean
+  status: string
+  reviewSummaryStatus: string | null
+  reviewRuleEvaluatedAt: Date | null
+}): string | null {
+  if (input.claimLockedForProcessing) {
+    return 'Claim locked by final decision'
+  }
+
+  if (input.status !== ClaimStatus.ReadyForAI) {
+    return 'Summary regenerate is available when status is ReadyForAI'
+  }
+
+  if (!input.reviewRuleEvaluatedAt) {
+    return 'Rule evaluation must be completed before summary regenerate'
+  }
+
+  if (input.reviewSummaryStatus === 'Queued') {
+    return 'Summary generation is already queued'
+  }
+
+  return null
+}
+
 export default async function AdminClaimDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
   const resolvedSearchParams = await searchParams
   const retryBannerMessage = getRetryBannerMessage(resolvedSearchParams.retry)
   const reviewDecisionBannerMessage = getReviewDecisionBannerMessage(resolvedSearchParams.reviewDecision)
+  const summaryRegenerateBannerMessage = getSummaryRegenerateBannerMessage(
+    resolvedSearchParams.summaryRegenerate
+  )
 
   const claim = await prisma.claim.findUnique({
     where: { id },
@@ -353,6 +430,13 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
   const claimLockedForProcessing = isClaimLockedForProcessing(claim)
+  const summaryRegenerateDisabledReason = getSummaryRegenerateDisabledReason({
+    claimLockedForProcessing,
+    status: claim.status,
+    reviewSummaryStatus: claim.reviewSummaryStatus,
+    reviewRuleEvaluatedAt: claim.reviewRuleEvaluatedAt
+  })
+  const canRegenerateSummary = summaryRegenerateDisabledReason === null
 
   return (
     <section className="card space-y-4">
@@ -374,6 +458,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       {reviewDecisionBannerMessage ? (
         <p className={getReviewDecisionBannerClassName(resolvedSearchParams.reviewDecision)}>
           {reviewDecisionBannerMessage}
+        </p>
+      ) : null}
+
+      {summaryRegenerateBannerMessage ? (
+        <p className={getSummaryRegenerateBannerClassName(resolvedSearchParams.summaryRegenerate)}>
+          {summaryRegenerateBannerMessage}
         </p>
       ) : null}
 
@@ -417,7 +507,23 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Review Summary</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">Review Summary</h2>
+          <form method="post" action={`/api/admin/claims/${claim.id}/regenerate-summary`}>
+            <button
+              type="submit"
+              disabled={!canRegenerateSummary}
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Regenerate Summary
+            </button>
+          </form>
+        </div>
+
+        {!canRegenerateSummary && summaryRegenerateDisabledReason ? (
+          <p className="text-sm text-amber-900">{summaryRegenerateDisabledReason}</p>
+        ) : null}
+
         {claim.reviewSummaryText ? (
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
             <pre className="whitespace-pre-wrap text-sm leading-6 text-slate-800">

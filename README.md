@@ -165,6 +165,10 @@ Project purpose and scope
 	- retry is blocked when claim is locked by final reviewer decision (`Approved`/`Denied`)
 	- retry uses existing VIN enqueue flow, records `vin_lookup_requeued`, and avoids stale double-submit retries
 	- packaged verification command: `npm run test:s5-ticket3` (expects local app server; worker check expects `npm run worker` running)
+- Sprint 5 Ticket 4 adds manual summary regenerate from claim detail:
+	- admin claim detail includes a `Regenerate Summary` action
+	- regenerate is blocked when claim is locked by final reviewer decision (`Approved`/`Denied`)
+	- regenerate reuses existing review summary enqueue flow, adds duplicate-click guard, and records `review_summary_regenerate_queued`
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
