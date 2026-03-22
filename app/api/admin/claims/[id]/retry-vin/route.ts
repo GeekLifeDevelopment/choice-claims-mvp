@@ -5,7 +5,6 @@ import { prisma } from '../../../../../../lib/prisma'
 import { buildVinLookupJobPayload } from '../../../../../../lib/queue/build-vin-lookup-job'
 import { enqueueVinLookupJob } from '../../../../../../lib/queue/enqueue-vin-lookup-job'
 import { isClaimLockedForProcessing } from '../../../../../../lib/review/claim-lock'
-import { evaluateAndStoreClaimRules } from '../../../../../../lib/review/evaluate-and-store-claim-rules'
 
 type RouteContext = {
   params: Promise<{ id: string }>
@@ -17,34 +16,6 @@ function buildClaimDetailUrl(requestUrl: string, claimId: string, retry: string)
   const url = new URL(`/admin/claims/${claimId}`, requestUrl)
   url.searchParams.set('retry', retry)
   return url
-}
-
-async function evaluateClaimRulesBestEffort(claimId: string, context: string): Promise<void> {
-  try {
-    const evaluation = await evaluateAndStoreClaimRules(claimId)
-
-    if (!evaluation) {
-      console.error('[ADMIN_RETRY] rule evaluation skipped; claim not found', {
-        claimId,
-        context
-      })
-      return
-    }
-
-    console.info('[ADMIN_RETRY] rule evaluation persisted', {
-      claimId,
-      context,
-      evaluatedAt: evaluation.evaluatedAt,
-      flagCount: evaluation.result.flags.length,
-      error: evaluation.error
-    })
-  } catch (error) {
-    console.error('[ADMIN_RETRY] rule evaluation failed', {
-      claimId,
-      context,
-      error
-    })
-  }
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -67,12 +38,25 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   if (isClaimLockedForProcessing(claim)) {
+    console.warn('[ADMIN_RETRY] blocked by final decision lock', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      reason: 'locked_final_decision',
+      reviewDecision: claim.reviewDecision
+    })
+
     return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'locked_final_decision'), {
       status: 303
     })
   }
 
   if (!RETRYABLE_STATUSES.has(claim.status)) {
+    console.warn('[ADMIN_RETRY] blocked by non-retryable status', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      status: claim.status
+    })
+
     return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'invalid-status'), {
       status: 303
     })
@@ -106,8 +90,6 @@ export async function POST(request: Request, context: RouteContext) {
     })
   }
 
-  await evaluateClaimRulesBestEffort(claim.id, 'admin_retry_status_reset')
-
   try {
     const payload = buildVinLookupJobPayload({
       claimId: claim.id,
@@ -127,14 +109,13 @@ export async function POST(request: Request, context: RouteContext) {
       }
     })
 
-    await evaluateClaimRulesBestEffort(claim.id, 'admin_retry_enqueued')
-
     await logVinLookupRequeuedAudit({
       claimId: claim.id,
       claimNumber: claim.claimNumber,
       previousStatus,
       newStatus: ClaimStatus.AwaitingVinData,
       reason: 'manual_retry',
+      reviewerDecision: claim.reviewDecision ?? undefined,
       queueName: enqueued.queueName,
       jobName: enqueued.jobName,
       jobId: enqueued.jobId,
@@ -163,8 +144,6 @@ export async function POST(request: Request, context: RouteContext) {
         vinLookupLastFailedAt: new Date()
       }
     })
-
-    await evaluateClaimRulesBestEffort(claim.id, 'admin_retry_enqueue_failed_restored')
 
     console.error('[ADMIN_RETRY] failed to re-enqueue VIN lookup', {
       claimId: claim.id,

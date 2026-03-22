@@ -379,8 +379,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       {claimLockedForProcessing ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Claim is locked for processing because reviewer decision is final ({claim.reviewDecision}).
-          Retry/regenerate processing is blocked until override mode is added.
+          Claim locked by final decision ({claim.reviewDecision}).
         </p>
       ) : null}
 
@@ -519,16 +518,21 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
-        {claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError ? (
+        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
+        !claimLockedForProcessing ? (
           <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
             <button
               type="submit"
-              disabled={claimLockedForProcessing}
               className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
             >
-              {claimLockedForProcessing ? 'Retry VIN Lookup (Locked)' : 'Retry VIN Lookup'}
+              Retry VIN lookup
             </button>
           </form>
+        ) : null}
+
+        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
+        claimLockedForProcessing ? (
+          <p className="text-sm text-amber-900">Claim locked by final decision</p>
         ) : null}
 
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">

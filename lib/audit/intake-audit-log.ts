@@ -61,6 +61,7 @@ type LogVinLookupRequeuedInput = CommonAuditInput & {
   previousStatus: string
   newStatus: string
   reason: 'manual_retry'
+  reviewerDecision?: string
 }
 
 type LogVinDataFetchedInput = CommonAuditInput & {
@@ -200,7 +201,8 @@ export async function logVinLookupRequeuedAudit(input: LogVinLookupRequeuedInput
       vin: input.vin,
       previousStatus: input.previousStatus,
       newStatus: input.newStatus,
-      reason: input.reason
+      reason: input.reason,
+      reviewerDecision: input.reviewerDecision
     }
   })
 }
