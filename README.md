@@ -160,6 +160,11 @@ Project purpose and scope
 	- final decision lock blocks VIN retry, summary enqueue/regenerate, and worker processing for queued jobs
 	- lock is a workflow safety layer and does not alter existing status lifecycle semantics
 	- override mode is not implemented in this ticket
+- Sprint 5 Ticket 3 adds manual VIN retry from claim detail:
+	- admin claim detail includes a manual `Retry VIN lookup` action for `ProviderFailed` and `ProcessingError`
+	- retry is blocked when claim is locked by final reviewer decision (`Approved`/`Denied`)
+	- retry uses existing VIN enqueue flow, records `vin_lookup_requeued`, and avoids stale double-submit retries
+	- packaged verification command: `npm run test:s5-ticket3` (expects local app server; worker check expects `npm run worker` running)
 - Business logic, webhook intake, claims processing, and authentication are intentionally
   deferred to later tickets.
 
