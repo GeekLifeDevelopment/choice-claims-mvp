@@ -1,15 +1,9 @@
-import { getProviderTimeoutMs } from './config'
+import { getProviderTimeoutMs, getVinSpecFallbackBaseUrl } from './config'
+import { logProviderHealth } from './provider-health-log'
 import type { VinSpecFallbackResult } from './types'
-
-const DEFAULT_VIN_SPEC_FALLBACK_BASE_URL = 'https://vpic.nhtsa.dot.gov/api/vehicles'
 
 type VinSpecFallbackApiResponse = {
   Results?: unknown[]
-}
-
-function getVinSpecFallbackBaseUrl(): string {
-  const configured = process.env.VIN_SPEC_FALLBACK_API_URL?.trim()
-  return configured || DEFAULT_VIN_SPEC_FALLBACK_BASE_URL
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -79,6 +73,15 @@ export class VinSpecFallbackProvider {
   readonly name = 'nhtsa_vpic' as const
 
   async lookupVinSpecs(vin: string): Promise<VinSpecFallbackResult | null> {
+    logProviderHealth({
+      provider: this.name,
+      capability: 'vin_spec_fallback',
+      event: 'configured',
+      mode: 'live',
+      vin,
+      source: 'nhtsa_vpic'
+    })
+
     const timeoutMs = getProviderTimeoutMs()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -93,12 +96,57 @@ export class VinSpecFallbackProvider {
       })
 
       if (!response.ok) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_spec_fallback',
+          event: 'live_failure',
+          mode: 'failed',
+          vin,
+          status: response.status,
+          reason: 'http_error'
+        })
+
         throw new Error(`VIN spec fallback request failed (${response.status})`)
       }
 
       const payload = (await response.json()) as VinSpecFallbackApiResponse
       const firstResult = Array.isArray(payload.Results) ? payload.Results[0] : null
-      return buildFallbackResult(firstResult)
+      const result = buildFallbackResult(firstResult)
+
+      if (!result) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_spec_fallback',
+          event: 'capability_unavailable',
+          mode: 'unavailable',
+          vin,
+          reason: 'no_useful_specs'
+        })
+      } else {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_spec_fallback',
+          event: 'live_success',
+          mode: 'live',
+          vin,
+          source: result.source
+        })
+      }
+
+      return result
+    } catch (error) {
+      if (error instanceof Error && /aborted|timeout/i.test(error.message)) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_spec_fallback',
+          event: 'live_failure',
+          mode: 'failed',
+          vin,
+          reason: 'provider_timeout'
+        })
+      }
+
+      throw error
     } finally {
       clearTimeout(timeout)
     }

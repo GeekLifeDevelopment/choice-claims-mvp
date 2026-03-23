@@ -1,31 +1,8 @@
-import { getProviderTimeoutMs } from './config'
+import { getProviderTimeoutMs, getTitleHistoryProviderConfig } from './config'
+import { logProviderHealth } from './provider-health-log'
 import type { TitleHistoryEvent, TitleHistoryResult } from './types'
 
-const DEFAULT_MARKETCHECK_BASE_URL = 'https://api.marketcheck.com'
-const DEFAULT_MARKETCHECK_GENERATE_PATH = '/v2/vindata/aamva/report/generate'
-const DEFAULT_MARKETCHECK_ACCESS_PATH = '/v2/vindata/aamva/report/{reportId}'
-
 type TitleHistoryApiResponse = Record<string, unknown>
-
-function getMarketCheckApiKey(): string | null {
-  return process.env.MARKETCHECK_API_KEY?.trim() || null
-}
-
-function getMarketCheckApiSecret(): string | null {
-  return process.env.MARKETCHECK_API_SECRET?.trim() || null
-}
-
-function getMarketCheckBaseUrl(): string {
-  return process.env.MARKETCHECK_BASE_URL?.trim() || DEFAULT_MARKETCHECK_BASE_URL
-}
-
-function getMarketCheckGeneratePath(): string {
-  return process.env.MARKETCHECK_TITLE_HISTORY_GENERATE_PATH?.trim() || DEFAULT_MARKETCHECK_GENERATE_PATH
-}
-
-function getMarketCheckAccessPath(): string {
-  return process.env.MARKETCHECK_TITLE_HISTORY_ACCESS_PATH?.trim() || DEFAULT_MARKETCHECK_ACCESS_PATH
-}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -477,16 +454,35 @@ async function parseJsonSafe(response: Response): Promise<TitleHistoryApiRespons
 
 export class TitleHistoryProvider {
   async lookupTitleHistory(vin: string): Promise<TitleHistoryResult> {
-    const apiKey = getMarketCheckApiKey()
-    const apiSecret = getMarketCheckApiSecret()
+    const config = getTitleHistoryProviderConfig()
+    const apiKey = config.apiKey
+    const apiSecret = config.apiSecret
 
     if (!apiKey) {
+      logProviderHealth({
+        provider: 'marketcheck',
+        capability: 'title_history',
+        event: 'unconfigured',
+        mode: 'unconfigured',
+        vin,
+        reason: 'missing_marketcheck_api_key'
+      })
+
       return buildStubResult(vin)
     }
 
-    const baseUrl = getMarketCheckBaseUrl()
-    const generatePath = getMarketCheckGeneratePath()
-    const accessPath = getMarketCheckAccessPath()
+    const baseUrl = config.baseUrl
+    const generatePath = config.generatePath
+    const accessPath = config.accessPath
+
+    logProviderHealth({
+      provider: 'marketcheck',
+      capability: 'title_history',
+      event: 'configured',
+      mode: 'live',
+      vin,
+      source: 'nmvtis'
+    })
 
     const timeoutMs = getProviderTimeoutMs()
     const controller = new AbortController()
@@ -504,6 +500,16 @@ export class TitleHistoryProvider {
 
       if (!generateResponse.ok) {
         const reason = normalizeHttpErrorReason(generateResponse.status)
+        logProviderHealth({
+          provider: 'marketcheck',
+          capability: 'title_history',
+          event: 'live_failure',
+          mode: 'failed',
+          vin,
+          status: generateResponse.status,
+          reason
+        })
+
         return {
           ...buildStubResult(vin),
           message: `MarketCheck title report generation failed (${generateResponse.status}, ${reason}).`
@@ -511,12 +517,31 @@ export class TitleHistoryProvider {
       }
 
       if (generatePayload && hasReportLikePayload(generatePayload)) {
-        return normalizeLivePayload(generatePayload)
+        const result = normalizeLivePayload(generatePayload)
+        logProviderHealth({
+          provider: 'marketcheck',
+          capability: 'title_history',
+          event: 'live_success',
+          mode: 'live',
+          vin,
+          source: result.source
+        })
+
+        return result
       }
 
       const reportId = generatePayload ? extractReportId(generatePayload) : null
 
       if (!reportId) {
+        logProviderHealth({
+          provider: 'marketcheck',
+          capability: 'title_history',
+          event: 'capability_unavailable',
+          mode: 'unavailable',
+          vin,
+          reason: 'missing_report_id'
+        })
+
         return {
           ...buildStubResult(vin),
           message: 'MarketCheck title report generation succeeded but no report id was returned.'
@@ -533,14 +558,43 @@ export class TitleHistoryProvider {
 
       if (!accessResponse.ok || !accessPayload) {
         const reason = normalizeHttpErrorReason(accessResponse.status)
+        logProviderHealth({
+          provider: 'marketcheck',
+          capability: 'title_history',
+          event: 'live_failure',
+          mode: 'failed',
+          vin,
+          status: accessResponse.status,
+          reason
+        })
+
         return {
           ...buildStubResult(vin),
           message: `MarketCheck title report access failed (${accessResponse.status}, ${reason}).`
         }
       }
 
-      return normalizeLivePayload(accessPayload)
+      const result = normalizeLivePayload(accessPayload)
+      logProviderHealth({
+        provider: 'marketcheck',
+        capability: 'title_history',
+        event: 'live_success',
+        mode: 'live',
+        vin,
+        source: result.source
+      })
+
+      return result
     } catch {
+      logProviderHealth({
+        provider: 'marketcheck',
+        capability: 'title_history',
+        event: 'live_failure',
+        mode: 'failed',
+        vin,
+        reason: 'request_exception'
+      })
+
       return {
         ...buildStubResult(vin),
         message: 'MarketCheck title history lookup request failed.'

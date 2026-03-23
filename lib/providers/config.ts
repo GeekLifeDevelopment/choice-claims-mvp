@@ -1,4 +1,10 @@
 export const DEFAULT_VIN_PROVIDER_TIMEOUT_MS = 10_000
+export const DEFAULT_MARKETCHECK_BASE_URL = 'https://api.marketcheck.com'
+export const DEFAULT_MARKETCHECK_DECODE_BASE_URL = 'https://api.marketcheck.com/v2/decode/car'
+export const DEFAULT_MARKETCHECK_TITLE_HISTORY_GENERATE_PATH = '/v2/vindata/aamva/report/generate'
+export const DEFAULT_MARKETCHECK_TITLE_HISTORY_ACCESS_PATH = '/v2/vindata/aamva/report/{reportId}'
+export const DEFAULT_NHTSA_RECALLS_BASE_URL = 'https://api.nhtsa.gov'
+export const DEFAULT_VIN_SPEC_FALLBACK_BASE_URL = 'https://vpic.nhtsa.dot.gov/api/vehicles'
 
 export type ProviderCredentialConfig = {
   apiKey: string | null
@@ -10,6 +16,32 @@ export type ProviderConfigStatus = {
   autoCheckConfigured: boolean
   experianOAuthConfigured: boolean
   marketCheckConfigured: boolean
+  titleHistoryConfigured: boolean
+  serviceHistoryConfigured: boolean
+}
+
+export type MarketCheckRuntimeConfig = {
+  apiKey: string | null
+  apiSecret: string | null
+  baseUrl: string
+  decodeApiUrl: string
+}
+
+export type TitleHistoryProviderConfig = {
+  apiKey: string | null
+  apiSecret: string | null
+  baseUrl: string
+  generatePath: string
+  accessPath: string
+}
+
+export type ServiceHistoryProviderConfig = {
+  apiUrl: string | null
+  apiKey: string | null
+  marketCheckPath: string | null
+  marketCheckApiKey: string | null
+  marketCheckApiSecret: string | null
+  marketCheckBaseUrl: string
 }
 
 export type ExperianOAuthConfig = {
@@ -33,6 +65,10 @@ const DEFAULT_EXPERIAN_TOKEN_PATH = '/oauth2/v1/token'
 function readOptionalEnv(name: string): string | null {
   const value = process.env[name]?.trim()
   return value ? value : null
+}
+
+export function getOptionalEnv(name: string): string | null {
+  return readOptionalEnv(name)
 }
 
 function parseProviderTimeoutMs(rawValue: string | null): number {
@@ -101,6 +137,51 @@ export function getMarketCheckConfig(): ProviderCredentialConfig {
   }
 }
 
+export function getMarketCheckRuntimeConfig(): MarketCheckRuntimeConfig {
+  const marketCheck = getMarketCheckConfig()
+
+  return {
+    apiKey: marketCheck.apiKey,
+    apiSecret: readOptionalEnv('MARKETCHECK_API_SECRET'),
+    baseUrl: readOptionalEnv('MARKETCHECK_BASE_URL') || DEFAULT_MARKETCHECK_BASE_URL,
+    decodeApiUrl: marketCheck.apiUrl || DEFAULT_MARKETCHECK_DECODE_BASE_URL
+  }
+}
+
+export function getTitleHistoryProviderConfig(): TitleHistoryProviderConfig {
+  const marketCheck = getMarketCheckRuntimeConfig()
+
+  return {
+    apiKey: marketCheck.apiKey,
+    apiSecret: marketCheck.apiSecret,
+    baseUrl: marketCheck.baseUrl,
+    generatePath:
+      readOptionalEnv('MARKETCHECK_TITLE_HISTORY_GENERATE_PATH') || DEFAULT_MARKETCHECK_TITLE_HISTORY_GENERATE_PATH,
+    accessPath: readOptionalEnv('MARKETCHECK_TITLE_HISTORY_ACCESS_PATH') || DEFAULT_MARKETCHECK_TITLE_HISTORY_ACCESS_PATH
+  }
+}
+
+export function getServiceHistoryProviderConfig(): ServiceHistoryProviderConfig {
+  const marketCheck = getMarketCheckRuntimeConfig()
+
+  return {
+    apiUrl: readOptionalEnv('SERVICE_HISTORY_API_URL'),
+    apiKey: readOptionalEnv('SERVICE_HISTORY_API_KEY'),
+    marketCheckPath: readOptionalEnv('MARKETCHECK_SERVICE_HISTORY_PATH'),
+    marketCheckApiKey: marketCheck.apiKey,
+    marketCheckApiSecret: marketCheck.apiSecret,
+    marketCheckBaseUrl: marketCheck.baseUrl
+  }
+}
+
+export function getNhtsaRecallsBaseUrl(): string {
+  return readOptionalEnv('NHTSA_RECALLS_API_URL') || DEFAULT_NHTSA_RECALLS_BASE_URL
+}
+
+export function getVinSpecFallbackBaseUrl(): string {
+  return readOptionalEnv('VIN_SPEC_FALLBACK_API_URL') || DEFAULT_VIN_SPEC_FALLBACK_BASE_URL
+}
+
 export function getProviderTimeoutMs(): number {
   return parseProviderTimeoutMs(readOptionalEnv('VIN_PROVIDER_TIMEOUT_MS'))
 }
@@ -154,12 +235,24 @@ export function hasExperianOAuthConfig(): boolean {
   )
 }
 
+export function hasTitleHistoryProviderConfig(): boolean {
+  const config = getTitleHistoryProviderConfig()
+  return Boolean(config.apiKey)
+}
+
+export function hasServiceHistoryProviderConfig(): boolean {
+  const config = getServiceHistoryProviderConfig()
+  return Boolean(config.apiUrl || (config.marketCheckPath && config.marketCheckApiKey))
+}
+
 // Safe for logs: contains only booleans, never secret values.
 export function getProviderConfigStatus(): ProviderConfigStatus {
   return {
     carfaxConfigured: hasCarfaxProviderConfig(),
     autoCheckConfigured: hasAutoCheckProviderConfig(),
     experianOAuthConfigured: hasExperianOAuthConfig(),
-    marketCheckConfigured: hasMarketCheckProviderConfig()
+    marketCheckConfigured: hasMarketCheckProviderConfig(),
+    titleHistoryConfigured: hasTitleHistoryProviderConfig(),
+    serviceHistoryConfigured: hasServiceHistoryProviderConfig()
   }
 }
