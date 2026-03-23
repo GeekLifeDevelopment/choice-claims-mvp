@@ -2,6 +2,7 @@ import { AutoCheckProviderStub } from './autocheck-provider-stub'
 import { AutoCheckProviderLive } from './autocheck-provider-live'
 import { CarfaxProviderStub } from './carfax-provider-stub'
 import { hasExperianOAuthConfig } from './config'
+import { MarketCheckProviderLive } from './marketcheck-provider-live'
 import type { VinDataProvider } from './provider-interface'
 import type { VinProviderName } from './types'
 
@@ -12,6 +13,10 @@ function normalizeProviderName(value: string | undefined): VinProviderName {
 
   if (normalized === 'autocheck') {
     return 'autocheck'
+  }
+
+  if (normalized === 'marketcheck') {
+    return 'marketcheck'
   }
 
   return DEFAULT_PROVIDER
@@ -26,6 +31,10 @@ export function getVinDataProvider(providerName?: string): VinDataProvider {
     }
 
     return new AutoCheckProviderStub()
+  }
+
+  if (requestedProvider === 'marketcheck') {
+    return new MarketCheckProviderLive()
   }
 
   return new CarfaxProviderStub()

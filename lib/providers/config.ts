@@ -9,6 +9,7 @@ export type ProviderConfigStatus = {
   carfaxConfigured: boolean
   autoCheckConfigured: boolean
   experianOAuthConfigured: boolean
+  marketCheckConfigured: boolean
 }
 
 export type ExperianOAuthConfig = {
@@ -93,6 +94,13 @@ export function getAutoCheckConfig(): ProviderCredentialConfig {
   }
 }
 
+export function getMarketCheckConfig(): ProviderCredentialConfig {
+  return {
+    apiKey: readOptionalEnv('MARKETCHECK_API_KEY'),
+    apiUrl: readOptionalEnv('MARKETCHECK_API_URL')
+  }
+}
+
 export function getProviderTimeoutMs(): number {
   return parseProviderTimeoutMs(readOptionalEnv('VIN_PROVIDER_TIMEOUT_MS'))
 }
@@ -128,6 +136,11 @@ export function hasAutoCheckProviderConfig(): boolean {
   return Boolean(config.apiKey && config.apiUrl)
 }
 
+export function hasMarketCheckProviderConfig(): boolean {
+  const config = getMarketCheckConfig()
+  return Boolean(config.apiKey && config.apiUrl)
+}
+
 export function hasExperianOAuthConfig(): boolean {
   const config = getExperianOAuthConfig()
 
@@ -146,6 +159,7 @@ export function getProviderConfigStatus(): ProviderConfigStatus {
   return {
     carfaxConfigured: hasCarfaxProviderConfig(),
     autoCheckConfigured: hasAutoCheckProviderConfig(),
-    experianOAuthConfigured: hasExperianOAuthConfig()
+    experianOAuthConfigured: hasExperianOAuthConfig(),
+    marketCheckConfigured: hasMarketCheckProviderConfig()
   }
 }

@@ -536,7 +536,7 @@ Worker integration (Ticket 6)
 Provider selection
 
 - Optional env selector is supported:
-	- `VIN_DATA_PROVIDER=carfax|autocheck`
+	- `VIN_DATA_PROVIDER=carfax|autocheck|marketcheck`
 - Default provider is `carfax` when selector is unset or invalid.
 
 Ticket 6 scope boundaries

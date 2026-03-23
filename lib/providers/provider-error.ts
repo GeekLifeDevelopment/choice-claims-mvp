@@ -8,9 +8,12 @@ export type ProviderErrorCode =
   | 'provider_no_vehicle_data'
   | 'provider_invalid_response'
 
+export type ProviderErrorProvider = 'autocheck' | 'marketcheck'
+export type ProviderErrorEndpoint = 'vinspecifications' | 'decode'
+
 export type ProviderLookupErrorInput = {
-  provider: 'autocheck'
-  endpoint: 'vinspecifications'
+  provider: ProviderErrorProvider
+  endpoint: ProviderErrorEndpoint
   code: ProviderErrorCode
   message: string
   status?: number
@@ -19,8 +22,8 @@ export type ProviderLookupErrorInput = {
 }
 
 export class ProviderLookupError extends Error {
-  readonly provider: 'autocheck'
-  readonly endpoint: 'vinspecifications'
+  readonly provider: ProviderErrorProvider
+  readonly endpoint: ProviderErrorEndpoint
   readonly code: ProviderErrorCode
   readonly status?: number
   readonly reason?: string

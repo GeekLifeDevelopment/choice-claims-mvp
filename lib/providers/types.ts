@@ -1,4 +1,4 @@
-export type VinProviderName = 'carfax' | 'autocheck' | 'nhtsa_vpic'
+export type VinProviderName = 'carfax' | 'autocheck' | 'marketcheck' | 'nhtsa_vpic'
 
 export type VinEnrichmentSummary = Record<string, string | number | boolean | null>
 

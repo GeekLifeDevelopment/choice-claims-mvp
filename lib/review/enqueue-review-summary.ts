@@ -93,9 +93,14 @@ export async function enqueueReviewSummaryForClaim(
   const transitioned = await prisma.claim.updateMany({
     where: {
       id: claim.id,
-      reviewSummaryStatus: {
-        not: REVIEW_SUMMARY_STATUS.Queued
-      }
+      OR: [
+        { reviewSummaryStatus: null },
+        {
+          reviewSummaryStatus: {
+            not: REVIEW_SUMMARY_STATUS.Queued
+          }
+        }
+      ]
     },
     data: {
       reviewSummaryStatus: REVIEW_SUMMARY_STATUS.Queued,
