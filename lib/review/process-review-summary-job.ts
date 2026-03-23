@@ -10,6 +10,7 @@ const DEFAULT_OPENAI_MODEL = process.env.REVIEW_SUMMARY_MODEL || 'gpt-4.1-mini'
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions'
 const MAX_SUMMARY_INPUT_JSON_CHARS = 12000
 const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied']
+const STALE_JOB_GRACE_MS = 5_000
 
 type RuleFlag = {
   code: string
@@ -117,6 +118,7 @@ function buildProviderResultSummary(value: unknown): Record<string, unknown> {
     accident: record.accident,
     mileage: record.mileage,
     recall: record.recall,
+    nhtsaRecalls: record.nhtsaRecalls,
     titleProblem: record.titleProblem,
     titleBrand: record.titleBrand
   }
@@ -164,11 +166,14 @@ async function persistReviewSummaryFailure(claimId: string, message: string): Pr
     where: {
       id: claimId,
       status: ClaimStatus.ReadyForAI,
-      NOT: {
-        reviewDecision: {
-          in: FINAL_REVIEW_DECISIONS
+      OR: [
+        { reviewDecision: null },
+        {
+          reviewDecision: {
+            notIn: FINAL_REVIEW_DECISIONS
+          }
         }
-      }
+      ]
     },
     data: {
       reviewSummaryStatus: 'Failed',
@@ -233,7 +238,7 @@ function isStaleRequestedAt(requestedAt: Date | null, claimUpdatedAt: Date): boo
     return false
   }
 
-  return claimUpdatedAt.getTime() > requestedAt.getTime()
+  return claimUpdatedAt.getTime() > requestedAt.getTime() + STALE_JOB_GRACE_MS
 }
 
 export async function processReviewSummaryJob(
@@ -360,11 +365,14 @@ export async function processReviewSummaryJob(
         id: claim.id,
         status: ClaimStatus.ReadyForAI,
         reviewSummaryStatus: 'Queued',
-        NOT: {
-          reviewDecision: {
-            in: FINAL_REVIEW_DECISIONS
+        OR: [
+          { reviewDecision: null },
+          {
+            reviewDecision: {
+              notIn: FINAL_REVIEW_DECISIONS
+            }
           }
-        }
+        ]
       },
       data: {
         reviewSummaryStatus: 'Generated',

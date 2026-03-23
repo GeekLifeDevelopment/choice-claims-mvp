@@ -1,5 +1,6 @@
 const baseUrl = process.env.INTAKE_BASE_URL || 'http://localhost:3000'
 const url = `${baseUrl}/api/intake/cognito`
+const uniqueSuffix = Date.now().toString()
 
 const payload = {
   Form: 'Choice Claims Intake',
@@ -119,13 +120,13 @@ const payload = {
   IHaveUploadedIndividualImagesAsRequestedAboveClaimsCannotBeProcessedWithoutClearImagesUploaded: true,
   WhenRepairsAreCompleteIUnderstandThatINeedToGoToChoiceAutoProtectioncomAndSubmitForClaimPaymentLinkHereHttpschoiceautoprotectioncomsubmitforclaimpayment:
     true,
-  Id: 'entry_12345',
+  Id: `entry_${uniqueSuffix}`,
   Entry: {
     DateCreated: '2026-03-17T14:58:00.000Z',
     DateSubmitted: new Date().toISOString(),
     DateUpdated: new Date().toISOString(),
     Timestamp: new Date().toISOString(),
-    Number: '142',
+    Number: uniqueSuffix,
     Status: 'Submitted',
     Action: 'Create',
     AdminLink: 'https://www.cognitoforms.com/admin/entry/142'

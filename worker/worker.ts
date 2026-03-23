@@ -22,9 +22,12 @@ import {
   resolveVinLookupBackoffStrategyDelay
 } from '../lib/queue/vin-lookup-job-options'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
+import { NhtsaRecallsProvider } from '../lib/providers/nhtsa-recalls-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
+import type { NhtsaRecallsResult } from '../lib/providers/types'
 
 const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied']
+const STALE_JOB_GRACE_MS = 5_000
 
 function parseJobRequestedAt(value: string | null | undefined): Date | null {
   if (!value) {
@@ -40,7 +43,7 @@ function isJobStaleComparedToClaim(requestedAt: Date | null, claimUpdatedAt: Dat
     return false
   }
 
-  return claimUpdatedAt.getTime() > requestedAt.getTime()
+  return claimUpdatedAt.getTime() > requestedAt.getTime() + STALE_JOB_GRACE_MS
 }
 
 // Standalone worker does not get Next.js env loading, so load local env explicitly.
@@ -286,11 +289,14 @@ async function run() {
           where: {
             id: claim.id,
             status: ClaimStatus.AwaitingVinData,
-            NOT: {
-              reviewDecision: {
-                in: FINAL_REVIEW_DECISIONS
+            OR: [
+              { reviewDecision: null },
+              {
+                reviewDecision: {
+                  notIn: FINAL_REVIEW_DECISIONS
+                }
               }
-            }
+            ]
           },
           data: {
             status: ClaimStatus.ProviderFailed,
@@ -393,6 +399,32 @@ async function run() {
         })
 
         const providerResult = await provider.lookupVinData(vin)
+        let nhtsaRecalls: NhtsaRecallsResult | null = null
+
+        try {
+          const recallsProvider = new NhtsaRecallsProvider()
+          nhtsaRecalls = await recallsProvider.lookupRecalls(providerResult.vin || vin)
+
+          log('nhtsa recalls enrichment fetched', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            vin,
+            recallCount: nhtsaRecalls.count
+          })
+        } catch (nhtsaError) {
+          logError('nhtsa recalls enrichment failed; continuing vin processing', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            vin,
+            error: nhtsaError
+          })
+        }
 
         const persistedVinDataResult: Prisma.InputJsonObject = {
           vin: providerResult.vin,
@@ -419,6 +451,7 @@ async function run() {
           ...asOptionalJsonField('accident', providerResult.accident as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('mileage', providerResult.mileage as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('recall', providerResult.recall as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('nhtsaRecalls', nhtsaRecalls as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleProblem', providerResult.titleProblem as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleBrand', providerResult.titleBrand as Prisma.InputJsonValue | null | undefined)
         }
@@ -427,11 +460,14 @@ async function run() {
           where: {
             id: claim.id,
             status: ClaimStatus.AwaitingVinData,
-            NOT: {
-              reviewDecision: {
-                in: FINAL_REVIEW_DECISIONS
+            OR: [
+              { reviewDecision: null },
+              {
+                reviewDecision: {
+                  notIn: FINAL_REVIEW_DECISIONS
+                }
               }
-            }
+            ]
           },
           data: {
             vinDataResult: persistedVinDataResult,
@@ -563,11 +599,14 @@ async function run() {
             where: {
               id: claim.id,
               status: ClaimStatus.AwaitingVinData,
-              NOT: {
-                reviewDecision: {
-                  in: FINAL_REVIEW_DECISIONS
+              OR: [
+                { reviewDecision: null },
+                {
+                  reviewDecision: {
+                    notIn: FINAL_REVIEW_DECISIONS
+                  }
                 }
-              }
+              ]
             },
             data: {
               status: failureStatus,
@@ -811,11 +850,14 @@ async function run() {
         where: {
           id: existingClaim.id,
           status: ClaimStatus.AwaitingVinData,
-          NOT: {
-            reviewDecision: {
-              in: FINAL_REVIEW_DECISIONS
+          OR: [
+            { reviewDecision: null },
+            {
+              reviewDecision: {
+                notIn: FINAL_REVIEW_DECISIONS
+              }
             }
-          }
+          ]
         },
         data: {
           status: ClaimStatus.ProcessingError,
