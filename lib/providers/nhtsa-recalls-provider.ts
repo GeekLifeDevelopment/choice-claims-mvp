@@ -1,18 +1,12 @@
-import { getProviderTimeoutMs } from './config'
+import { getNhtsaRecallsBaseUrl, getProviderTimeoutMs } from './config'
+import { logProviderHealth } from './provider-health-log'
 import type { NhtsaRecallItem, NhtsaRecallsResult } from './types'
-
-const DEFAULT_NHTSA_RECALLS_BASE_URL = 'https://api.nhtsa.gov'
 
 type NhtsaRecallsApiResponse = {
   Count?: number
   Message?: string
   Results?: unknown[]
   results?: unknown[]
-}
-
-function getNhtsaRecallsBaseUrl(): string {
-  const configured = process.env.NHTSA_RECALLS_API_URL?.trim()
-  return configured || DEFAULT_NHTSA_RECALLS_BASE_URL
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -84,6 +78,15 @@ export class NhtsaRecallsProvider {
   readonly name = 'nhtsa' as const
 
   async lookupRecalls(vin: string): Promise<NhtsaRecallsResult> {
+    logProviderHealth({
+      provider: this.name,
+      capability: 'recalls',
+      event: 'configured',
+      mode: 'live',
+      vin,
+      source: 'nhtsa'
+    })
+
     const timeoutMs = getProviderTimeoutMs()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -100,6 +103,16 @@ export class NhtsaRecallsProvider {
       const payload = (await response.json()) as NhtsaRecallsApiResponse
 
       if (!response.ok && !isSuccessLikePayload(payload)) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'recalls',
+          event: 'live_failure',
+          mode: 'failed',
+          vin,
+          status: response.status,
+          reason: 'http_error'
+        })
+
         throw new Error(`NHTSA recalls request failed (${response.status})`)
       }
 
@@ -111,13 +124,37 @@ export class NhtsaRecallsProvider {
         ? payload.Count
         : items.length
 
-      return {
+      const result = {
         source: this.name,
         fetchedAt: new Date().toISOString(),
         count,
         message: getOptionalString(payload.Message),
         items
       }
+
+      logProviderHealth({
+        provider: this.name,
+        capability: 'recalls',
+        event: 'live_success',
+        mode: 'live',
+        vin,
+        source: result.source
+      })
+
+      return result
+    } catch (error) {
+      if (error instanceof Error && /aborted|timeout/i.test(error.message)) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'recalls',
+          event: 'live_failure',
+          mode: 'failed',
+          vin,
+          reason: 'provider_timeout'
+        })
+      }
+
+      throw error
     } finally {
       clearTimeout(timeout)
     }

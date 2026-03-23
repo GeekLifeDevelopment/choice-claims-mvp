@@ -3,6 +3,7 @@ import { AutoCheckProviderLive } from './autocheck-provider-live'
 import { CarfaxProviderStub } from './carfax-provider-stub'
 import { hasExperianOAuthConfig } from './config'
 import { MarketCheckProviderLive } from './marketcheck-provider-live'
+import { logProviderHealth } from './provider-health-log'
 import type { VinDataProvider } from './provider-interface'
 import type { VinProviderName } from './types'
 
@@ -27,15 +28,48 @@ export function getVinDataProvider(providerName?: string): VinDataProvider {
 
   if (requestedProvider === 'autocheck') {
     if (hasExperianOAuthConfig()) {
+      logProviderHealth({
+        provider: 'autocheck',
+        capability: 'vin_decode',
+        event: 'configured',
+        mode: 'live',
+        source: 'autocheck'
+      })
+
       return new AutoCheckProviderLive()
     }
+
+    logProviderHealth({
+      provider: 'autocheck',
+      capability: 'vin_decode',
+      event: 'stub_fallback',
+      mode: 'stub',
+      reason: 'missing_experian_config',
+      source: 'stub'
+    })
 
     return new AutoCheckProviderStub()
   }
 
   if (requestedProvider === 'marketcheck') {
+    logProviderHealth({
+      provider: 'marketcheck',
+      capability: 'vin_decode',
+      event: 'configured',
+      mode: 'live',
+      source: 'marketcheck'
+    })
+
     return new MarketCheckProviderLive()
   }
+
+  logProviderHealth({
+    provider: 'carfax',
+    capability: 'vin_decode',
+    event: 'stub_fallback',
+    mode: 'stub',
+    source: 'stub'
+  })
 
   return new CarfaxProviderStub()
 }

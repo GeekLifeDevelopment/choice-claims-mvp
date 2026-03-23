@@ -1,9 +1,8 @@
-import { getMarketCheckConfig, getProviderTimeoutMs } from './config'
+import { getMarketCheckRuntimeConfig, getProviderTimeoutMs } from './config'
+import { logProviderHealth } from './provider-health-log'
 import { ProviderLookupError, type ProviderErrorCode } from './provider-error'
 import type { VinDataProvider } from './provider-interface'
 import type { VinDataResult } from './types'
-
-const DEFAULT_MARKETCHECK_BASE_URL = 'https://api.marketcheck.com/v2/decode/car'
 
 type MarketCheckApiResponse = Record<string, unknown>
 
@@ -188,18 +187,36 @@ export class MarketCheckProviderLive implements VinDataProvider {
       })
     }
 
-    const config = getMarketCheckConfig()
+    const config = getMarketCheckRuntimeConfig()
     const apiKey = config.apiKey
-    const apiSecret = process.env.MARKETCHECK_API_SECRET?.trim() || null
-    const baseUrl = config.apiUrl ?? DEFAULT_MARKETCHECK_BASE_URL
+    const apiSecret = config.apiSecret
+    const baseUrl = config.decodeApiUrl
 
     if (!apiKey) {
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'unconfigured',
+        mode: 'unconfigured',
+        vin: normalizedVin,
+        reason: 'missing_marketcheck_api_key'
+      })
+
       throw createMarketCheckError({
         code: 'missing_provider_config',
         reason: 'missing_marketcheck_api_key',
         message: 'MarketCheck provider is missing MARKETCHECK_API_KEY'
       })
     }
+
+    logProviderHealth({
+      provider: this.name,
+      capability: 'vin_decode',
+      event: 'configured',
+      mode: 'live',
+      vin: normalizedVin,
+      source: 'marketcheck'
+    })
 
     const timeoutMs = getProviderTimeoutMs()
     const controller = new AbortController()
@@ -217,6 +234,17 @@ export class MarketCheckProviderLive implements VinDataProvider {
 
       if (!response.ok) {
         const bodyPreview = toShortErrorBody(await response.text())
+
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_decode',
+          event: 'live_failure',
+          mode: 'failed',
+          vin: normalizedVin,
+          status: response.status,
+          reason: normalizeHttpErrorReason(response.status),
+          details: bodyPreview
+        })
 
         throw createMarketCheckError({
           code: 'provider_http_error',
@@ -253,6 +281,15 @@ export class MarketCheckProviderLive implements VinDataProvider {
         })
       }
 
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'live_success',
+        mode: 'live',
+        vin: normalizedVin,
+        source: 'marketcheck'
+      })
+
       return {
         vin: toNullableString(readField(vehicle, ['vin'])) ?? normalizedVin,
         year,
@@ -273,16 +310,44 @@ export class MarketCheckProviderLive implements VinDataProvider {
       }
     } catch (error) {
       if (error instanceof ProviderLookupError) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_decode',
+          event: 'live_failure',
+          mode: 'failed',
+          vin: normalizedVin,
+          status: error.status,
+          reason: error.reason || error.code
+        })
+
         throw error
       }
 
       if (error instanceof Error && /aborted|timeout/i.test(error.message)) {
+        logProviderHealth({
+          provider: this.name,
+          capability: 'vin_decode',
+          event: 'live_failure',
+          mode: 'failed',
+          vin: normalizedVin,
+          reason: 'provider_timeout'
+        })
+
         throw createMarketCheckError({
           code: 'provider_timeout',
           reason: 'provider_timeout',
           message: `MarketCheck decode request timed out after ${timeoutMs}ms`
         })
       }
+
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'live_failure',
+        mode: 'failed',
+        vin: normalizedVin,
+        reason: 'request_exception'
+      })
 
       throw createMarketCheckError({
         code: 'gateway_request_failed',

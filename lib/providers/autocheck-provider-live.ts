@@ -1,6 +1,7 @@
 import { fetchWithOAuth } from './authenticated-fetch'
 import { randomUUID } from 'node:crypto'
 import { getExperianOAuthConfig, getExperianVinSpecsConfig, getProviderTimeoutMs } from './config'
+import { logProviderHealth } from './provider-health-log'
 import { ProviderLookupError } from './provider-error'
 import type { ProviderErrorCode } from './provider-error'
 import type { VinDataProvider } from './provider-interface'
@@ -688,6 +689,15 @@ export class AutoCheckProviderLive implements VinDataProvider {
     const tokenUrl = experian.tokenUrl
 
     if (!baseUrl || !tokenUrl || !experian.username || !experian.password || !experian.clientId || !experian.clientSecret) {
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'unconfigured',
+        mode: 'unconfigured',
+        vin: normalizedVin,
+        reason: 'missing_experian_config'
+      })
+
       throw createAutoCheckError({
         code: 'missing_provider_config',
         reason: 'missing_experian_config',
@@ -723,6 +733,16 @@ export class AutoCheckProviderLive implements VinDataProvider {
     })
 
     if (!vinSpecsResult.ok) {
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'live_failure',
+        mode: 'failed',
+        vin: normalizedVin,
+        reason: vinSpecsResult.failure.reason,
+        status: vinSpecsResult.failure.status
+      })
+
       throw createAutoCheckError({
         code: vinSpecsResult.failure.code === 'provider_endpoint_failed'
           ? 'gateway_request_failed'
@@ -738,6 +758,15 @@ export class AutoCheckProviderLive implements VinDataProvider {
     const parsedPayload = parseVehiclePayload(payload)
 
     if (!parsedPayload) {
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'live_failure',
+        mode: 'failed',
+        vin: normalizedVin,
+        reason: 'unexpected_payload_shape'
+      })
+
       throw createAutoCheckError({
         code: 'provider_invalid_response',
         reason: 'unexpected_payload_shape',
@@ -748,6 +777,15 @@ export class AutoCheckProviderLive implements VinDataProvider {
     const { vehicleCount, vehicle, source } = parsedPayload
 
     if (!vehicle || vehicleCount === 0) {
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'capability_unavailable',
+        mode: 'unavailable',
+        vin: normalizedVin,
+        reason: 'vehicle_missing_or_empty'
+      })
+
       throw createAutoCheckError({
         code: 'provider_no_vehicle_data',
         reason: 'vehicle_missing_or_empty',
@@ -764,6 +802,15 @@ export class AutoCheckProviderLive implements VinDataProvider {
     const hasCoreVehicleData = year !== null || make !== null || model !== null
 
     if (!hasCoreVehicleData && resultCode !== null && resultCode !== 0) {
+      logProviderHealth({
+        provider: this.name,
+        capability: 'vin_decode',
+        event: 'capability_unavailable',
+        mode: 'unavailable',
+        vin: normalizedVin,
+        reason: 'result_code_indicates_no_data'
+      })
+
       throw createAutoCheckError({
         code: 'provider_no_vehicle_data',
         reason: 'result_code_indicates_no_data',
@@ -826,6 +873,15 @@ export class AutoCheckProviderLive implements VinDataProvider {
     if (Object.keys(endpointErrors).length > 0) {
       rawByEndpoint.endpointErrors = endpointErrors
     }
+
+    logProviderHealth({
+      provider: this.name,
+      capability: 'vin_decode',
+      event: 'live_success',
+      mode: 'live',
+      vin: toNullableString(vehicle.vin) ?? normalizedVin,
+      source: this.name
+    })
 
     return {
       vin: toNullableString(vehicle.vin) ?? normalizedVin,
