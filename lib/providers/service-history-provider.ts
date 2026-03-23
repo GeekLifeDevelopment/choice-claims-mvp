@@ -1,22 +1,37 @@
 import { getProviderTimeoutMs } from './config'
 import type { ServiceHistoryEvent, ServiceHistoryResult } from './types'
 
-const DEFAULT_SERVICE_HISTORY_BASE_URL = 'https://example.invalid/service-history'
+const DEFAULT_MARKETCHECK_BASE_URL = 'https://api.marketcheck.com'
 
-type ServiceHistoryApiResponse = {
-  events?: unknown[]
-  latestMileage?: unknown
-  message?: unknown
-}
+type ServiceHistoryApiResponse = Record<string, unknown>
 
 function getServiceHistoryApiUrl(): string | null {
   const configured = process.env.SERVICE_HISTORY_API_URL?.trim()
-  if (configured) {
-    return configured
-  }
+  return configured || null
+}
 
-  const defaultDisabled = process.env.SERVICE_HISTORY_USE_DEFAULT === 'true'
-  return defaultDisabled ? DEFAULT_SERVICE_HISTORY_BASE_URL : null
+function getServiceHistoryApiKey(): string | null {
+  const configured = process.env.SERVICE_HISTORY_API_KEY?.trim()
+  return configured || null
+}
+
+function getMarketCheckServiceHistoryPath(): string | null {
+  const configured = process.env.MARKETCHECK_SERVICE_HISTORY_PATH?.trim()
+  return configured || null
+}
+
+function getMarketCheckBaseUrl(): string {
+  return process.env.MARKETCHECK_BASE_URL?.trim() || DEFAULT_MARKETCHECK_BASE_URL
+}
+
+function getMarketCheckApiKey(): string | null {
+  const configured = process.env.MARKETCHECK_API_KEY?.trim()
+  return configured || null
+}
+
+function getMarketCheckApiSecret(): string | null {
+  const configured = process.env.MARKETCHECK_API_SECRET?.trim()
+  return configured || null
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -52,6 +67,69 @@ function getOptionalNumber(value: unknown): number | null {
   return null
 }
 
+function readNested(value: unknown, path: string[]): unknown {
+  let current: unknown = value
+
+  for (const segment of path) {
+    const record = asRecord(current)
+    current = record[segment]
+    if (current === undefined || current === null) {
+      return undefined
+    }
+  }
+
+  return current
+}
+
+function firstPresent(value: unknown, paths: string[][]): unknown {
+  for (const path of paths) {
+    const candidate = readNested(value, path)
+    if (candidate !== undefined && candidate !== null) {
+      return candidate
+    }
+  }
+
+  return undefined
+}
+
+function getServiceEventsCandidate(value: unknown): unknown {
+  return firstPresent(value, [
+    ['events'],
+    ['serviceHistory'],
+    ['service_history'],
+    ['maintenanceEvents'],
+    ['maintenanceHistory'],
+    ['maintenance_history'],
+    ['data', 'events'],
+    ['data', 'serviceHistory'],
+    ['data', 'service_history'],
+    ['result', 'events'],
+    ['result', 'serviceHistory'],
+    ['result', 'service_history']
+  ])
+}
+
+function hasServiceHistoryShape(value: unknown): boolean {
+  const serviceEventsCandidate = getServiceEventsCandidate(value)
+  if (Array.isArray(serviceEventsCandidate)) {
+    return true
+  }
+
+  const record = asRecord(serviceEventsCandidate)
+  return Object.keys(record).length > 0
+}
+
+function hasServiceHint(text: string | null): boolean {
+  if (!text) {
+    return false
+  }
+
+  const normalized = text.toLowerCase()
+  return /(service|maintenance|repair|oil|tire|brake|inspection|alignment|flush|filter|rotation|tune|replace)/.test(
+    normalized
+  )
+}
+
 function normalizeEvents(value: unknown): ServiceHistoryEvent[] {
   if (!Array.isArray(value)) {
     return []
@@ -62,16 +140,39 @@ function normalizeEvents(value: unknown): ServiceHistoryEvent[] {
       const record = asRecord(entry)
 
       const eventDate =
-        getOptionalString(record.eventDate) || getOptionalString(record.date) || getOptionalString(record.serviceDate)
-      const mileage = getOptionalNumber(record.mileage) ?? getOptionalNumber(record.odometer)
+        getOptionalString(record.eventDate) ||
+        getOptionalString(record.date) ||
+        getOptionalString(record.serviceDate) ||
+        getOptionalString(record.performedAt)
+      const mileage =
+        getOptionalNumber(record.mileage) ??
+        getOptionalNumber(record.odometer) ??
+        getOptionalNumber(record.miles)
       const serviceType =
         getOptionalString(record.serviceType) ||
+        getOptionalString(record.maintenanceType) ||
+        getOptionalString(record.repairType) ||
         getOptionalString(record.category) ||
         getOptionalString(record.type)
       const description =
-        getOptionalString(record.description) || getOptionalString(record.summary) || getOptionalString(record.notes)
+        getOptionalString(record.description) ||
+        getOptionalString(record.summary) ||
+        getOptionalString(record.notes) ||
+        getOptionalString(record.detail)
       const shop =
-        getOptionalString(record.shop) || getOptionalString(record.dealer) || getOptionalString(record.location)
+        getOptionalString(record.shop) ||
+        getOptionalString(record.dealer) ||
+        getOptionalString(record.location) ||
+        getOptionalString(record.serviceCenter)
+
+      const isServiceLike =
+        hasServiceHint(serviceType) ||
+        hasServiceHint(description) ||
+        Boolean(record.serviceType !== undefined || record.maintenanceType !== undefined || record.repairType !== undefined)
+
+      if (!isServiceLike) {
+        return null
+      }
 
       if (!eventDate && mileage === null && !serviceType && !description && !shop) {
         return null
@@ -88,41 +189,155 @@ function normalizeEvents(value: unknown): ServiceHistoryEvent[] {
     .filter((entry): entry is ServiceHistoryEvent => entry !== null)
 }
 
-function buildStubResult(vin: string): ServiceHistoryResult {
+function normalizeEventsFromUnknown(value: unknown): ServiceHistoryEvent[] {
+  if (Array.isArray(value)) {
+    return normalizeEvents(value)
+  }
+
+  const record = asRecord(value)
+  if (Object.keys(record).length === 0) {
+    return []
+  }
+
+  return normalizeEvents([record])
+}
+
+function getLatestMileage(payload: unknown, events: ServiceHistoryEvent[]): number | null {
+  const explicit = getOptionalNumber(
+    firstPresent(payload, [['latestMileage'], ['latest_mileage'], ['data', 'latestMileage'], ['result', 'latestMileage']])
+  )
+  if (explicit !== null) {
+    return explicit
+  }
+
+  let maxMileage: number | null = null
+  for (const event of events) {
+    if (typeof event.mileage === 'number' && Number.isFinite(event.mileage)) {
+      maxMileage = maxMileage === null ? event.mileage : Math.max(maxMileage, event.mileage)
+    }
+  }
+
+  return maxMileage
+}
+
+function firstMessage(payload: unknown): string | null {
+  return (
+    getOptionalString(firstPresent(payload, [['message'], ['note'], ['warning'], ['error'], ['result', 'message'], ['data', 'message']])) ||
+    null
+  )
+}
+
+function normalizeLivePayload(payload: ServiceHistoryApiResponse): ServiceHistoryResult {
+  const events = normalizeEventsFromUnknown(getServiceEventsCandidate(payload))
+
+  return {
+    source: 'service_history',
+    fetchedAt: new Date().toISOString(),
+    eventCount: events.length,
+    latestMileage: getLatestMileage(payload, events),
+    events,
+    message: firstMessage(payload)
+  }
+}
+
+function buildStubResult(vin: string, message?: string): ServiceHistoryResult {
   return {
     source: 'service_history_stub',
     fetchedAt: new Date().toISOString(),
     eventCount: 0,
     latestMileage: null,
     events: [],
-    message: `Service history provider is not configured for VIN ${vin}.`
+    message: message || `Service history provider is not configured for VIN ${vin}.`
   }
 }
 
-function normalizeLivePayload(payload: ServiceHistoryApiResponse): ServiceHistoryResult {
-  const events = normalizeEvents(payload.events)
+function buildUrl(baseUrl: string, pathOrUrl: string): URL {
+  const normalizedBase = baseUrl.replace(/\/+$/, '')
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return new URL(pathOrUrl)
+  }
 
-  return {
-    source: 'service_history',
-    fetchedAt: new Date().toISOString(),
-    eventCount: events.length,
-    latestMileage: getOptionalNumber(payload.latestMileage),
-    events,
-    message: getOptionalString(payload.message)
+  return new URL(pathOrUrl, `${normalizedBase}/`)
+}
+
+function applyAuth(url: URL, apiKey: string | null, apiSecret: string | null): void {
+  if (apiKey && !url.searchParams.has('api_key')) {
+    url.searchParams.set('api_key', apiKey)
+  }
+
+  if (apiSecret && !url.searchParams.has('api_secret')) {
+    url.searchParams.set('api_secret', apiSecret)
   }
 }
 
-function buildLiveLookupUrl(baseUrl: string, vin: string): string {
-  const normalized = baseUrl.replace(/\/+$/, '')
-  const url = new URL(normalized)
-  url.searchParams.set('vin', vin)
+function buildGenericServiceHistoryUrl(baseUrl: string, vin: string, apiKey: string | null): string {
+  const url = new URL(baseUrl)
+  if (!url.searchParams.has('vin')) {
+    url.searchParams.set('vin', vin)
+  }
+
+  if (apiKey && !url.searchParams.has('api_key')) {
+    url.searchParams.set('api_key', apiKey)
+  }
+
   return url.toString()
+}
+
+function buildMarketCheckServiceHistoryUrl(
+  baseUrl: string,
+  path: string,
+  vin: string,
+  apiKey: string,
+  apiSecret: string | null
+): string {
+  const hasVinToken = path.includes('{vin}')
+  const resolvedPath = hasVinToken ? path.replace('{vin}', encodeURIComponent(vin)) : path
+  const url = buildUrl(baseUrl, resolvedPath)
+
+  if (!hasVinToken && !url.searchParams.has('vin')) {
+    url.searchParams.set('vin', vin)
+  }
+
+  applyAuth(url, apiKey, apiSecret)
+  return url.toString()
+}
+
+function buildHeaders(apiKey: string | null, apiSecret: string | null): HeadersInit {
+  return {
+    Accept: 'application/json',
+    ...(apiKey ? { 'x-api-key': apiKey, Authorization: `Bearer ${apiKey}` } : {}),
+    ...(apiSecret ? { 'x-api-secret': apiSecret } : {})
+  }
+}
+
+async function parseJsonSafe(response: Response): Promise<ServiceHistoryApiResponse | null> {
+  try {
+    return (await response.json()) as ServiceHistoryApiResponse
+  } catch {
+    return null
+  }
+}
+
+function toUnsupportedCapabilityMessage(vin: string): string {
+  return {
+    message: `Service-history capability not available for VIN ${vin} with current provider/account.`
+  }.message
 }
 
 export class ServiceHistoryProvider {
   async lookupServiceHistory(vin: string): Promise<ServiceHistoryResult> {
-    const baseUrl = getServiceHistoryApiUrl()
-    if (!baseUrl) {
+    const explicitApiUrl = getServiceHistoryApiUrl()
+    const explicitApiKey = getServiceHistoryApiKey()
+
+    const marketCheckPath = getMarketCheckServiceHistoryPath()
+    const marketCheckApiKey = getMarketCheckApiKey()
+    const marketCheckApiSecret = getMarketCheckApiSecret()
+    const marketCheckBaseUrl = getMarketCheckBaseUrl()
+
+    const shouldUseExplicitEndpoint = Boolean(explicitApiUrl)
+    const shouldUseMarketCheckEndpoint = Boolean(marketCheckPath && marketCheckApiKey)
+
+    if (!shouldUseExplicitEndpoint && !shouldUseMarketCheckEndpoint) {
       return buildStubResult(vin)
     }
 
@@ -131,28 +346,44 @@ export class ServiceHistoryProvider {
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
-      const response = await fetch(buildLiveLookupUrl(baseUrl, vin), {
+      const requestUrl = shouldUseExplicitEndpoint
+        ? buildGenericServiceHistoryUrl(explicitApiUrl as string, vin, explicitApiKey)
+        : buildMarketCheckServiceHistoryUrl(
+            marketCheckBaseUrl,
+            marketCheckPath as string,
+            vin,
+            marketCheckApiKey as string,
+            marketCheckApiSecret
+          )
+
+      const requestHeaders = shouldUseExplicitEndpoint
+        ? buildHeaders(explicitApiKey, null)
+        : buildHeaders(marketCheckApiKey, marketCheckApiSecret)
+
+      const response = await fetch(requestUrl, {
         method: 'GET',
-        headers: {
-          Accept: 'application/json'
-        },
+        headers: requestHeaders,
         signal: controller.signal
       })
 
-      if (!response.ok) {
-        return {
-          ...buildStubResult(vin),
-          message: `Service history lookup failed (${response.status}).`
-        }
+      const payload = await parseJsonSafe(response)
+
+      if (!response.ok || !payload) {
+        return buildStubResult(vin, `Service history lookup failed (${response.status}).`)
       }
 
-      const payload = (await response.json()) as ServiceHistoryApiResponse
-      return normalizeLivePayload(payload)
-    } catch {
-      return {
-        ...buildStubResult(vin),
-        message: 'Service history lookup request failed.'
+      if (!hasServiceHistoryShape(payload)) {
+        return buildStubResult(vin, toUnsupportedCapabilityMessage(vin))
       }
+
+      const normalized = normalizeLivePayload(payload)
+      if (normalized.eventCount === 0 && !normalized.message) {
+        return buildStubResult(vin, toUnsupportedCapabilityMessage(vin))
+      }
+
+      return normalized
+    } catch {
+      return buildStubResult(vin, 'Service history lookup request failed.')
     } finally {
       clearTimeout(timeout)
     }
