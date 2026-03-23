@@ -142,6 +142,7 @@ function pickEnrichmentSummary(result: JsonRecord): Record<string, unknown> | un
     'accident',
     'mileage',
     'recall',
+    'valuation',
     'titleProblem',
     'titleBrand'
   ]

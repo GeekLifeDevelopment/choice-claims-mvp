@@ -25,12 +25,14 @@ import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { NhtsaRecallsProvider } from '../lib/providers/nhtsa-recalls-provider'
 import { ServiceHistoryProvider } from '../lib/providers/service-history-provider'
 import { TitleHistoryProvider } from '../lib/providers/title-history-provider'
+import { ValuationProvider } from '../lib/providers/valuation-provider'
 import { VinSpecFallbackProvider } from '../lib/providers/vin-spec-fallback-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
 import type {
   NhtsaRecallsResult,
   ServiceHistoryResult,
   TitleHistoryResult,
+  ValuationResult,
   VinDataResult,
   VinSpecFallbackResult
 } from '../lib/providers/types'
@@ -232,6 +234,41 @@ async function lookupServiceHistoryBestEffort(
     return result
   } catch (error) {
     logError('service history enrichment failed; continuing vin processing', {
+      ...context,
+      vin,
+      error
+    })
+    return null
+  }
+}
+
+async function lookupValuationBestEffort(
+  vin: string,
+  context: {
+    queueName: string
+    jobName: string
+    jobId: string | number | undefined
+    claimId: string
+    claimNumber: string
+  }
+): Promise<ValuationResult | null> {
+  try {
+    const provider = new ValuationProvider()
+    const result = await provider.lookupValuation(vin)
+
+    log('valuation enrichment fetched', {
+      ...context,
+      vin,
+      source: result.source,
+      estimatedValue: result.estimatedValue,
+      retailValue: result.retailValue,
+      tradeInValue: result.tradeInValue,
+      currency: result.currency
+    })
+
+    return result
+  } catch (error) {
+    logError('valuation enrichment failed; continuing vin processing', {
       ...context,
       vin,
       error
@@ -570,6 +607,7 @@ async function run() {
         let nhtsaRecalls: NhtsaRecallsResult | null = null
         let titleHistory: TitleHistoryResult | null = null
         let serviceHistory: ServiceHistoryResult | null = null
+        let valuation: ValuationResult | null = null
 
         try {
           const recallsProvider = new NhtsaRecallsProvider()
@@ -612,6 +650,14 @@ async function run() {
           claimNumber: claim.claimNumber
         })
 
+        valuation = await lookupValuationBestEffort(vin, {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber
+        })
+
         const persistedVinDataResult: Prisma.InputJsonObject = {
           vin: enrichedProviderResult.vin,
           provider: enrichedProviderResult.provider,
@@ -643,6 +689,7 @@ async function run() {
           ...asOptionalJsonField('vinSpecFallback', fallbackSpecs as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleHistory', titleHistory as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('serviceHistory', serviceHistory as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('valuation', valuation as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleProblem', enrichedProviderResult.titleProblem as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleBrand', enrichedProviderResult.titleBrand as Prisma.InputJsonValue | null | undefined)
         }
@@ -779,6 +826,7 @@ async function run() {
           let nhtsaRecallsFromFallback: NhtsaRecallsResult | null = null
           let titleHistoryFromFallback: TitleHistoryResult | null = null
           let serviceHistoryFromFallback: ServiceHistoryResult | null = null
+          let valuationFromFallback: ValuationResult | null = null
 
           try {
             const recallsProvider = new NhtsaRecallsProvider()
@@ -811,6 +859,14 @@ async function run() {
             claimNumber: claim.claimNumber
           })
 
+          valuationFromFallback = await lookupValuationBestEffort(vin, {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber
+          })
+
           const fallbackVinDataResult: Prisma.InputJsonObject = {
             vin,
             provider: fallbackSpecs.source,
@@ -829,6 +885,7 @@ async function run() {
             ...asOptionalJsonField('nhtsaRecalls', nhtsaRecallsFromFallback as Prisma.InputJsonValue | null | undefined),
             ...asOptionalJsonField('titleHistory', titleHistoryFromFallback as Prisma.InputJsonValue | null | undefined),
             ...asOptionalJsonField('serviceHistory', serviceHistoryFromFallback as Prisma.InputJsonValue | null | undefined),
+            ...asOptionalJsonField('valuation', valuationFromFallback as Prisma.InputJsonValue | null | undefined),
             ...asOptionalJsonField('providerResultMessage', `primary_provider_failed:${errorMessage}`)
           }
 
