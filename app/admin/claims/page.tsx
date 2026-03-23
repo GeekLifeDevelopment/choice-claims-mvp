@@ -194,6 +194,34 @@ function buildClaimsUrl(
   return query ? `/admin/claims?${query}` : '/admin/claims'
 }
 
+function buildClaimsExportUrl(
+  selectedStatus: StatusFilterValue,
+  selectedDecision: DecisionFilterValue,
+  selectedSummary: SummaryFilterValue,
+  selectedSort: SortFilterValue
+): string {
+  const params = new URLSearchParams()
+
+  if (selectedStatus !== 'all') {
+    params.set('status', selectedStatus)
+  }
+
+  if (selectedDecision !== 'all') {
+    params.set('decision', selectedDecision)
+  }
+
+  if (selectedSummary !== 'all') {
+    params.set('summary', selectedSummary)
+  }
+
+  if (selectedSort !== 'submitted_desc') {
+    params.set('sort', selectedSort)
+  }
+
+  const query = params.toString()
+  return query ? `/api/admin/claims/export?${query}` : '/api/admin/claims/export'
+}
+
 function getRuleFlagCount(flags: unknown): number {
   return Array.isArray(flags) ? flags.length : 0
 }
@@ -440,6 +468,15 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
         <p className="text-xs text-slate-600">
           Showing {claims.length} claims{filterCount > 0 ? ` with ${filterCount} active filters` : ''}.
         </p>
+
+        <div className="pt-1">
+          <a
+            href={buildClaimsExportUrl(selectedStatus, selectedDecision, selectedSummary, selectedSort)}
+            className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
+          >
+            Export CSV
+          </a>
+        </div>
       </div>
 
       {dbError ? (
