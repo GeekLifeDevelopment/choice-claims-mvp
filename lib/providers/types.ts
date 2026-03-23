@@ -1,4 +1,4 @@
-export type VinProviderName = 'carfax' | 'autocheck'
+export type VinProviderName = 'carfax' | 'autocheck' | 'nhtsa_vpic'
 
 export type VinEnrichmentSummary = Record<string, string | number | boolean | null>
 
@@ -19,6 +19,22 @@ export type NhtsaRecallsResult = {
   items: NhtsaRecallItem[]
 }
 
+export type VinSpecFallbackResult = {
+  source: 'nhtsa_vpic'
+  fetchedAt: string
+  year?: number | null
+  make?: string | null
+  model?: string | null
+  trim?: string | null
+  bodyStyle?: string | null
+  drivetrain?: string | null
+  transmissionType?: string | null
+  engineSize?: string | null
+  cylinders?: string | null
+  fuelType?: string | null
+  manufacturer?: string | null
+}
+
 export type VinDataResult = {
   vin: string
   year?: number | null
@@ -34,6 +50,8 @@ export type VinDataResult = {
   wheelSize?: string | null
   engineSize?: string | null
   cylinders?: string | null
+  fuelType?: string | null
+  manufacturer?: string | null
   horsepower?: string | null
   eventCount?: number | null
   providerResultCode?: number | null
@@ -44,6 +62,7 @@ export type VinDataResult = {
   mileage?: VinEnrichmentSummary
   recall?: VinEnrichmentSummary
   nhtsaRecalls?: NhtsaRecallsResult | null
+  vinSpecFallback?: VinSpecFallbackResult | null
   titleProblem?: VinEnrichmentSummary
   titleBrand?: VinEnrichmentSummary
   provider: VinProviderName
