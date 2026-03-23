@@ -24,6 +24,25 @@ import {
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
 
+const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied']
+
+function parseJobRequestedAt(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function isJobStaleComparedToClaim(requestedAt: Date | null, claimUpdatedAt: Date): boolean {
+  if (!requestedAt) {
+    return false
+  }
+
+  return claimUpdatedAt.getTime() > requestedAt.getTime()
+}
+
 // Standalone worker does not get Next.js env loading, so load local env explicitly.
 loadEnv({ path: '.env.local' })
 loadEnv()
@@ -151,6 +170,7 @@ async function run() {
       }
 
       const payload = job.data as VinLookupJobPayload
+      const requestedAt = parseJobRequestedAt(payload.requestedAt)
       const claim = await prisma.claim.findUnique({
         where: { id: payload.claimId },
         select: {
@@ -159,12 +179,13 @@ async function run() {
           reviewDecision: true,
           status: true,
           source: true,
-          vin: true
+          vin: true,
+          updatedAt: true
         }
       })
 
       if (!claim) {
-        logError('claim not found for job', {
+        log('vin lookup job skipped because claim is missing', {
           queueName: QUEUE_NAMES.VIN_DATA,
           jobName: job.name,
           jobId: job.id,
@@ -174,7 +195,11 @@ async function run() {
           attemptsAllowed
         })
 
-        throw new Error(`Claim not found for claimId=${payload.claimId}`)
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'missing_claim'
+        }
       }
 
       if (isClaimLockedForProcessing(claim)) {
@@ -191,6 +216,41 @@ async function run() {
           ok: true,
           skipped: true,
           reason: 'locked_final_decision'
+        }
+      }
+
+      if (claim.status !== ClaimStatus.AwaitingVinData) {
+        log('vin lookup job skipped because claim status is no longer eligible', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          status: claim.status
+        })
+
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'obsolete_claim_status'
+        }
+      }
+
+      if (isJobStaleComparedToClaim(requestedAt, claim.updatedAt)) {
+        log('vin lookup job skipped because job is stale relative to claim state', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          claimUpdatedAt: claim.updatedAt,
+          requestedAt
+        })
+
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'stale_job'
         }
       }
 
@@ -222,14 +282,38 @@ async function run() {
       if (!vin) {
         const errorMessage = 'VIN missing from job payload and claim record'
 
-        await prisma.claim.update({
-          where: { id: claim.id },
+        const transitioned = await prisma.claim.updateMany({
+          where: {
+            id: claim.id,
+            status: ClaimStatus.AwaitingVinData,
+            NOT: {
+              reviewDecision: {
+                in: FINAL_REVIEW_DECISIONS
+              }
+            }
+          },
           data: {
             status: ClaimStatus.ProviderFailed,
             vinLookupLastError: errorMessage,
             vinLookupLastFailedAt: new Date()
           }
         })
+
+        if (transitioned.count === 0) {
+          log('vin missing update skipped due claim state change', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber
+          })
+
+          return {
+            ok: true,
+            skipped: true,
+            reason: 'obsolete_claim_state'
+          }
+        }
 
         log('claim status updated for missing vin', {
           queueName: QUEUE_NAMES.VIN_DATA,
@@ -339,8 +423,16 @@ async function run() {
           ...asOptionalJsonField('titleBrand', providerResult.titleBrand as Prisma.InputJsonValue | null | undefined)
         }
 
-        await prisma.claim.update({
-          where: { id: claim.id },
+        const transitioned = await prisma.claim.updateMany({
+          where: {
+            id: claim.id,
+            status: ClaimStatus.AwaitingVinData,
+            NOT: {
+              reviewDecision: {
+                in: FINAL_REVIEW_DECISIONS
+              }
+            }
+          },
           data: {
             vinDataResult: persistedVinDataResult,
             vinDataRawPayload:
@@ -356,6 +448,23 @@ async function run() {
             vinLookupLastFailedAt: null
           }
         })
+
+        if (transitioned.count === 0) {
+          log('vin success persistence skipped due claim state change', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            status: claim.status
+          })
+
+          return {
+            ok: true,
+            skipped: true,
+            reason: 'obsolete_claim_state'
+          }
+        }
 
         log('claim updated', {
           queueName: QUEUE_NAMES.VIN_DATA,
@@ -450,8 +559,16 @@ async function run() {
         }
 
         try {
-          await prisma.claim.update({
-            where: { id: claim.id },
+          const transitioned = await prisma.claim.updateMany({
+            where: {
+              id: claim.id,
+              status: ClaimStatus.AwaitingVinData,
+              NOT: {
+                reviewDecision: {
+                  in: FINAL_REVIEW_DECISIONS
+                }
+              }
+            },
             data: {
               status: failureStatus,
               vinLookupLastError: errorMessage,
@@ -462,6 +579,23 @@ async function run() {
               vinLookupLastQueueName: QUEUE_NAMES.VIN_DATA
             }
           })
+
+          if (transitioned.count === 0) {
+            log('vin failure persistence skipped due claim state change', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              status: claim.status
+            })
+
+            return {
+              ok: true,
+              skipped: true,
+              reason: 'obsolete_claim_state'
+            }
+          }
 
           log('claim failure state updated', {
             queueName: QUEUE_NAMES.VIN_DATA,
@@ -598,6 +732,7 @@ async function run() {
 
     const payload = (job?.data ?? {}) as Partial<VinLookupJobPayload>
     const claimId = typeof payload.claimId === 'string' ? payload.claimId : null
+    const requestedAt = parseJobRequestedAt(payload.requestedAt)
 
     if (!claimId) {
       return
@@ -618,7 +753,8 @@ async function run() {
           reviewDecision: true,
           status: true,
           source: true,
-          vin: true
+          vin: true,
+          updatedAt: true
         }
       })
 
@@ -646,8 +782,41 @@ async function run() {
         return
       }
 
-      await prisma.claim.update({
-        where: { id: existingClaim.id },
+      if (existingClaim.status !== ClaimStatus.AwaitingVinData) {
+        log('failed handler skipped mutation because claim status is no longer eligible', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job?.name,
+          jobId: job?.id,
+          claimId: existingClaim.id,
+          claimNumber: existingClaim.claimNumber,
+          status: existingClaim.status
+        })
+        return
+      }
+
+      if (isJobStaleComparedToClaim(requestedAt, existingClaim.updatedAt)) {
+        log('failed handler skipped mutation because job is stale', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job?.name,
+          jobId: job?.id,
+          claimId: existingClaim.id,
+          claimNumber: existingClaim.claimNumber,
+          claimUpdatedAt: existingClaim.updatedAt,
+          requestedAt
+        })
+        return
+      }
+
+      const transitioned = await prisma.claim.updateMany({
+        where: {
+          id: existingClaim.id,
+          status: ClaimStatus.AwaitingVinData,
+          NOT: {
+            reviewDecision: {
+              in: FINAL_REVIEW_DECISIONS
+            }
+          }
+        },
         data: {
           status: ClaimStatus.ProcessingError,
           vinLookupAttemptCount: attemptsMade,
@@ -658,6 +827,17 @@ async function run() {
           vinLookupLastQueueName: QUEUE_NAMES.VIN_DATA
         }
       })
+
+      if (transitioned.count === 0) {
+        log('failed handler processing-error update skipped due claim state change', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job?.name,
+          jobId: job?.id,
+          claimId: existingClaim.id,
+          claimNumber: existingClaim.claimNumber
+        })
+        return
+      }
 
       await evaluateClaimRulesBestEffort(existingClaim.id, 'worker_failed_handler_processing_error')
 
@@ -746,7 +926,9 @@ async function run() {
 
       try {
         const payload = job.data as ReviewSummaryJobPayload
-        const result = await processReviewSummaryJob(payload.claimId)
+        const result = await processReviewSummaryJob(payload.claimId, {
+          requestedAt: payload.requestedAt
+        })
 
         if (!result.ok) {
           logError('review summary job failed', {
