@@ -23,11 +23,13 @@ import {
 } from '../lib/queue/vin-lookup-job-options'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { NhtsaRecallsProvider } from '../lib/providers/nhtsa-recalls-provider'
+import { ServiceHistoryProvider } from '../lib/providers/service-history-provider'
 import { TitleHistoryProvider } from '../lib/providers/title-history-provider'
 import { VinSpecFallbackProvider } from '../lib/providers/vin-spec-fallback-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
 import type {
   NhtsaRecallsResult,
+  ServiceHistoryResult,
   TitleHistoryResult,
   VinDataResult,
   VinSpecFallbackResult
@@ -197,6 +199,39 @@ async function lookupTitleHistoryBestEffort(
     return result
   } catch (error) {
     logError('title history enrichment failed; continuing vin processing', {
+      ...context,
+      vin,
+      error
+    })
+    return null
+  }
+}
+
+async function lookupServiceHistoryBestEffort(
+  vin: string,
+  context: {
+    queueName: string
+    jobName: string
+    jobId: string | number | undefined
+    claimId: string
+    claimNumber: string
+  }
+): Promise<ServiceHistoryResult | null> {
+  try {
+    const provider = new ServiceHistoryProvider()
+    const result = await provider.lookupServiceHistory(vin)
+
+    log('service history enrichment fetched', {
+      ...context,
+      vin,
+      source: result.source,
+      eventCount: result.eventCount,
+      latestMileage: result.latestMileage
+    })
+
+    return result
+  } catch (error) {
+    logError('service history enrichment failed; continuing vin processing', {
       ...context,
       vin,
       error
@@ -534,6 +569,7 @@ async function run() {
         const enrichedProviderResult = mergePrimaryWithFallbackSpecs(providerResult, fallbackSpecs)
         let nhtsaRecalls: NhtsaRecallsResult | null = null
         let titleHistory: TitleHistoryResult | null = null
+        let serviceHistory: ServiceHistoryResult | null = null
 
         try {
           const recallsProvider = new NhtsaRecallsProvider()
@@ -561,6 +597,14 @@ async function run() {
         }
 
         titleHistory = await lookupTitleHistoryBestEffort(vin, {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber
+        })
+
+        serviceHistory = await lookupServiceHistoryBestEffort(vin, {
           queueName: QUEUE_NAMES.VIN_DATA,
           jobName: job.name,
           jobId: job.id,
@@ -598,6 +642,7 @@ async function run() {
           ...asOptionalJsonField('nhtsaRecalls', nhtsaRecalls as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('vinSpecFallback', fallbackSpecs as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleHistory', titleHistory as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('serviceHistory', serviceHistory as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleProblem', enrichedProviderResult.titleProblem as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('titleBrand', enrichedProviderResult.titleBrand as Prisma.InputJsonValue | null | undefined)
         }
@@ -733,6 +778,7 @@ async function run() {
         if (fallbackSpecs && hasMinimumVinSpecFields(fallbackSpecs)) {
           let nhtsaRecallsFromFallback: NhtsaRecallsResult | null = null
           let titleHistoryFromFallback: TitleHistoryResult | null = null
+          let serviceHistoryFromFallback: ServiceHistoryResult | null = null
 
           try {
             const recallsProvider = new NhtsaRecallsProvider()
@@ -757,6 +803,14 @@ async function run() {
             claimNumber: claim.claimNumber
           })
 
+          serviceHistoryFromFallback = await lookupServiceHistoryBestEffort(vin, {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber
+          })
+
           const fallbackVinDataResult: Prisma.InputJsonObject = {
             vin,
             provider: fallbackSpecs.source,
@@ -774,6 +828,7 @@ async function run() {
             ...asOptionalJsonField('vinSpecFallback', fallbackSpecs as Prisma.InputJsonValue | null | undefined),
             ...asOptionalJsonField('nhtsaRecalls', nhtsaRecallsFromFallback as Prisma.InputJsonValue | null | undefined),
             ...asOptionalJsonField('titleHistory', titleHistoryFromFallback as Prisma.InputJsonValue | null | undefined),
+            ...asOptionalJsonField('serviceHistory', serviceHistoryFromFallback as Prisma.InputJsonValue | null | undefined),
             ...asOptionalJsonField('providerResultMessage', `primary_provider_failed:${errorMessage}`)
           }
 

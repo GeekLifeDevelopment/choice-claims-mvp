@@ -57,6 +57,23 @@ export type TitleHistoryResult = {
   message?: string | null
 }
 
+export type ServiceHistoryEvent = {
+  eventDate?: string | null
+  mileage?: number | null
+  serviceType?: string | null
+  description?: string | null
+  shop?: string | null
+}
+
+export type ServiceHistoryResult = {
+  source: 'service_history' | 'service_history_stub'
+  fetchedAt: string
+  eventCount: number
+  latestMileage?: number | null
+  events: ServiceHistoryEvent[]
+  message?: string | null
+}
+
 export type VinDataResult = {
   vin: string
   year?: number | null
@@ -86,6 +103,7 @@ export type VinDataResult = {
   nhtsaRecalls?: NhtsaRecallsResult | null
   vinSpecFallback?: VinSpecFallbackResult | null
   titleHistory?: TitleHistoryResult | null
+  serviceHistory?: ServiceHistoryResult | null
   titleProblem?: VinEnrichmentSummary
   titleBrand?: VinEnrichmentSummary
   provider: VinProviderName
