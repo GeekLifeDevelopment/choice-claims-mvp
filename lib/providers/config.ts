@@ -242,8 +242,8 @@ export function hasAutoCheckProviderConfig(): boolean {
 }
 
 export function hasMarketCheckProviderConfig(): boolean {
-  const config = getMarketCheckConfig()
-  return Boolean(config.apiKey && config.apiUrl)
+  const config = getMarketCheckRuntimeConfig()
+  return Boolean(config.apiKey)
 }
 
 export function hasExperianOAuthConfig(): boolean {
