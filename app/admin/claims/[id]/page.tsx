@@ -11,6 +11,19 @@ function formatDate(value: Date): string {
   return value.toISOString().replace('T', ' ').slice(0, 16)
 }
 
+function formatIsoDate(value: string | null | undefined): string {
+  if (!value) {
+    return '—'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return '—'
+  }
+
+  return formatDate(parsed)
+}
+
 function formatFileSize(value?: number | null): string {
   if (!value || value <= 0) {
     return '—'
@@ -178,6 +191,57 @@ function getOptionalNumber(value: unknown): number | null {
 
 function getOptionalBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
+}
+
+type NhtsaRecallItem = {
+  campaignId: string
+  component: string
+  summary: string
+  remedy: string
+  safetyRisk: string
+  reportDate: string
+}
+
+type NhtsaRecallsViewModel = {
+  count: number
+  fetchedAt: string | null
+  message: string | null
+  items: NhtsaRecallItem[]
+}
+
+function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
+  const record = asRecord(value)
+  const nhtsaRecord = asRecord(record.nhtsaRecalls)
+
+  if (Object.keys(nhtsaRecord).length === 0) {
+    return null
+  }
+
+  const items = Array.isArray(nhtsaRecord.items)
+    ? nhtsaRecord.items
+        .map((item) => {
+          const entry = asRecord(item)
+
+          return {
+            campaignId: getOptionalString(entry.campaignId) || '—',
+            component: getOptionalString(entry.component) || '—',
+            summary: getOptionalString(entry.summary) || '—',
+            remedy: getOptionalString(entry.remedy) || '—',
+            safetyRisk: getOptionalString(entry.safetyRisk) || '—',
+            reportDate: getOptionalString(entry.reportDate) || '—'
+          }
+        })
+        .filter((item) => item.campaignId !== '—' || item.summary !== '—')
+    : []
+
+  const count = getOptionalNumber(nhtsaRecord.count)
+
+  return {
+    count: count !== null ? count : items.length,
+    fetchedAt: getOptionalString(nhtsaRecord.fetchedAt),
+    message: getOptionalString(nhtsaRecord.message),
+    items
+  }
 }
 
 type PersistedRuleFlag = {
@@ -525,6 +589,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const vinDataYear = getOptionalNumber(vinDataResult.year)
   const vinDataMake = getOptionalString(vinDataResult.make)
   const vinDataModel = getOptionalString(vinDataResult.model)
+  const nhtsaRecalls = getNhtsaRecalls(vinDataResult)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
@@ -927,6 +992,61 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 </article>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Recall Information</h2>
+
+        {!nhtsaRecalls ? (
+          <p className="text-slate-600">NHTSA recall data is not available yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Recall Count:</span> {String(nhtsaRecalls.count)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Fetched At:</span>{' '}
+                {formatIsoDate(nhtsaRecalls.fetchedAt)}
+              </p>
+            </div>
+
+            {nhtsaRecalls.message ? (
+              <p className="text-xs text-slate-600">NHTSA message: {nhtsaRecalls.message}</p>
+            ) : null}
+
+            {nhtsaRecalls.items.length === 0 ? (
+              <p className="text-slate-600">No active recalls returned for this VIN.</p>
+            ) : (
+              <div className="space-y-2">
+                {nhtsaRecalls.items.map((item, index) => (
+                  <details
+                    key={`${item.campaignId}-${index}`}
+                    className="rounded-md border border-slate-200 bg-slate-50 p-3"
+                  >
+                    <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                      {item.campaignId !== '—' ? item.campaignId : `Recall ${index + 1}`} - {item.component}
+                    </summary>
+                    <div className="mt-2 grid gap-2 text-sm text-slate-700">
+                      <p>
+                        <span className="font-medium text-slate-900">Report Date:</span> {item.reportDate}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Safety Risk:</span> {item.safetyRisk}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Summary:</span> {item.summary}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Remedy:</span> {item.remedy}
+                      </p>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

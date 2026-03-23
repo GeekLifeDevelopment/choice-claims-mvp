@@ -2,6 +2,23 @@ export type VinProviderName = 'carfax' | 'autocheck'
 
 export type VinEnrichmentSummary = Record<string, string | number | boolean | null>
 
+export type NhtsaRecallItem = {
+  campaignId: string | null
+  component: string | null
+  summary: string | null
+  remedy: string | null
+  safetyRisk: string | null
+  reportDate: string | null
+}
+
+export type NhtsaRecallsResult = {
+  source: 'nhtsa'
+  fetchedAt: string
+  count: number
+  message?: string | null
+  items: NhtsaRecallItem[]
+}
+
 export type VinDataResult = {
   vin: string
   year?: number | null
@@ -26,6 +43,7 @@ export type VinDataResult = {
   accident?: VinEnrichmentSummary
   mileage?: VinEnrichmentSummary
   recall?: VinEnrichmentSummary
+  nhtsaRecalls?: NhtsaRecallsResult | null
   titleProblem?: VinEnrichmentSummary
   titleBrand?: VinEnrichmentSummary
   provider: VinProviderName
