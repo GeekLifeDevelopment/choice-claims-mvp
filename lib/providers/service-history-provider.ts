@@ -1,5 +1,6 @@
 import { getProviderTimeoutMs, getServiceHistoryProviderConfig } from './config'
 import { logProviderHealth } from './provider-health-log'
+import { getServiceProviderPriority, type ServiceProviderPriorityName } from './provider-priority'
 import type { ServiceHistoryEvent, ServiceHistoryResult } from './types'
 
 type ServiceHistoryApiResponse = Record<string, unknown>
@@ -305,122 +306,169 @@ export class ServiceHistoryProvider {
     const marketCheckApiSecret = config.marketCheckApiSecret
     const marketCheckBaseUrl = config.marketCheckBaseUrl
 
-    const shouldUseExplicitEndpoint = Boolean(explicitApiUrl)
-    const shouldUseMarketCheckEndpoint = Boolean(marketCheckPath && marketCheckApiKey)
+    const priorities = getServiceProviderPriority()
 
-    if (!shouldUseExplicitEndpoint && !shouldUseMarketCheckEndpoint) {
-      logProviderHealth({
-        provider: 'service_history',
-        capability: 'service_history',
-        event: 'unconfigured',
-        mode: 'unconfigured',
-        vin,
-        reason: 'missing_service_history_endpoint'
-      })
+    const lookupByPriority = async (providerName: Exclude<ServiceProviderPriorityName, 'stub'>): Promise<ServiceHistoryResult | null> => {
+      const isExplicit = providerName === 'service'
 
-      return buildStubResult(vin)
-    }
-
-    logProviderHealth({
-      provider: shouldUseExplicitEndpoint ? 'service_history' : 'marketcheck',
-      capability: 'service_history',
-      event: 'configured',
-      mode: 'live',
-      vin,
-      source: shouldUseExplicitEndpoint ? 'service_history' : 'service_history_marketcheck'
-    })
-
-    const timeoutMs = getProviderTimeoutMs()
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      const requestUrl = shouldUseExplicitEndpoint
-        ? buildGenericServiceHistoryUrl(explicitApiUrl as string, vin, explicitApiKey)
-        : buildMarketCheckServiceHistoryUrl(
-            marketCheckBaseUrl,
-            marketCheckPath as string,
-            vin,
-            marketCheckApiKey as string,
-            marketCheckApiSecret
-          )
-
-      const requestHeaders = shouldUseExplicitEndpoint
-        ? buildHeaders(explicitApiKey, null)
-        : buildHeaders(marketCheckApiKey, marketCheckApiSecret)
-
-      const response = await fetch(requestUrl, {
-        method: 'GET',
-        headers: requestHeaders,
-        signal: controller.signal
-      })
-
-      const payload = await parseJsonSafe(response)
-
-      if (!response.ok || !payload) {
+      if (isExplicit && !explicitApiUrl) {
         logProviderHealth({
-          provider: shouldUseExplicitEndpoint ? 'service_history' : 'marketcheck',
+          provider: 'service_history',
+          capability: 'service_history',
+          event: 'unconfigured',
+          mode: 'unconfigured',
+          vin,
+          reason: 'missing_service_history_api_url'
+        })
+        return null
+      }
+
+      if (!isExplicit && (!marketCheckPath || !marketCheckApiKey)) {
+        logProviderHealth({
+          provider: 'marketcheck',
+          capability: 'service_history',
+          event: 'unconfigured',
+          mode: 'unconfigured',
+          vin,
+          reason: 'missing_marketcheck_service_history_config'
+        })
+        return null
+      }
+
+      logProviderHealth({
+        provider: isExplicit ? 'service_history' : 'marketcheck',
+        capability: 'service_history',
+        event: 'configured',
+        mode: 'live',
+        vin,
+        reason: 'selected_by_priority',
+        source: isExplicit ? 'service_history' : 'service_history_marketcheck'
+      })
+
+      const timeoutMs = getProviderTimeoutMs()
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+      try {
+        const requestUrl = isExplicit
+          ? buildGenericServiceHistoryUrl(explicitApiUrl as string, vin, explicitApiKey)
+          : buildMarketCheckServiceHistoryUrl(
+              marketCheckBaseUrl,
+              marketCheckPath as string,
+              vin,
+              marketCheckApiKey as string,
+              marketCheckApiSecret
+            )
+
+        const requestHeaders = isExplicit
+          ? buildHeaders(explicitApiKey, null)
+          : buildHeaders(marketCheckApiKey, marketCheckApiSecret)
+
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: requestHeaders,
+          signal: controller.signal
+        })
+
+        const payload = await parseJsonSafe(response)
+
+        if (!response.ok || !payload) {
+          logProviderHealth({
+            provider: isExplicit ? 'service_history' : 'marketcheck',
+            capability: 'service_history',
+            event: 'live_failure',
+            mode: 'failed',
+            vin,
+            status: response.status,
+            reason: 'http_error'
+          })
+
+          return null
+        }
+
+        if (!hasServiceHistoryShape(payload)) {
+          logProviderHealth({
+            provider: isExplicit ? 'service_history' : 'marketcheck',
+            capability: 'service_history',
+            event: 'capability_unavailable',
+            mode: 'unavailable',
+            vin,
+            reason: 'unsupported_payload_shape'
+          })
+
+          return null
+        }
+
+        const normalized = normalizeLivePayload(payload)
+        if (normalized.eventCount === 0 && !normalized.message) {
+          logProviderHealth({
+            provider: isExplicit ? 'service_history' : 'marketcheck',
+            capability: 'service_history',
+            event: 'capability_unavailable',
+            mode: 'unavailable',
+            vin,
+            reason: 'no_service_events'
+          })
+
+          return null
+        }
+
+        logProviderHealth({
+          provider: isExplicit ? 'service_history' : 'marketcheck',
+          capability: 'service_history',
+          event: 'live_success',
+          mode: 'live',
+          vin,
+          source: normalized.source
+        })
+
+        return normalized
+      } catch {
+        logProviderHealth({
+          provider: isExplicit ? 'service_history' : 'marketcheck',
           capability: 'service_history',
           event: 'live_failure',
           mode: 'failed',
           vin,
-          status: response.status,
-          reason: 'http_error'
+          reason: 'request_exception'
         })
 
-        return buildStubResult(vin, `Service history lookup failed (${response.status}).`)
+        return null
+      } finally {
+        clearTimeout(timeout)
       }
-
-      if (!hasServiceHistoryShape(payload)) {
-        logProviderHealth({
-          provider: shouldUseExplicitEndpoint ? 'service_history' : 'marketcheck',
-          capability: 'service_history',
-          event: 'capability_unavailable',
-          mode: 'unavailable',
-          vin,
-          reason: 'unsupported_payload_shape'
-        })
-
-        return buildStubResult(vin, toUnsupportedCapabilityMessage(vin))
-      }
-
-      const normalized = normalizeLivePayload(payload)
-      if (normalized.eventCount === 0 && !normalized.message) {
-        logProviderHealth({
-          provider: shouldUseExplicitEndpoint ? 'service_history' : 'marketcheck',
-          capability: 'service_history',
-          event: 'capability_unavailable',
-          mode: 'unavailable',
-          vin,
-          reason: 'no_service_events'
-        })
-
-        return buildStubResult(vin, toUnsupportedCapabilityMessage(vin))
-      }
-
-      logProviderHealth({
-        provider: shouldUseExplicitEndpoint ? 'service_history' : 'marketcheck',
-        capability: 'service_history',
-        event: 'live_success',
-        mode: 'live',
-        vin,
-        source: normalized.source
-      })
-
-      return normalized
-    } catch {
-      logProviderHealth({
-        provider: shouldUseExplicitEndpoint ? 'service_history' : 'marketcheck',
-        capability: 'service_history',
-        event: 'live_failure',
-        mode: 'failed',
-        vin,
-        reason: 'request_exception'
-      })
-
-      return buildStubResult(vin, 'Service history lookup request failed.')
-    } finally {
-      clearTimeout(timeout)
     }
+
+    for (const providerName of priorities) {
+      if (providerName === 'stub') {
+        logProviderHealth({
+          provider: 'service_history',
+          capability: 'service_history',
+          event: 'stub_fallback',
+          mode: 'stub',
+          vin,
+          reason: 'priority_stub',
+          source: 'service_history_stub'
+        })
+        return buildStubResult(vin)
+      }
+
+      const result = await lookupByPriority(providerName)
+      if (result) {
+        return result
+      }
+    }
+
+    logProviderHealth({
+      provider: 'service_history',
+      capability: 'service_history',
+      event: 'stub_fallback',
+      mode: 'stub',
+      vin,
+      reason: 'all_priority_providers_unavailable_or_failed',
+      source: 'service_history_stub'
+    })
+
+    return buildStubResult(vin, toUnsupportedCapabilityMessage(vin))
   }
 }

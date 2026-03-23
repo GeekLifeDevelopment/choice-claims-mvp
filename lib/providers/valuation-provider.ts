@@ -1,5 +1,6 @@
 import { getProviderTimeoutMs, getValuationProviderConfig } from './config'
 import { logProviderHealth } from './provider-health-log'
+import { getValuationProviderPriority, type ValuationProviderPriorityName } from './provider-priority'
 import type { ValuationResult } from './types'
 
 type ValuationApiResponse = Record<string, unknown>
@@ -209,115 +210,163 @@ export class ValuationProvider {
   async lookupValuation(vin: string): Promise<ValuationResult> {
     const config = getValuationProviderConfig()
 
-    const shouldUseExplicitEndpoint = Boolean(config.apiUrl)
-    const shouldUseMarketCheckEndpoint = Boolean(config.marketCheckPath && config.marketCheckApiKey)
+    const priorities = getValuationProviderPriority()
 
-    if (!shouldUseExplicitEndpoint && !shouldUseMarketCheckEndpoint) {
-      logProviderHealth({
-        provider: 'valuation',
-        capability: 'valuation',
-        event: 'unconfigured',
-        mode: 'unconfigured',
-        vin,
-        reason: 'missing_valuation_endpoint'
-      })
+    const lookupByPriority = async (providerName: Exclude<ValuationProviderPriorityName, 'stub'>): Promise<ValuationResult | null> => {
+      const isExplicit = providerName === 'valuation'
 
-      return buildStubResult(vin)
-    }
-
-    logProviderHealth({
-      provider: shouldUseExplicitEndpoint ? 'valuation' : 'marketcheck',
-      capability: 'valuation',
-      event: 'configured',
-      mode: 'live',
-      vin,
-      source: shouldUseExplicitEndpoint ? 'valuation' : 'valuation_marketcheck'
-    })
-
-    const timeoutMs = getProviderTimeoutMs()
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      const requestUrl = shouldUseExplicitEndpoint
-        ? buildGenericValuationUrl(config.apiUrl as string, vin, config.apiKey)
-        : buildMarketCheckValuationUrl(
-            config.marketCheckBaseUrl,
-            config.marketCheckPath as string,
-            vin,
-            config.marketCheckApiKey as string,
-            config.marketCheckApiSecret
-          )
-
-      const requestHeaders = shouldUseExplicitEndpoint
-        ? buildHeaders(config.apiKey, null)
-        : buildHeaders(config.marketCheckApiKey, config.marketCheckApiSecret)
-
-      const response = await fetch(requestUrl, {
-        method: 'GET',
-        headers: requestHeaders,
-        signal: controller.signal
-      })
-
-      const payload = await parseJsonSafe(response)
-
-      if (!response.ok || !payload) {
+      if (isExplicit && !config.apiUrl) {
         logProviderHealth({
-          provider: shouldUseExplicitEndpoint ? 'valuation' : 'marketcheck',
+          provider: 'valuation',
+          capability: 'valuation',
+          event: 'unconfigured',
+          mode: 'unconfigured',
+          vin,
+          reason: 'missing_valuation_api_url'
+        })
+        return null
+      }
+
+      if (!isExplicit && (!config.marketCheckPath || !config.marketCheckApiKey)) {
+        logProviderHealth({
+          provider: 'marketcheck',
+          capability: 'valuation',
+          event: 'unconfigured',
+          mode: 'unconfigured',
+          vin,
+          reason: 'missing_marketcheck_valuation_config'
+        })
+        return null
+      }
+
+      logProviderHealth({
+        provider: isExplicit ? 'valuation' : 'marketcheck',
+        capability: 'valuation',
+        event: 'configured',
+        mode: 'live',
+        vin,
+        reason: 'selected_by_priority',
+        source: isExplicit ? 'valuation' : 'valuation_marketcheck'
+      })
+
+      const timeoutMs = getProviderTimeoutMs()
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+      try {
+        const requestUrl = isExplicit
+          ? buildGenericValuationUrl(config.apiUrl as string, vin, config.apiKey)
+          : buildMarketCheckValuationUrl(
+              config.marketCheckBaseUrl,
+              config.marketCheckPath as string,
+              vin,
+              config.marketCheckApiKey as string,
+              config.marketCheckApiSecret
+            )
+
+        const requestHeaders = isExplicit
+          ? buildHeaders(config.apiKey, null)
+          : buildHeaders(config.marketCheckApiKey, config.marketCheckApiSecret)
+
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: requestHeaders,
+          signal: controller.signal
+        })
+
+        const payload = await parseJsonSafe(response)
+
+        if (!response.ok || !payload) {
+          logProviderHealth({
+            provider: isExplicit ? 'valuation' : 'marketcheck',
+            capability: 'valuation',
+            event: 'live_failure',
+            mode: 'failed',
+            vin,
+            status: response.status,
+            reason: 'http_error'
+          })
+
+          return null
+        }
+
+        const normalized = normalizeValuation(payload)
+
+        if (
+          normalized.estimatedValue === null &&
+          normalized.retailValue === null &&
+          normalized.tradeInValue === null &&
+          !normalized.message
+        ) {
+          logProviderHealth({
+            provider: isExplicit ? 'valuation' : 'marketcheck',
+            capability: 'valuation',
+            event: 'capability_unavailable',
+            mode: 'unavailable',
+            vin,
+            reason: 'no_valuation_fields'
+          })
+
+          return null
+        }
+
+        logProviderHealth({
+          provider: isExplicit ? 'valuation' : 'marketcheck',
+          capability: 'valuation',
+          event: 'live_success',
+          mode: 'live',
+          vin,
+          source: normalized.source
+        })
+
+        return normalized
+      } catch {
+        logProviderHealth({
+          provider: isExplicit ? 'valuation' : 'marketcheck',
           capability: 'valuation',
           event: 'live_failure',
           mode: 'failed',
           vin,
-          status: response.status,
-          reason: 'http_error'
+          reason: 'request_exception'
         })
 
-        return buildStubResult(vin, `Valuation lookup failed (${response.status}).`)
+        return null
+      } finally {
+        clearTimeout(timeout)
       }
-
-      const normalized = normalizeValuation(payload)
-
-      if (
-        normalized.estimatedValue === null &&
-        normalized.retailValue === null &&
-        normalized.tradeInValue === null &&
-        !normalized.message
-      ) {
-        logProviderHealth({
-          provider: shouldUseExplicitEndpoint ? 'valuation' : 'marketcheck',
-          capability: 'valuation',
-          event: 'capability_unavailable',
-          mode: 'unavailable',
-          vin,
-          reason: 'no_valuation_fields'
-        })
-
-        return buildStubResult(vin, `Valuation capability not available for VIN ${vin} with current provider/account.`)
-      }
-
-      logProviderHealth({
-        provider: shouldUseExplicitEndpoint ? 'valuation' : 'marketcheck',
-        capability: 'valuation',
-        event: 'live_success',
-        mode: 'live',
-        vin,
-        source: normalized.source
-      })
-
-      return normalized
-    } catch {
-      logProviderHealth({
-        provider: shouldUseExplicitEndpoint ? 'valuation' : 'marketcheck',
-        capability: 'valuation',
-        event: 'live_failure',
-        mode: 'failed',
-        vin,
-        reason: 'request_exception'
-      })
-
-      return buildStubResult(vin, 'Valuation lookup request failed.')
-    } finally {
-      clearTimeout(timeout)
     }
+
+    for (const providerName of priorities) {
+      if (providerName === 'stub') {
+        logProviderHealth({
+          provider: 'valuation',
+          capability: 'valuation',
+          event: 'stub_fallback',
+          mode: 'stub',
+          vin,
+          reason: 'priority_stub',
+          source: 'valuation_stub'
+        })
+
+        return buildStubResult(vin)
+      }
+
+      const result = await lookupByPriority(providerName)
+      if (result) {
+        return result
+      }
+    }
+
+    logProviderHealth({
+      provider: 'valuation',
+      capability: 'valuation',
+      event: 'stub_fallback',
+      mode: 'stub',
+      vin,
+      reason: 'all_priority_providers_unavailable_or_failed',
+      source: 'valuation_stub'
+    })
+
+    return buildStubResult(vin)
   }
 }

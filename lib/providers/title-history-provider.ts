@@ -1,5 +1,6 @@
 import { getProviderTimeoutMs, getTitleHistoryProviderConfig } from './config'
 import { logProviderHealth } from './provider-health-log'
+import { getTitleProviderPriority } from './provider-priority'
 import type { TitleHistoryEvent, TitleHistoryResult } from './types'
 
 type TitleHistoryApiResponse = Record<string, unknown>
@@ -458,66 +459,131 @@ export class TitleHistoryProvider {
     const apiKey = config.apiKey
     const apiSecret = config.apiSecret
 
-    if (!apiKey) {
-      logProviderHealth({
-        provider: 'marketcheck',
-        capability: 'title_history',
-        event: 'unconfigured',
-        mode: 'unconfigured',
-        vin,
-        reason: 'missing_marketcheck_api_key'
-      })
+    const priorities = getTitleProviderPriority()
 
-      return buildStubResult(vin)
-    }
+    for (const providerName of priorities) {
+      if (providerName === 'stub') {
+        logProviderHealth({
+          provider: 'title_history',
+          capability: 'title_history',
+          event: 'stub_fallback',
+          mode: 'stub',
+          vin,
+          reason: 'priority_stub',
+          source: 'nmvtis_stub'
+        })
 
-    const baseUrl = config.baseUrl
-    const generatePath = config.generatePath
-    const accessPath = config.accessPath
+        return buildStubResult(vin)
+      }
 
-    logProviderHealth({
-      provider: 'marketcheck',
-      capability: 'title_history',
-      event: 'configured',
-      mode: 'live',
-      vin,
-      source: 'nmvtis'
-    })
-
-    const timeoutMs = getProviderTimeoutMs()
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-      const generateResponse = await fetch(buildGenerateUrl(baseUrl, generatePath, vin, apiKey, apiSecret), {
-        method: 'POST',
-        headers: buildHeaders(apiKey, apiSecret),
-        body: JSON.stringify({ vin }),
-        signal: controller.signal
-      })
-
-      const generatePayload = await parseJsonSafe(generateResponse)
-
-      if (!generateResponse.ok) {
-        const reason = normalizeHttpErrorReason(generateResponse.status)
+      if (!apiKey) {
         logProviderHealth({
           provider: 'marketcheck',
           capability: 'title_history',
-          event: 'live_failure',
-          mode: 'failed',
+          event: 'unconfigured',
+          mode: 'unconfigured',
           vin,
-          status: generateResponse.status,
-          reason
+          reason: 'missing_marketcheck_api_key'
         })
-
-        return {
-          ...buildStubResult(vin),
-          message: `MarketCheck title report generation failed (${generateResponse.status}, ${reason}).`
-        }
+        continue
       }
 
-      if (generatePayload && hasReportLikePayload(generatePayload)) {
-        const result = normalizeLivePayload(generatePayload)
+      const baseUrl = config.baseUrl
+      const generatePath = config.generatePath
+      const accessPath = config.accessPath
+
+      logProviderHealth({
+        provider: 'marketcheck',
+        capability: 'title_history',
+        event: 'configured',
+        mode: 'live',
+        vin,
+        reason: 'selected_by_priority',
+        source: 'nmvtis'
+      })
+
+      const timeoutMs = getProviderTimeoutMs()
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+      try {
+        const generateResponse = await fetch(buildGenerateUrl(baseUrl, generatePath, vin, apiKey, apiSecret), {
+          method: 'POST',
+          headers: buildHeaders(apiKey, apiSecret),
+          body: JSON.stringify({ vin }),
+          signal: controller.signal
+        })
+
+        const generatePayload = await parseJsonSafe(generateResponse)
+
+        if (!generateResponse.ok) {
+          const reason = normalizeHttpErrorReason(generateResponse.status)
+          logProviderHealth({
+            provider: 'marketcheck',
+            capability: 'title_history',
+            event: 'live_failure',
+            mode: 'failed',
+            vin,
+            status: generateResponse.status,
+            reason
+          })
+
+          continue
+        }
+
+        if (generatePayload && hasReportLikePayload(generatePayload)) {
+          const result = normalizeLivePayload(generatePayload)
+          logProviderHealth({
+            provider: 'marketcheck',
+            capability: 'title_history',
+            event: 'live_success',
+            mode: 'live',
+            vin,
+            source: result.source
+          })
+
+          return result
+        }
+
+        const reportId = generatePayload ? extractReportId(generatePayload) : null
+
+        if (!reportId) {
+          logProviderHealth({
+            provider: 'marketcheck',
+            capability: 'title_history',
+            event: 'capability_unavailable',
+            mode: 'unavailable',
+            vin,
+            reason: 'missing_report_id'
+          })
+
+          continue
+        }
+
+        const accessResponse = await fetch(buildAccessUrl(baseUrl, accessPath, reportId, apiKey, apiSecret), {
+          method: 'GET',
+          headers: buildHeaders(apiKey, apiSecret),
+          signal: controller.signal
+        })
+
+        const accessPayload = await parseJsonSafe(accessResponse)
+
+        if (!accessResponse.ok || !accessPayload) {
+          const reason = normalizeHttpErrorReason(accessResponse.status)
+          logProviderHealth({
+            provider: 'marketcheck',
+            capability: 'title_history',
+            event: 'live_failure',
+            mode: 'failed',
+            vin,
+            status: accessResponse.status,
+            reason
+          })
+
+          continue
+        }
+
+        const result = normalizeLivePayload(accessPayload)
         logProviderHealth({
           provider: 'marketcheck',
           capability: 'title_history',
@@ -528,79 +594,30 @@ export class TitleHistoryProvider {
         })
 
         return result
-      }
-
-      const reportId = generatePayload ? extractReportId(generatePayload) : null
-
-      if (!reportId) {
-        logProviderHealth({
-          provider: 'marketcheck',
-          capability: 'title_history',
-          event: 'capability_unavailable',
-          mode: 'unavailable',
-          vin,
-          reason: 'missing_report_id'
-        })
-
-        return {
-          ...buildStubResult(vin),
-          message: 'MarketCheck title report generation succeeded but no report id was returned.'
-        }
-      }
-
-      const accessResponse = await fetch(buildAccessUrl(baseUrl, accessPath, reportId, apiKey, apiSecret), {
-        method: 'GET',
-        headers: buildHeaders(apiKey, apiSecret),
-        signal: controller.signal
-      })
-
-      const accessPayload = await parseJsonSafe(accessResponse)
-
-      if (!accessResponse.ok || !accessPayload) {
-        const reason = normalizeHttpErrorReason(accessResponse.status)
+      } catch {
         logProviderHealth({
           provider: 'marketcheck',
           capability: 'title_history',
           event: 'live_failure',
           mode: 'failed',
           vin,
-          status: accessResponse.status,
-          reason
+          reason: 'request_exception'
         })
-
-        return {
-          ...buildStubResult(vin),
-          message: `MarketCheck title report access failed (${accessResponse.status}, ${reason}).`
-        }
+      } finally {
+        clearTimeout(timeout)
       }
-
-      const result = normalizeLivePayload(accessPayload)
-      logProviderHealth({
-        provider: 'marketcheck',
-        capability: 'title_history',
-        event: 'live_success',
-        mode: 'live',
-        vin,
-        source: result.source
-      })
-
-      return result
-    } catch {
-      logProviderHealth({
-        provider: 'marketcheck',
-        capability: 'title_history',
-        event: 'live_failure',
-        mode: 'failed',
-        vin,
-        reason: 'request_exception'
-      })
-
-      return {
-        ...buildStubResult(vin),
-        message: 'MarketCheck title history lookup request failed.'
-      }
-    } finally {
-      clearTimeout(timeout)
     }
+
+    logProviderHealth({
+      provider: 'title_history',
+      capability: 'title_history',
+      event: 'stub_fallback',
+      mode: 'stub',
+      vin,
+      reason: 'all_priority_providers_unavailable_or_failed',
+      source: 'nmvtis_stub'
+    })
+
+    return buildStubResult(vin)
   }
 }
