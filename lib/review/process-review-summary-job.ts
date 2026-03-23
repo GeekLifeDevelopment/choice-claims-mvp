@@ -127,6 +127,7 @@ function buildProviderResultSummary(value: unknown): Record<string, unknown> {
     recall: record.recall,
     nhtsaRecalls: record.nhtsaRecalls,
     vinSpecFallback: record.vinSpecFallback,
+    titleHistory: record.titleHistory,
     titleProblem: record.titleProblem,
     titleBrand: record.titleBrand
   }

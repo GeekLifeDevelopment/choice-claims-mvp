@@ -35,6 +35,28 @@ export type VinSpecFallbackResult = {
   manufacturer?: string | null
 }
 
+export type TitleHistoryEvent = {
+  type: string
+  summary: string
+  eventDate?: string | null
+  state?: string | null
+}
+
+export type TitleHistoryResult = {
+  source: 'nmvtis' | 'nmvtis_stub'
+  fetchedAt: string
+  titleStatus?: string | null
+  brandFlags: string[]
+  odometerFlags: string[]
+  salvageIndicator?: boolean | null
+  junkIndicator?: boolean | null
+  rebuiltIndicator?: boolean | null
+  theftIndicator?: boolean | null
+  totalLossIndicator?: boolean | null
+  events: TitleHistoryEvent[]
+  message?: string | null
+}
+
 export type VinDataResult = {
   vin: string
   year?: number | null
@@ -63,6 +85,7 @@ export type VinDataResult = {
   recall?: VinEnrichmentSummary
   nhtsaRecalls?: NhtsaRecallsResult | null
   vinSpecFallback?: VinSpecFallbackResult | null
+  titleHistory?: TitleHistoryResult | null
   titleProblem?: VinEnrichmentSummary
   titleBrand?: VinEnrichmentSummary
   provider: VinProviderName

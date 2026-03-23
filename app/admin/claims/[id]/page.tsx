@@ -225,6 +225,28 @@ type VinSpecFallbackViewModel = {
   manufacturer: string | null
 }
 
+type TitleHistoryEventViewModel = {
+  type: string
+  summary: string
+  eventDate: string | null
+  state: string | null
+}
+
+type TitleHistoryViewModel = {
+  source: string
+  fetchedAt: string | null
+  titleStatus: string | null
+  brandFlags: string[]
+  odometerFlags: string[]
+  salvageIndicator: boolean | null
+  junkIndicator: boolean | null
+  rebuiltIndicator: boolean | null
+  theftIndicator: boolean | null
+  totalLossIndicator: boolean | null
+  events: TitleHistoryEventViewModel[]
+  message: string | null
+}
+
 function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
   const record = asRecord(value)
   const nhtsaRecord = asRecord(record.nhtsaRecalls)
@@ -282,6 +304,63 @@ function getVinSpecFallback(value: unknown): VinSpecFallbackViewModel | null {
     cylinders: getOptionalString(fallbackRecord.cylinders),
     fuelType: getOptionalString(fallbackRecord.fuelType),
     manufacturer: getOptionalString(fallbackRecord.manufacturer)
+  }
+}
+
+function getTitleHistory(value: unknown): TitleHistoryViewModel | null {
+  const record = asRecord(value)
+  const titleHistoryRecord = asRecord(record.titleHistory)
+
+  if (Object.keys(titleHistoryRecord).length === 0) {
+    return null
+  }
+
+  const events = Array.isArray(titleHistoryRecord.events)
+    ? titleHistoryRecord.events
+        .map((entry) => {
+          const eventRecord = asRecord(entry)
+          const type = getOptionalString(eventRecord.type)
+          const summary = getOptionalString(eventRecord.summary)
+
+          if (!type || !summary) {
+            return null
+          }
+
+          return {
+            type,
+            summary,
+            eventDate: getOptionalString(eventRecord.eventDate),
+            state: getOptionalString(eventRecord.state)
+          }
+        })
+        .filter((entry): entry is TitleHistoryEventViewModel => Boolean(entry))
+    : []
+
+  const brandFlags = Array.isArray(titleHistoryRecord.brandFlags)
+    ? titleHistoryRecord.brandFlags
+        .map((entry) => getOptionalString(entry))
+        .filter((entry): entry is string => Boolean(entry))
+    : []
+
+  const odometerFlags = Array.isArray(titleHistoryRecord.odometerFlags)
+    ? titleHistoryRecord.odometerFlags
+        .map((entry) => getOptionalString(entry))
+        .filter((entry): entry is string => Boolean(entry))
+    : []
+
+  return {
+    source: getOptionalString(titleHistoryRecord.source) || 'nmvtis_stub',
+    fetchedAt: getOptionalString(titleHistoryRecord.fetchedAt),
+    titleStatus: getOptionalString(titleHistoryRecord.titleStatus),
+    brandFlags,
+    odometerFlags,
+    salvageIndicator: getOptionalBoolean(titleHistoryRecord.salvageIndicator),
+    junkIndicator: getOptionalBoolean(titleHistoryRecord.junkIndicator),
+    rebuiltIndicator: getOptionalBoolean(titleHistoryRecord.rebuiltIndicator),
+    theftIndicator: getOptionalBoolean(titleHistoryRecord.theftIndicator),
+    totalLossIndicator: getOptionalBoolean(titleHistoryRecord.totalLossIndicator),
+    events,
+    message: getOptionalString(titleHistoryRecord.message)
   }
 }
 
@@ -632,6 +711,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const vinDataModel = getOptionalString(vinDataResult.model)
   const vinSpecFallback = getVinSpecFallback(vinDataResult)
   const nhtsaRecalls = getNhtsaRecalls(vinDataResult)
+  const titleHistory = getTitleHistory(vinDataResult)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
@@ -1115,6 +1195,93 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       </p>
                       <p>
                         <span className="font-medium text-slate-900">Remedy:</span> {item.remedy}
+                      </p>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Title History</h2>
+
+        {!titleHistory ? (
+          <p className="text-slate-600">Title history data is not available yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Source:</span> {titleHistory.source}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Fetched At:</span>{' '}
+                {formatIsoDate(titleHistory.fetchedAt)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Title Status:</span>{' '}
+                {titleHistory.titleStatus || '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Brand Flags:</span>{' '}
+                {titleHistory.brandFlags.length > 0 ? titleHistory.brandFlags.join(', ') : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Odometer Flags:</span>{' '}
+                {titleHistory.odometerFlags.length > 0 ? titleHistory.odometerFlags.join(', ') : '—'}
+              </p>
+            </div>
+
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Salvage:</span>{' '}
+                {titleHistory.salvageIndicator === null ? '—' : titleHistory.salvageIndicator ? 'Yes' : 'No'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Junk:</span>{' '}
+                {titleHistory.junkIndicator === null ? '—' : titleHistory.junkIndicator ? 'Yes' : 'No'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Rebuilt:</span>{' '}
+                {titleHistory.rebuiltIndicator === null ? '—' : titleHistory.rebuiltIndicator ? 'Yes' : 'No'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Theft:</span>{' '}
+                {titleHistory.theftIndicator === null ? '—' : titleHistory.theftIndicator ? 'Yes' : 'No'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Total Loss:</span>{' '}
+                {titleHistory.totalLossIndicator === null ? '—' : titleHistory.totalLossIndicator ? 'Yes' : 'No'}
+              </p>
+            </div>
+
+            {titleHistory.message ? (
+              <p className="text-xs text-slate-600">Provider note: {titleHistory.message}</p>
+            ) : null}
+
+            {titleHistory.events.length === 0 ? (
+              <p className="text-slate-600">No title-history events returned.</p>
+            ) : (
+              <div className="space-y-2">
+                {titleHistory.events.map((event, index) => (
+                  <details
+                    key={`${event.type}-${index}`}
+                    className="rounded-md border border-slate-200 bg-slate-50 p-3"
+                  >
+                    <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                      {event.type}
+                    </summary>
+                    <div className="mt-2 grid gap-2 text-sm text-slate-700">
+                      <p>
+                        <span className="font-medium text-slate-900">Summary:</span> {event.summary}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Event Date:</span> {event.eventDate || '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">State:</span> {event.state || '—'}
                       </p>
                     </div>
                   </details>
