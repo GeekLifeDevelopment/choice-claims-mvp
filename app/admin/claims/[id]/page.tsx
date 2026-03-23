@@ -18,6 +18,54 @@ function formatFileSize(value?: number | null): string {
   return `${Math.round((value / 1024) * 10) / 10} KB`
 }
 
+function getFilenameExtension(filename: string): string {
+  const lastDotIndex = filename.lastIndexOf('.')
+  if (lastDotIndex === -1 || lastDotIndex === filename.length - 1) {
+    return ''
+  }
+
+  return filename.slice(lastDotIndex + 1).toLowerCase()
+}
+
+function isImageAttachment(input: { filename: string; mimeType?: string | null }): boolean {
+  const mimeType = (input.mimeType || '').toLowerCase()
+  if (mimeType.startsWith('image/')) {
+    return true
+  }
+
+  const extension = getFilenameExtension(input.filename)
+  return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif', 'tiff'].includes(extension)
+}
+
+function isPdfAttachment(input: { filename: string; mimeType?: string | null }): boolean {
+  const mimeType = (input.mimeType || '').toLowerCase()
+  if (mimeType.includes('pdf')) {
+    return true
+  }
+
+  return getFilenameExtension(input.filename) === 'pdf'
+}
+
+function getAttachmentTypeLabel(input: { filename: string; mimeType?: string | null }): string {
+  if (isImageAttachment(input)) {
+    return 'Image'
+  }
+
+  if (isPdfAttachment(input)) {
+    return 'PDF'
+  }
+
+  return 'File'
+}
+
+function isSafePreviewUrl(value: string | null | undefined): boolean {
+  if (!value) {
+    return false
+  }
+
+  return value.startsWith('https://') || value.startsWith('http://')
+}
+
 function formatMetadataPreview(value: unknown): string {
   if (value == null) {
     return '—'
@@ -681,31 +729,100 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         {claim.attachments.length === 0 ? (
           <p className="text-slate-600">No attachments linked to this claim.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-slate-600">
-                  <th className="py-2 pr-4 font-medium">Filename</th>
-                  <th className="py-2 pr-4 font-medium">MIME Type</th>
-                  <th className="py-2 pr-4 font-medium">Size</th>
-                  <th className="py-2 pr-4 font-medium">Has File URL</th>
-                  <th className="py-2 pr-4 font-medium">External ID</th>
-                  <th className="py-2 pr-4 font-medium">Storage Key</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claim.attachments.map((attachment) => (
-                  <tr key={attachment.id} className="border-b last:border-0">
-                    <td className="py-2 pr-4 text-slate-900">{attachment.filename}</td>
-                    <td className="py-2 pr-4">{attachment.mimeType || '—'}</td>
-                    <td className="py-2 pr-4">{formatFileSize(attachment.fileSize)}</td>
-                    <td className="py-2 pr-4">{attachment.sourceUrl ? 'Yes' : 'No'}</td>
-                    <td className="py-2 pr-4">{attachment.externalId || '—'}</td>
-                    <td className="py-2 pr-4">{attachment.storageKey || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-3 md:grid-cols-2">
+            {claim.attachments.map((attachment) => {
+              const safePreviewUrl = isSafePreviewUrl(attachment.sourceUrl) ? attachment.sourceUrl : null
+              const canPreviewImage = safePreviewUrl && isImageAttachment(attachment)
+              const canPreviewPdf = safePreviewUrl && isPdfAttachment(attachment)
+
+              return (
+                <article
+                  key={attachment.id}
+                  className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
+                >
+                  <div className="space-y-2">
+                    <p className="font-medium text-slate-900 break-all">{attachment.filename}</p>
+
+                    <div className="grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
+                      <p>
+                        <span className="font-medium text-slate-800">Type:</span>{' '}
+                        {getAttachmentTypeLabel(attachment)}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-800">MIME:</span>{' '}
+                        {attachment.mimeType || '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-800">Uploaded:</span>{' '}
+                        {attachment.uploadedAt ? formatDate(attachment.uploadedAt) : '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-800">Size:</span>{' '}
+                        {formatFileSize(attachment.fileSize)}
+                      </p>
+                    </div>
+
+                    {safePreviewUrl ? (
+                      <details className="rounded-md border border-slate-200 bg-white p-2">
+                        <summary className="cursor-pointer text-xs font-medium text-slate-800">
+                          Preview
+                        </summary>
+
+                        <div className="mt-2">
+                          {canPreviewImage ? (
+                            <img
+                              src={safePreviewUrl}
+                              alt={attachment.filename}
+                              className="max-h-64 w-full rounded border border-slate-200 object-contain"
+                            />
+                          ) : null}
+
+                          {canPreviewPdf ? (
+                            <iframe
+                              src={safePreviewUrl}
+                              title={`Preview ${attachment.filename}`}
+                              className="h-72 w-full rounded border border-slate-200"
+                            />
+                          ) : null}
+
+                          {!canPreviewImage && !canPreviewPdf ? (
+                            <p className="text-xs text-slate-600">Inline preview not available for this type.</p>
+                          ) : null}
+                        </div>
+                      </details>
+                    ) : (
+                      <p className="text-xs text-slate-600">Preview unavailable: no supported file URL.</p>
+                    )}
+
+                    <div className="flex flex-wrap gap-3 text-xs">
+                      <p>
+                        <span className="font-medium text-slate-800">External ID:</span>{' '}
+                        {attachment.externalId || '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-800">Storage Key:</span>{' '}
+                        {attachment.storageKey || '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-800">URL:</span>{' '}
+                        {safePreviewUrl ? (
+                          <a
+                            href={safePreviewUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-700 underline underline-offset-2"
+                          >
+                            Open file
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </div>
