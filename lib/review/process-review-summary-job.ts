@@ -9,6 +9,7 @@ const REVIEW_SUMMARY_VERSION = 'v1'
 const DEFAULT_OPENAI_MODEL = process.env.REVIEW_SUMMARY_MODEL || 'gpt-4.1-mini'
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions'
 const MAX_SUMMARY_INPUT_JSON_CHARS = 12000
+const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied']
 
 type RuleFlag = {
   code: string
@@ -25,6 +26,9 @@ const REVIEW_SUMMARY_CLAIM_SELECT = {
   vinDataResult: true,
   reviewRuleFlags: true,
   reviewRuleEvaluatedAt: true,
+  reviewSummaryEnqueuedAt: true,
+  reviewSummaryStatus: true,
+  updatedAt: true,
   attachments: {
     orderBy: { uploadedAt: 'asc' as const },
     select: {
@@ -42,6 +46,10 @@ export type ProcessReviewSummaryJobResult = {
   claimId: string
   status: 'generated' | 'failed' | 'skipped'
   reason?: string
+}
+
+type ProcessReviewSummaryJobOptions = {
+  requestedAt?: string | null
 }
 
 function toErrorMessage(error: unknown): string {
@@ -152,8 +160,16 @@ function stringifySummaryInput(value: unknown): string {
 }
 
 async function persistReviewSummaryFailure(claimId: string, message: string): Promise<void> {
-  await prisma.claim.update({
-    where: { id: claimId },
+  await prisma.claim.updateMany({
+    where: {
+      id: claimId,
+      status: ClaimStatus.ReadyForAI,
+      NOT: {
+        reviewDecision: {
+          in: FINAL_REVIEW_DECISIONS
+        }
+      }
+    },
     data: {
       reviewSummaryStatus: 'Failed',
       reviewSummaryLastError: message
@@ -203,7 +219,28 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
   return text
 }
 
-export async function processReviewSummaryJob(claimId: string): Promise<ProcessReviewSummaryJobResult> {
+function parseRequestedAt(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function isStaleRequestedAt(requestedAt: Date | null, claimUpdatedAt: Date): boolean {
+  if (!requestedAt) {
+    return false
+  }
+
+  return claimUpdatedAt.getTime() > requestedAt.getTime()
+}
+
+export async function processReviewSummaryJob(
+  claimId: string,
+  options: ProcessReviewSummaryJobOptions = {}
+): Promise<ProcessReviewSummaryJobResult> {
+  const requestedAt = parseRequestedAt(options.requestedAt)
   const claim = await prisma.claim.findUnique({
     where: { id: claimId },
     select: REVIEW_SUMMARY_CLAIM_SELECT
@@ -227,16 +264,31 @@ export async function processReviewSummaryJob(claimId: string): Promise<ProcessR
     }
   }
 
+  if (claim.reviewSummaryStatus !== 'Queued') {
+    return {
+      ok: true,
+      claimId: claim.id,
+      status: 'skipped',
+      reason: 'obsolete_review_summary_status'
+    }
+  }
+
+  if (isStaleRequestedAt(requestedAt, claim.updatedAt)) {
+    return {
+      ok: true,
+      claimId: claim.id,
+      status: 'skipped',
+      reason: 'stale_job'
+    }
+  }
+
   try {
     if (claim.status !== ClaimStatus.ReadyForAI) {
-      const message = `Claim is not eligible for review summary: status=${claim.status}`
-      await persistReviewSummaryFailure(claim.id, message)
-
       return {
-        ok: false,
+        ok: true,
         claimId: claim.id,
-        status: 'failed',
-        reason: message
+        status: 'skipped',
+        reason: `obsolete_claim_status:${claim.status}`
       }
     }
 
@@ -303,8 +355,17 @@ export async function processReviewSummaryJob(claimId: string): Promise<ProcessR
 
     const reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage)
 
-    await prisma.claim.update({
-      where: { id: claim.id },
+    const persisted = await prisma.claim.updateMany({
+      where: {
+        id: claim.id,
+        status: ClaimStatus.ReadyForAI,
+        reviewSummaryStatus: 'Queued',
+        NOT: {
+          reviewDecision: {
+            in: FINAL_REVIEW_DECISIONS
+          }
+        }
+      },
       data: {
         reviewSummaryStatus: 'Generated',
         reviewSummaryGeneratedAt: new Date(),
@@ -313,6 +374,15 @@ export async function processReviewSummaryJob(claimId: string): Promise<ProcessR
         reviewSummaryLastError: null
       }
     })
+
+    if (persisted.count === 0) {
+      return {
+        ok: true,
+        claimId: claim.id,
+        status: 'skipped',
+        reason: 'obsolete_claim_state'
+      }
+    }
 
     return {
       ok: true,
