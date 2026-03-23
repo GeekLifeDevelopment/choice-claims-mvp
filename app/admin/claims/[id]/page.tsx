@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { HeicImagePreview } from '../../../../components/HeicImagePreview'
 import { ClaimStatus } from '../../../../lib/domain/claims'
 import { prisma } from '../../../../lib/prisma'
 import { isClaimLockedForProcessing } from '../../../../lib/review/claim-lock'
@@ -44,6 +45,16 @@ function isPdfAttachment(input: { filename: string; mimeType?: string | null }):
   }
 
   return getFilenameExtension(input.filename) === 'pdf'
+}
+
+function isHeicAttachment(input: { filename: string; mimeType?: string | null }): boolean {
+  const mimeType = (input.mimeType || '').toLowerCase()
+  if (mimeType.includes('heic') || mimeType.includes('heif')) {
+    return true
+  }
+
+  const extension = getFilenameExtension(input.filename)
+  return extension === 'heic' || extension === 'heif'
 }
 
 function getAttachmentTypeLabel(input: { filename: string; mimeType?: string | null }): string {
@@ -98,6 +109,37 @@ function formatReviewDecisionChangeMetadata(value: unknown): {
     reviewer: getOptionalString(metadata.reviewer) || '—',
     notes: getOptionalString(metadata.notes) || '—'
   }
+}
+
+function getAuditActor(metadata: Record<string, unknown>): string | null {
+  return (
+    getOptionalString(metadata.actor) ||
+    getOptionalString(metadata.reviewer) ||
+    getOptionalString(metadata.by) ||
+    getOptionalString(metadata.user)
+  )
+}
+
+function getAuditProvider(metadata: Record<string, unknown>): string | null {
+  return getOptionalString(metadata.provider) || getOptionalString(metadata.providerName)
+}
+
+function getAuditMessage(action: string, metadata: unknown): string | null {
+  if (action === 'review_decision_changed') {
+    const change = formatReviewDecisionChangeMetadata(metadata)
+    if (change) {
+      return `Decision changed: ${change.fromDecision} -> ${change.toDecision}`
+    }
+  }
+
+  const record = asRecord(metadata)
+
+  return (
+    getOptionalString(record.message) ||
+    getOptionalString(record.errorMessage) ||
+    getOptionalString(record.reason) ||
+    getOptionalString(record.notes)
+  )
 }
 
 function formatDebugJson(value: unknown): string {
@@ -476,6 +518,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
   const endpointErrors = getEndpointErrors(resolvedRawProviderPayload)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
+  const timelineAuditLogs = [...claim.auditLogs].reverse()
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
   const claimLockedForProcessing = isClaimLockedForProcessing(claim)
   const summaryRegenerateDisabledReason = getSummaryRegenerateDisabledReason({
@@ -716,6 +759,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Attachments</h2>
+        <p className="text-sm text-slate-600">Preview image only. Use Open file for PDFs and other file types.</p>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
           <p>
             <span className="font-medium text-slate-900">Attachment Count:</span> {claim.attachments.length}
@@ -734,6 +778,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               const safePreviewUrl = isSafePreviewUrl(attachment.sourceUrl) ? attachment.sourceUrl : null
               const canPreviewImage = safePreviewUrl && isImageAttachment(attachment)
               const canPreviewPdf = safePreviewUrl && isPdfAttachment(attachment)
+              const canPreviewHeic = safePreviewUrl && isHeicAttachment(attachment)
 
               return (
                 <article
@@ -769,7 +814,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         </summary>
 
                         <div className="mt-2">
-                          {canPreviewImage ? (
+                          {canPreviewImage && !canPreviewHeic ? (
                             <img
                               src={safePreviewUrl}
                               alt={attachment.filename}
@@ -777,15 +822,21 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                             />
                           ) : null}
 
-                          {canPreviewPdf ? (
-                            <iframe
-                              src={safePreviewUrl}
-                              title={`Preview ${attachment.filename}`}
-                              className="h-72 w-full rounded border border-slate-200"
+                          {canPreviewHeic ? (
+                            <HeicImagePreview
+                              sourceUrl={safePreviewUrl}
+                              filename={attachment.filename}
+                              className="max-h-64 w-full rounded border border-slate-200 object-contain"
                             />
                           ) : null}
 
-                          {!canPreviewImage && !canPreviewPdf ? (
+                          {canPreviewPdf ? (
+                            <p className="text-xs text-slate-600">
+                              PDF preview is available via Open file to avoid automatic downloads.
+                            </p>
+                          ) : null}
+
+                          {!canPreviewImage && !canPreviewPdf && !canPreviewHeic ? (
                             <p className="text-xs text-slate-600">Inline preview not available for this type.</p>
                           ) : null}
                         </div>
@@ -859,6 +910,52 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             {claim.vinLookupRetryRequestedAt ? formatDate(claim.vinLookupRetryRequestedAt) : '—'}
           </p>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Activity Timeline</h2>
+        <p className="text-sm text-slate-600">Timeline uses the latest persisted claim audit events.</p>
+
+        {timelineAuditLogs.length === 0 ? (
+          <p className="text-slate-600">No activity recorded for this claim yet.</p>
+        ) : (
+          <ol className="space-y-3">
+            {timelineAuditLogs.map((auditLog) => {
+              const metadata = asRecord(auditLog.metadata)
+              const actor = getAuditActor(metadata)
+              const provider = getAuditProvider(metadata)
+              const message = getAuditMessage(auditLog.action, auditLog.metadata)
+
+              return (
+                <li key={auditLog.id} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="min-w-0 break-all text-sm font-medium text-slate-900">{auditLog.action}</p>
+                    <p className="whitespace-nowrap text-xs text-slate-600">{formatDate(auditLog.createdAt)}</p>
+                  </div>
+
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
+                    <p>
+                      <span className="font-medium text-slate-900">Actor:</span> {actor || '—'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-slate-900">Provider:</span> {provider || '—'}
+                    </p>
+                  </div>
+
+                  {message ? (
+                    <p className="mt-2 break-words text-sm text-slate-700">{message}</p>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-500">No event message.</p>
+                  )}
+
+                  {!message && auditLog.metadata ? (
+                    <p className="mt-1 break-words text-xs text-slate-500">Metadata: {formatMetadataPreview(auditLog.metadata)}</p>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ol>
+        )}
       </div>
 
       <div className="space-y-2">
