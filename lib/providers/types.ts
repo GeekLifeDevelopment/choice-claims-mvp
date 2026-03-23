@@ -74,6 +74,17 @@ export type ServiceHistoryResult = {
   message?: string | null
 }
 
+export type ValuationResult = {
+  source: 'valuation' | 'valuation_stub'
+  fetchedAt: string
+  estimatedValue?: number | null
+  retailValue?: number | null
+  tradeInValue?: number | null
+  confidence?: number | null
+  currency?: string | null
+  message?: string | null
+}
+
 export type VinDataResult = {
   vin: string
   year?: number | null
@@ -104,6 +115,7 @@ export type VinDataResult = {
   vinSpecFallback?: VinSpecFallbackResult | null
   titleHistory?: TitleHistoryResult | null
   serviceHistory?: ServiceHistoryResult | null
+  valuation?: ValuationResult | null
   titleProblem?: VinEnrichmentSummary
   titleBrand?: VinEnrichmentSummary
   provider: VinProviderName

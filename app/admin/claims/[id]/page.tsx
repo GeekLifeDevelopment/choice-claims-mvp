@@ -264,6 +264,17 @@ type ServiceHistoryViewModel = {
   message: string | null
 }
 
+type ValuationViewModel = {
+  source: string
+  fetchedAt: string | null
+  estimatedValue: number | null
+  retailValue: number | null
+  tradeInValue: number | null
+  confidence: number | null
+  currency: string | null
+  message: string | null
+}
+
 function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
   const record = asRecord(value)
   const nhtsaRecord = asRecord(record.nhtsaRecalls)
@@ -416,6 +427,26 @@ function getServiceHistory(value: unknown): ServiceHistoryViewModel | null {
     latestMileage: getOptionalNumber(serviceHistoryRecord.latestMileage),
     events,
     message: getOptionalString(serviceHistoryRecord.message)
+  }
+}
+
+function getValuation(value: unknown): ValuationViewModel | null {
+  const record = asRecord(value)
+  const valuationRecord = asRecord(record.valuation)
+
+  if (Object.keys(valuationRecord).length === 0) {
+    return null
+  }
+
+  return {
+    source: getOptionalString(valuationRecord.source) || 'valuation_stub',
+    fetchedAt: getOptionalString(valuationRecord.fetchedAt),
+    estimatedValue: getOptionalNumber(valuationRecord.estimatedValue),
+    retailValue: getOptionalNumber(valuationRecord.retailValue),
+    tradeInValue: getOptionalNumber(valuationRecord.tradeInValue),
+    confidence: getOptionalNumber(valuationRecord.confidence),
+    currency: getOptionalString(valuationRecord.currency) || 'USD',
+    message: getOptionalString(valuationRecord.message)
   }
 }
 
@@ -768,6 +799,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const nhtsaRecalls = getNhtsaRecalls(vinDataResult)
   const titleHistory = getTitleHistory(vinDataResult)
   const serviceHistory = getServiceHistory(vinDataResult)
+  const valuation = getValuation(vinDataResult)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
@@ -1410,6 +1442,52 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Valuation</h2>
+
+        {!valuation ? (
+          <p className="text-slate-600">Valuation data is not available yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Source:</span> {valuation.source}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Fetched At:</span>{' '}
+                {formatIsoDate(valuation.fetchedAt)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Estimated Value:</span>{' '}
+                {valuation.estimatedValue !== null
+                  ? `${valuation.currency || 'USD'} ${String(valuation.estimatedValue)}`
+                  : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Retail Value:</span>{' '}
+                {valuation.retailValue !== null
+                  ? `${valuation.currency || 'USD'} ${String(valuation.retailValue)}`
+                  : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Trade-In Value:</span>{' '}
+                {valuation.tradeInValue !== null
+                  ? `${valuation.currency || 'USD'} ${String(valuation.tradeInValue)}`
+                  : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Confidence:</span>{' '}
+                {valuation.confidence !== null ? String(valuation.confidence) : '—'}
+              </p>
+            </div>
+
+            {valuation.message ? (
+              <p className="text-xs text-slate-600">Provider note: {valuation.message}</p>
+            ) : null}
           </div>
         )}
       </div>
