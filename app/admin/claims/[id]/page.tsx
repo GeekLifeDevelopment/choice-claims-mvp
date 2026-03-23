@@ -95,6 +95,8 @@ function formatReviewDecisionChangeMetadata(value: unknown): {
   toDecision: string
   reviewer: string
   notes: string
+  overrideUsed: boolean
+  overrideReason: string
 } | null {
   const metadata = asRecord(value)
   const toDecision = getOptionalString(metadata.toDecision)
@@ -107,7 +109,9 @@ function formatReviewDecisionChangeMetadata(value: unknown): {
     fromDecision: getOptionalString(metadata.fromDecision) || 'Unset',
     toDecision,
     reviewer: getOptionalString(metadata.reviewer) || '—',
-    notes: getOptionalString(metadata.notes) || '—'
+    notes: getOptionalString(metadata.notes) || '—',
+    overrideUsed: getOptionalBoolean(metadata.overrideUsed) || false,
+    overrideReason: getOptionalString(metadata.overrideReason) || '—'
   }
 }
 
@@ -128,6 +132,10 @@ function getAuditMessage(action: string, metadata: unknown): string | null {
   if (action === 'review_decision_changed') {
     const change = formatReviewDecisionChangeMetadata(metadata)
     if (change) {
+      if (change.fromDecision === change.toDecision) {
+        return `Decision saved: ${change.toDecision}`
+      }
+
       return `Decision changed: ${change.fromDecision} -> ${change.toDecision}`
     }
   }
@@ -166,6 +174,10 @@ function getOptionalString(value: unknown): string | null {
 
 function getOptionalNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null
+}
+
+function getOptionalBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
 }
 
 type PersistedRuleFlag = {
@@ -518,6 +530,17 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
   const endpointErrors = getEndpointErrors(resolvedRawProviderPayload)
   const asyncAuditLogs = claim.auditLogs.filter((auditLog) => ASYNC_AUDIT_ACTIONS.has(auditLog.action))
+  const latestReviewDecisionAudit = claim.auditLogs.find(
+    (auditLog) => auditLog.action === 'review_decision_changed'
+  )
+  const latestReviewDecisionChange = latestReviewDecisionAudit
+    ? formatReviewDecisionChangeMetadata(latestReviewDecisionAudit.metadata)
+    : null
+  const currentOverrideUsed = latestReviewDecisionChange?.overrideUsed || false
+  const currentOverrideReason =
+    latestReviewDecisionChange && latestReviewDecisionChange.overrideReason !== '—'
+      ? latestReviewDecisionChange.overrideReason
+      : ''
   const timelineAuditLogs = [...claim.auditLogs].reverse()
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
   const claimLockedForProcessing = isClaimLockedForProcessing(claim)
@@ -671,6 +694,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             <span className="font-medium text-slate-900">Current Notes:</span>{' '}
             {claim.reviewDecisionNotes || '—'}
           </p>
+          <p>
+            <span className="font-medium text-slate-900">Override Used:</span>{' '}
+            {currentOverrideUsed ? 'Yes' : 'No'}
+          </p>
+          <p className="sm:col-span-2">
+            <span className="font-medium text-slate-900">Override Reason:</span>{' '}
+            {currentOverrideUsed ? currentOverrideReason || '—' : '—'}
+          </p>
         </div>
 
         <form
@@ -701,6 +732,28 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               rows={4}
               className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               placeholder="Add reviewer notes"
+            />
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              name="override"
+              value="true"
+              defaultChecked={currentOverrideUsed}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            <span className="font-medium text-slate-900">Override recommended outcome</span>
+          </label>
+
+          <label className="block space-y-1 text-sm text-slate-700">
+            <span className="font-medium text-slate-900">Override Reason (optional)</span>
+            <textarea
+              name="overrideReason"
+              defaultValue={currentOverrideReason}
+              rows={3}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+              placeholder="Explain why reviewer is overriding the guidance"
             />
           </label>
 
@@ -1112,6 +1165,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                                       -&gt; <span className="font-medium">{change.toDecision}</span>
                                     </p>
                                     <p>Reviewer: {change.reviewer}</p>
+                                    <p>Override Used: {change.overrideUsed ? 'Yes' : 'No'}</p>
+                                    {change.overrideUsed ? <p>Override Reason: {change.overrideReason}</p> : null}
                                     <p>Notes: {change.notes}</p>
                                   </div>
                                 )

@@ -21,9 +21,13 @@ export async function POST(request: Request, context: RouteContext) {
   const formData = await request.formData()
   const decisionValue = formData.get('decision')
   const notesValue = formData.get('notes')
+  const overrideValue = formData.get('override')
+  const overrideReasonValue = formData.get('overrideReason')
 
   const decision = typeof decisionValue === 'string' ? decisionValue.trim() : ''
   const notes = typeof notesValue === 'string' ? notesValue.trim() : ''
+  const overrideReason = typeof overrideReasonValue === 'string' ? overrideReasonValue.trim() : ''
+  const overrideUsed = overrideValue === 'on' || overrideValue === 'true' || overrideValue === '1'
 
   if (!ALLOWED_DECISIONS.has(decision)) {
     return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'invalid'), { status: 303 })
@@ -57,17 +61,17 @@ export async function POST(request: Request, context: RouteContext) {
         }
       })
 
-      if (claim.reviewDecision !== decision) {
-        await logReviewDecisionChangedAudit({
-          client: tx,
-          claimId: claim.id,
-          claimNumber: claim.claimNumber,
-          fromDecision: claim.reviewDecision,
-          toDecision: decision,
-          notes,
-          reviewer
-        })
-      }
+      await logReviewDecisionChangedAudit({
+        client: tx,
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        fromDecision: claim.reviewDecision,
+        toDecision: decision,
+        notes,
+        reviewer,
+        overrideUsed,
+        overrideReason: overrideReason || null
+      })
     })
 
     return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'saved'), { status: 303 })

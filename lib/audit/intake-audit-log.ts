@@ -102,6 +102,8 @@ type LogReviewDecisionChangedInput = CommonAuditInput & {
   toDecision: string
   notes?: string | null
   reviewer?: string | null
+  overrideUsed?: boolean
+  overrideReason?: string | null
 }
 
 type LogReviewSummaryRegenerateQueuedInput = CommonAuditInput & {
@@ -276,7 +278,9 @@ export async function logReviewDecisionChangedAudit(input: LogReviewDecisionChan
       fromDecision: input.fromDecision ?? null,
       toDecision: input.toDecision,
       notes: input.notes ?? null,
-      reviewer: input.reviewer ?? null
+      reviewer: input.reviewer ?? null,
+      overrideUsed: input.overrideUsed ?? false,
+      overrideReason: input.overrideReason ?? null
     }
   })
 }
