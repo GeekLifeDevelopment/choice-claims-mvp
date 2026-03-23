@@ -247,6 +247,23 @@ type TitleHistoryViewModel = {
   message: string | null
 }
 
+type ServiceHistoryEventViewModel = {
+  eventDate: string | null
+  mileage: number | null
+  serviceType: string | null
+  description: string | null
+  shop: string | null
+}
+
+type ServiceHistoryViewModel = {
+  source: string
+  fetchedAt: string | null
+  eventCount: number
+  latestMileage: number | null
+  events: ServiceHistoryEventViewModel[]
+  message: string | null
+}
+
 function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
   const record = asRecord(value)
   const nhtsaRecord = asRecord(record.nhtsaRecalls)
@@ -361,6 +378,44 @@ function getTitleHistory(value: unknown): TitleHistoryViewModel | null {
     totalLossIndicator: getOptionalBoolean(titleHistoryRecord.totalLossIndicator),
     events,
     message: getOptionalString(titleHistoryRecord.message)
+  }
+}
+
+function getServiceHistory(value: unknown): ServiceHistoryViewModel | null {
+  const record = asRecord(value)
+  const serviceHistoryRecord = asRecord(record.serviceHistory)
+
+  if (Object.keys(serviceHistoryRecord).length === 0) {
+    return null
+  }
+
+  const events = Array.isArray(serviceHistoryRecord.events)
+    ? serviceHistoryRecord.events
+        .map((entry) => {
+          const eventRecord = asRecord(entry)
+
+          return {
+            eventDate: getOptionalString(eventRecord.eventDate),
+            mileage: getOptionalNumber(eventRecord.mileage),
+            serviceType: getOptionalString(eventRecord.serviceType),
+            description: getOptionalString(eventRecord.description),
+            shop: getOptionalString(eventRecord.shop)
+          }
+        })
+        .filter((entry) =>
+          Boolean(entry.eventDate || entry.mileage !== null || entry.serviceType || entry.description || entry.shop)
+        )
+    : []
+
+  const eventCount = getOptionalNumber(serviceHistoryRecord.eventCount)
+
+  return {
+    source: getOptionalString(serviceHistoryRecord.source) || 'service_history_stub',
+    fetchedAt: getOptionalString(serviceHistoryRecord.fetchedAt),
+    eventCount: eventCount !== null ? eventCount : events.length,
+    latestMileage: getOptionalNumber(serviceHistoryRecord.latestMileage),
+    events,
+    message: getOptionalString(serviceHistoryRecord.message)
   }
 }
 
@@ -712,6 +767,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const vinSpecFallback = getVinSpecFallback(vinDataResult)
   const nhtsaRecalls = getNhtsaRecalls(vinDataResult)
   const titleHistory = getTitleHistory(vinDataResult)
+  const serviceHistory = getServiceHistory(vinDataResult)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
@@ -1282,6 +1338,72 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       </p>
                       <p>
                         <span className="font-medium text-slate-900">State:</span> {event.state || '—'}
+                      </p>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Service History</h2>
+
+        {!serviceHistory ? (
+          <p className="text-slate-600">Service history data is not available yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Source:</span> {serviceHistory.source}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Fetched At:</span>{' '}
+                {formatIsoDate(serviceHistory.fetchedAt)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Event Count:</span>{' '}
+                {String(serviceHistory.eventCount)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Latest Mileage:</span>{' '}
+                {serviceHistory.latestMileage !== null ? String(serviceHistory.latestMileage) : '—'}
+              </p>
+            </div>
+
+            {serviceHistory.message ? (
+              <p className="text-xs text-slate-600">Provider note: {serviceHistory.message}</p>
+            ) : null}
+
+            {serviceHistory.events.length === 0 ? (
+              <p className="text-slate-600">No service-history events returned.</p>
+            ) : (
+              <div className="space-y-2">
+                {serviceHistory.events.map((event, index) => (
+                  <details
+                    key={`${event.eventDate || 'unknown-date'}-${event.serviceType || 'service'}-${index}`}
+                    className="rounded-md border border-slate-200 bg-slate-50 p-3"
+                  >
+                    <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                      {event.serviceType || 'Service Event'}
+                    </summary>
+                    <div className="mt-2 grid gap-2 text-sm text-slate-700">
+                      <p>
+                        <span className="font-medium text-slate-900">Event Date:</span>{' '}
+                        {event.eventDate || '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Mileage:</span>{' '}
+                        {event.mileage !== null ? String(event.mileage) : '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Description:</span>{' '}
+                        {event.description || '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-900">Shop:</span> {event.shop || '—'}
                       </p>
                     </div>
                   </details>
