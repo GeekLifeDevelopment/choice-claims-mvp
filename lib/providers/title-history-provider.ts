@@ -1,29 +1,30 @@
 import { getProviderTimeoutMs } from './config'
 import type { TitleHistoryEvent, TitleHistoryResult } from './types'
 
-const DEFAULT_TITLE_HISTORY_BASE_URL = 'https://example.invalid/nmvtis'
+const DEFAULT_MARKETCHECK_BASE_URL = 'https://api.marketcheck.com'
+const DEFAULT_MARKETCHECK_GENERATE_PATH = '/v2/vindata/aamva/report/generate'
+const DEFAULT_MARKETCHECK_ACCESS_PATH = '/v2/vindata/aamva/report/{reportId}'
 
-type TitleHistoryApiResponse = {
-  titleStatus?: string
-  brandFlags?: unknown[]
-  odometerFlags?: unknown[]
-  salvageIndicator?: unknown
-  junkIndicator?: unknown
-  rebuiltIndicator?: unknown
-  theftIndicator?: unknown
-  totalLossIndicator?: unknown
-  events?: unknown[]
-  message?: string
+type TitleHistoryApiResponse = Record<string, unknown>
+
+function getMarketCheckApiKey(): string | null {
+  return process.env.MARKETCHECK_API_KEY?.trim() || null
 }
 
-function getTitleHistoryApiUrl(): string | null {
-  const configured = process.env.NMVTIS_TITLE_HISTORY_API_URL?.trim()
-  if (configured) {
-    return configured
-  }
+function getMarketCheckApiSecret(): string | null {
+  return process.env.MARKETCHECK_API_SECRET?.trim() || null
+}
 
-  const defaultDisabled = process.env.NMVTIS_TITLE_HISTORY_USE_DEFAULT === 'true'
-  return defaultDisabled ? DEFAULT_TITLE_HISTORY_BASE_URL : null
+function getMarketCheckBaseUrl(): string {
+  return process.env.MARKETCHECK_BASE_URL?.trim() || DEFAULT_MARKETCHECK_BASE_URL
+}
+
+function getMarketCheckGeneratePath(): string {
+  return process.env.MARKETCHECK_TITLE_HISTORY_GENERATE_PATH?.trim() || DEFAULT_MARKETCHECK_GENERATE_PATH
+}
+
+function getMarketCheckAccessPath(): string {
+  return process.env.MARKETCHECK_TITLE_HISTORY_ACCESS_PATH?.trim() || DEFAULT_MARKETCHECK_ACCESS_PATH
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -59,6 +60,53 @@ function getOptionalBoolean(value: unknown): boolean | null {
   return null
 }
 
+function firstBoolean(values: unknown[]): boolean | null {
+  for (const value of values) {
+    const parsed = getOptionalBoolean(value)
+    if (parsed !== null) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function firstString(values: unknown[]): string | null {
+  for (const value of values) {
+    const parsed = getOptionalString(value)
+    if (parsed) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function readNested(value: unknown, path: string[]): unknown {
+  let current: unknown = value
+
+  for (const segment of path) {
+    const record = asRecord(current)
+    current = record[segment]
+    if (current === undefined || current === null) {
+      return undefined
+    }
+  }
+
+  return current
+}
+
+function firstPresent(value: unknown, paths: string[][]): unknown {
+  for (const path of paths) {
+    const candidate = readNested(value, path)
+    if (candidate !== undefined && candidate !== null) {
+      return candidate
+    }
+  }
+
+  return undefined
+}
+
 function normalizeStringList(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return []
@@ -69,6 +117,22 @@ function normalizeStringList(value: unknown): string[] {
     .filter((entry): entry is string => Boolean(entry))
 }
 
+function normalizeStringListFromUnknown(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return normalizeStringList(value)
+  }
+
+  const fromDelimited = getOptionalString(value)
+  if (!fromDelimited) {
+    return []
+  }
+
+  return fromDelimited
+    .split(/[;,|]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
 function normalizeEvents(value: unknown): TitleHistoryEvent[] {
   if (!Array.isArray(value)) {
     return []
@@ -77,8 +141,15 @@ function normalizeEvents(value: unknown): TitleHistoryEvent[] {
   return value
     .map((entry): TitleHistoryEvent | null => {
       const record = asRecord(entry)
-      const type = getOptionalString(record.type) || getOptionalString(record.eventType)
-      const summary = getOptionalString(record.summary) || getOptionalString(record.description)
+      const type =
+        getOptionalString(record.type) ||
+        getOptionalString(record.eventType) ||
+        getOptionalString(record.category)
+      const summary =
+        getOptionalString(record.summary) ||
+        getOptionalString(record.description) ||
+        getOptionalString(record.details) ||
+        getOptionalString(record.note)
 
       if (!type || !summary) {
         return null
@@ -87,11 +158,237 @@ function normalizeEvents(value: unknown): TitleHistoryEvent[] {
       return {
         type,
         summary,
-        eventDate: getOptionalString(record.eventDate) ?? undefined,
-        state: getOptionalString(record.state) ?? undefined
+        eventDate:
+          getOptionalString(record.eventDate) ||
+          getOptionalString(record.date) ||
+          getOptionalString(record.reportedAt) ||
+          undefined,
+        state:
+          getOptionalString(record.state) ||
+          getOptionalString(record.jurisdiction) ||
+          getOptionalString(record.region) ||
+          undefined
       }
     })
     .filter((entry): entry is TitleHistoryEvent => entry !== null)
+}
+
+function normalizeEventsFromUnknown(value: unknown): TitleHistoryEvent[] {
+  if (Array.isArray(value)) {
+    return normalizeEvents(value)
+  }
+
+  const record = asRecord(value)
+  if (Object.keys(record).length === 0) {
+    return []
+  }
+
+  return normalizeEvents([record])
+}
+
+function getOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+function firstNumber(values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = getOptionalNumber(value)
+    if (parsed !== null) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function extractReportId(payload: TitleHistoryApiResponse): string | null {
+  const direct = firstString([
+    firstPresent(payload, [['reportId']]),
+    firstPresent(payload, [['report_id']]),
+    firstPresent(payload, [['reportUuid']]),
+    firstPresent(payload, [['id']]),
+    firstPresent(payload, [['data', 'reportId']]),
+    firstPresent(payload, [['data', 'report_id']]),
+    firstPresent(payload, [['data', 'id']]),
+    firstPresent(payload, [['result', 'reportId']]),
+    firstPresent(payload, [['result', 'report_id']]),
+    firstPresent(payload, [['result', 'id']])
+  ])
+
+  return direct || null
+}
+
+function hasReportLikePayload(payload: TitleHistoryApiResponse): boolean {
+  const events = firstPresent(payload, [
+    ['events'],
+    ['titleEvents'],
+    ['history'],
+    ['report', 'events'],
+    ['data', 'events']
+  ])
+
+  const titleStatus = firstPresent(payload, [
+    ['titleStatus'],
+    ['status'],
+    ['report', 'titleStatus'],
+    ['data', 'titleStatus']
+  ])
+
+  return events !== undefined || titleStatus !== undefined
+}
+
+function normalizeHttpErrorReason(status: number | undefined): string {
+  if (status === 400) {
+    return 'http_400_bad_request'
+  }
+
+  if (status === 401) {
+    return 'http_401_unauthorized'
+  }
+
+  if (status === 403) {
+    return 'http_403_forbidden'
+  }
+
+  if (status === 404) {
+    return 'http_404_not_found'
+  }
+
+  if (status === 429) {
+    return 'http_429_rate_limited'
+  }
+
+  if (typeof status === 'number' && status >= 500) {
+    return 'http_5xx_server_error'
+  }
+
+  return 'http_error'
+}
+
+function normalizeLivePayload(payload: TitleHistoryApiResponse): TitleHistoryResult {
+  const titleStatus = firstString([
+    firstPresent(payload, [['titleStatus']]),
+    firstPresent(payload, [['status']]),
+    firstPresent(payload, [['title', 'status']]),
+    firstPresent(payload, [['data', 'titleStatus']]),
+    firstPresent(payload, [['data', 'status']]),
+    firstPresent(payload, [['report', 'titleStatus']]),
+    firstPresent(payload, [['result', 'titleStatus']])
+  ])
+
+  const brandFlags = normalizeStringListFromUnknown(
+    firstPresent(payload, [
+      ['brandFlags'],
+      ['titleBrands'],
+      ['brands'],
+      ['data', 'brandFlags'],
+      ['result', 'brandFlags'],
+      ['title', 'brandFlags']
+    ])
+  )
+
+  const odometerFlags = normalizeStringListFromUnknown(
+    firstPresent(payload, [
+      ['odometerFlags'],
+      ['odometerIssues'],
+      ['odometerBrands'],
+      ['data', 'odometerFlags'],
+      ['result', 'odometerFlags'],
+      ['title', 'odometerFlags']
+    ])
+  )
+
+  const events = normalizeEventsFromUnknown(
+    firstPresent(payload, [
+      ['events'],
+      ['titleEvents'],
+      ['history'],
+      ['title', 'events'],
+      ['data', 'events'],
+      ['result', 'events'],
+      ['report', 'events']
+    ])
+  )
+
+  const salvageIndicator = firstBoolean([
+    firstPresent(payload, [['salvageIndicator']]),
+    firstPresent(payload, [['salvage']]),
+    firstPresent(payload, [['data', 'salvageIndicator']]),
+    firstPresent(payload, [['title', 'salvage']])
+  ])
+
+  const junkIndicator = firstBoolean([
+    firstPresent(payload, [['junkIndicator']]),
+    firstPresent(payload, [['junk']]),
+    firstPresent(payload, [['data', 'junkIndicator']]),
+    firstPresent(payload, [['title', 'junk']])
+  ])
+
+  const rebuiltIndicator = firstBoolean([
+    firstPresent(payload, [['rebuiltIndicator']]),
+    firstPresent(payload, [['rebuilt']]),
+    firstPresent(payload, [['data', 'rebuiltIndicator']]),
+    firstPresent(payload, [['title', 'rebuilt']])
+  ])
+
+  const theftIndicator = firstBoolean([
+    firstPresent(payload, [['theftIndicator']]),
+    firstPresent(payload, [['theft']]),
+    firstPresent(payload, [['data', 'theftIndicator']]),
+    firstPresent(payload, [['title', 'theft']])
+  ])
+
+  const totalLossIndicator = firstBoolean([
+    firstPresent(payload, [['totalLossIndicator']]),
+    firstPresent(payload, [['totalLoss']]),
+    firstPresent(payload, [['total_loss']]),
+    firstPresent(payload, [['data', 'totalLossIndicator']]),
+    firstPresent(payload, [['title', 'totalLoss']])
+  ])
+
+  const message = firstString([
+    firstPresent(payload, [['message']]),
+    firstPresent(payload, [['note']]),
+    firstPresent(payload, [['error']]),
+    firstPresent(payload, [['result', 'message']]),
+    firstPresent(payload, [['data', 'message']]),
+    firstPresent(payload, [['report', 'message']])
+  ])
+
+  const salvageFromBrandFlags = brandFlags.some((flag) => /salvage/i.test(flag))
+  const junkFromBrandFlags = brandFlags.some((flag) => /junk/i.test(flag))
+  const rebuiltFromBrandFlags = brandFlags.some((flag) => /rebuilt/i.test(flag))
+  const theftFromBrandFlags = brandFlags.some((flag) => /theft|stolen/i.test(flag))
+  const totalLossFromBrandFlags = brandFlags.some((flag) => /total\s*loss/i.test(flag))
+
+  return {
+    source: 'nmvtis',
+    fetchedAt: new Date().toISOString(),
+    titleStatus,
+    brandFlags,
+    odometerFlags,
+    salvageIndicator: salvageIndicator ?? (salvageFromBrandFlags ? true : null),
+    junkIndicator: junkIndicator ?? (junkFromBrandFlags ? true : null),
+    rebuiltIndicator: rebuiltIndicator ?? (rebuiltFromBrandFlags ? true : null),
+    theftIndicator: theftIndicator ?? (theftFromBrandFlags ? true : null),
+    totalLossIndicator: totalLossIndicator ?? (totalLossFromBrandFlags ? true : null),
+    events,
+    message
+  }
 }
 
 function buildStubResult(vin: string): TitleHistoryResult {
@@ -107,67 +404,146 @@ function buildStubResult(vin: string): TitleHistoryResult {
     theftIndicator: null,
     totalLossIndicator: null,
     events: [],
-    message: `Title history provider is not configured for VIN ${vin}.`
+    message: `MarketCheck title history provider is not configured for VIN ${vin}.`
   }
 }
 
-function normalizeLivePayload(payload: TitleHistoryApiResponse): TitleHistoryResult {
-  return {
-    source: 'nmvtis',
-    fetchedAt: new Date().toISOString(),
-    titleStatus: getOptionalString(payload.titleStatus),
-    brandFlags: normalizeStringList(payload.brandFlags),
-    odometerFlags: normalizeStringList(payload.odometerFlags),
-    salvageIndicator: getOptionalBoolean(payload.salvageIndicator),
-    junkIndicator: getOptionalBoolean(payload.junkIndicator),
-    rebuiltIndicator: getOptionalBoolean(payload.rebuiltIndicator),
-    theftIndicator: getOptionalBoolean(payload.theftIndicator),
-    totalLossIndicator: getOptionalBoolean(payload.totalLossIndicator),
-    events: normalizeEvents(payload.events),
-    message: getOptionalString(payload.message)
+function buildUrl(baseUrl: string, pathOrUrl: string): URL {
+  const normalizedBase = baseUrl.replace(/\/+$/, '')
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return new URL(pathOrUrl)
+  }
+
+  return new URL(pathOrUrl, `${normalizedBase}/`)
+}
+
+function applyAuth(url: URL, apiKey: string, apiSecret: string | null): void {
+  if (!url.searchParams.has('api_key')) {
+    url.searchParams.set('api_key', apiKey)
+  }
+
+  if (apiSecret && !url.searchParams.has('api_secret')) {
+    url.searchParams.set('api_secret', apiSecret)
   }
 }
 
-function buildLiveLookupUrl(baseUrl: string, vin: string): string {
-  const normalized = baseUrl.replace(/\/+$/, '')
-  const url = new URL(normalized)
-  url.searchParams.set('vin', vin)
+function buildGenerateUrl(baseUrl: string, path: string, vin: string, apiKey: string, apiSecret: string | null): string {
+  const url = buildUrl(baseUrl, path)
+  applyAuth(url, apiKey, apiSecret)
+
+  if (!url.searchParams.has('vin')) {
+    url.searchParams.set('vin', vin)
+  }
+
   return url.toString()
+}
+
+function buildAccessUrl(
+  baseUrl: string,
+  path: string,
+  reportId: string,
+  apiKey: string,
+  apiSecret: string | null
+): string {
+  const hasToken = path.includes('{reportId}')
+  const resolvedPath = hasToken ? path.replace('{reportId}', encodeURIComponent(reportId)) : path
+  const url = buildUrl(baseUrl, resolvedPath)
+  applyAuth(url, apiKey, apiSecret)
+
+  if (!hasToken && !url.searchParams.has('report_id') && !url.searchParams.has('reportId')) {
+    url.searchParams.set('report_id', reportId)
+  }
+
+  return url.toString()
+}
+
+function buildHeaders(apiKey: string, apiSecret: string | null): HeadersInit {
+  return {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    Authorization: `Bearer ${apiKey}`,
+    ...(apiSecret ? { 'x-api-secret': apiSecret } : {})
+  }
+}
+
+async function parseJsonSafe(response: Response): Promise<TitleHistoryApiResponse | null> {
+  try {
+    return (await response.json()) as TitleHistoryApiResponse
+  } catch {
+    return null
+  }
 }
 
 export class TitleHistoryProvider {
   async lookupTitleHistory(vin: string): Promise<TitleHistoryResult> {
-    const baseUrl = getTitleHistoryApiUrl()
-    if (!baseUrl) {
+    const apiKey = getMarketCheckApiKey()
+    const apiSecret = getMarketCheckApiSecret()
+
+    if (!apiKey) {
       return buildStubResult(vin)
     }
+
+    const baseUrl = getMarketCheckBaseUrl()
+    const generatePath = getMarketCheckGeneratePath()
+    const accessPath = getMarketCheckAccessPath()
 
     const timeoutMs = getProviderTimeoutMs()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
-      const response = await fetch(buildLiveLookupUrl(baseUrl, vin), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json'
-        },
+      const generateResponse = await fetch(buildGenerateUrl(baseUrl, generatePath, vin, apiKey, apiSecret), {
+        method: 'POST',
+        headers: buildHeaders(apiKey, apiSecret),
+        body: JSON.stringify({ vin }),
         signal: controller.signal
       })
 
-      if (!response.ok) {
+      const generatePayload = await parseJsonSafe(generateResponse)
+
+      if (!generateResponse.ok) {
+        const reason = normalizeHttpErrorReason(generateResponse.status)
         return {
           ...buildStubResult(vin),
-          message: `Title history lookup failed (${response.status}).`
+          message: `MarketCheck title report generation failed (${generateResponse.status}, ${reason}).`
         }
       }
 
-      const payload = (await response.json()) as TitleHistoryApiResponse
-      return normalizeLivePayload(payload)
+      if (generatePayload && hasReportLikePayload(generatePayload)) {
+        return normalizeLivePayload(generatePayload)
+      }
+
+      const reportId = generatePayload ? extractReportId(generatePayload) : null
+
+      if (!reportId) {
+        return {
+          ...buildStubResult(vin),
+          message: 'MarketCheck title report generation succeeded but no report id was returned.'
+        }
+      }
+
+      const accessResponse = await fetch(buildAccessUrl(baseUrl, accessPath, reportId, apiKey, apiSecret), {
+        method: 'GET',
+        headers: buildHeaders(apiKey, apiSecret),
+        signal: controller.signal
+      })
+
+      const accessPayload = await parseJsonSafe(accessResponse)
+
+      if (!accessResponse.ok || !accessPayload) {
+        const reason = normalizeHttpErrorReason(accessResponse.status)
+        return {
+          ...buildStubResult(vin),
+          message: `MarketCheck title report access failed (${accessResponse.status}, ${reason}).`
+        }
+      }
+
+      return normalizeLivePayload(accessPayload)
     } catch {
       return {
         ...buildStubResult(vin),
-        message: 'Title history lookup request failed.'
+        message: 'MarketCheck title history lookup request failed.'
       }
     } finally {
       clearTimeout(timeout)
