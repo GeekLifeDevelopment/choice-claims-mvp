@@ -23,8 +23,9 @@ import {
 } from '../lib/queue/vin-lookup-job-options'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { NhtsaRecallsProvider } from '../lib/providers/nhtsa-recalls-provider'
+import { VinSpecFallbackProvider } from '../lib/providers/vin-spec-fallback-provider'
 import { isProviderLookupError } from '../lib/providers/provider-error'
-import type { NhtsaRecallsResult } from '../lib/providers/types'
+import type { NhtsaRecallsResult, VinDataResult, VinSpecFallbackResult } from '../lib/providers/types'
 
 const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied']
 const STALE_JOB_GRACE_MS = 5_000
@@ -83,6 +84,84 @@ function asOptionalJsonField(
 
 function isRateLimitedProviderLookupError(error: unknown): boolean {
   return isProviderLookupError(error) && error.status === 429 && error.reason === 'http_429_rate_limited'
+}
+
+function hasMinimumVinSpecFields(input: {
+  year?: number | null
+  make?: string | null
+  model?: string | null
+}): boolean {
+  return Boolean(input.year && input.make && input.model)
+}
+
+function shouldRunVinSpecFallback(providerResult: VinDataResult): boolean {
+  return !hasMinimumVinSpecFields(providerResult)
+}
+
+function mergePrimaryWithFallbackSpecs(
+  providerResult: VinDataResult,
+  fallbackSpecs: VinSpecFallbackResult | null
+): VinDataResult {
+  if (!fallbackSpecs) {
+    return providerResult
+  }
+
+  return {
+    ...providerResult,
+    year: providerResult.year ?? fallbackSpecs.year ?? null,
+    make: providerResult.make ?? fallbackSpecs.make ?? null,
+    model: providerResult.model ?? fallbackSpecs.model ?? null,
+    trim: providerResult.trim ?? fallbackSpecs.trim ?? null,
+    bodyStyle: providerResult.bodyStyle ?? fallbackSpecs.bodyStyle ?? null,
+    drivetrain: providerResult.drivetrain ?? fallbackSpecs.drivetrain ?? null,
+    transmissionType: providerResult.transmissionType ?? fallbackSpecs.transmissionType ?? null,
+    engineSize: providerResult.engineSize ?? fallbackSpecs.engineSize ?? null,
+    cylinders: providerResult.cylinders ?? fallbackSpecs.cylinders ?? null,
+    fuelType: providerResult.fuelType ?? fallbackSpecs.fuelType ?? null,
+    manufacturer: providerResult.manufacturer ?? fallbackSpecs.manufacturer ?? null
+  }
+}
+
+async function lookupVinSpecsFallbackBestEffort(
+  vin: string,
+  context: {
+    queueName: string
+    jobName: string
+    jobId: string | number | undefined
+    claimId: string
+    claimNumber: string
+  }
+): Promise<VinSpecFallbackResult | null> {
+  try {
+    const fallbackProvider = new VinSpecFallbackProvider()
+    const fallbackSpecs = await fallbackProvider.lookupVinSpecs(vin)
+
+    if (!fallbackSpecs) {
+      log('vin spec fallback returned no usable specs', {
+        ...context,
+        vin
+      })
+      return null
+    }
+
+    log('vin spec fallback fetched', {
+      ...context,
+      vin,
+      source: fallbackSpecs.source,
+      year: fallbackSpecs.year,
+      make: fallbackSpecs.make,
+      model: fallbackSpecs.model
+    })
+
+    return fallbackSpecs
+  } catch (error) {
+    logError('vin spec fallback failed', {
+      ...context,
+      vin,
+      error
+    })
+    return null
+  }
 }
 
 async function evaluateClaimRulesBestEffort(claimId: string, context: string): Promise<void> {
@@ -399,11 +478,24 @@ async function run() {
         })
 
         const providerResult = await provider.lookupVinData(vin)
+        let fallbackSpecs: VinSpecFallbackResult | null = null
+
+        if (shouldRunVinSpecFallback(providerResult)) {
+          fallbackSpecs = await lookupVinSpecsFallbackBestEffort(vin, {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber
+          })
+        }
+
+        const enrichedProviderResult = mergePrimaryWithFallbackSpecs(providerResult, fallbackSpecs)
         let nhtsaRecalls: NhtsaRecallsResult | null = null
 
         try {
           const recallsProvider = new NhtsaRecallsProvider()
-          nhtsaRecalls = await recallsProvider.lookupRecalls(providerResult.vin || vin)
+          nhtsaRecalls = await recallsProvider.lookupRecalls(enrichedProviderResult.vin || vin)
 
           log('nhtsa recalls enrichment fetched', {
             queueName: QUEUE_NAMES.VIN_DATA,
@@ -427,33 +519,36 @@ async function run() {
         }
 
         const persistedVinDataResult: Prisma.InputJsonObject = {
-          vin: providerResult.vin,
-          provider: providerResult.provider,
-          ...asOptionalJsonField('year', providerResult.year),
-          ...asOptionalJsonField('make', providerResult.make),
-          ...asOptionalJsonField('model', providerResult.model),
-          ...asOptionalJsonField('trim', providerResult.trim),
-          ...asOptionalJsonField('vehicleClass', providerResult.vehicleClass),
-          ...asOptionalJsonField('country', providerResult.country),
-          ...asOptionalJsonField('bodyStyle', providerResult.bodyStyle),
-          ...asOptionalJsonField('doors', providerResult.doors),
-          ...asOptionalJsonField('drivetrain', providerResult.drivetrain),
-          ...asOptionalJsonField('transmissionType', providerResult.transmissionType),
-          ...asOptionalJsonField('wheelSize', providerResult.wheelSize),
-          ...asOptionalJsonField('engineSize', providerResult.engineSize),
-          ...asOptionalJsonField('cylinders', providerResult.cylinders),
-          ...asOptionalJsonField('horsepower', providerResult.horsepower),
-          ...asOptionalJsonField('eventCount', providerResult.eventCount),
-          ...asOptionalJsonField('providerResultCode', providerResult.providerResultCode),
-          ...asOptionalJsonField('providerResultMessage', providerResult.providerResultMessage),
-          ...asOptionalJsonField('quickCheck', providerResult.quickCheck as Prisma.InputJsonValue | null | undefined),
-          ...asOptionalJsonField('ownershipHistory', providerResult.ownershipHistory as Prisma.InputJsonValue | null | undefined),
-          ...asOptionalJsonField('accident', providerResult.accident as Prisma.InputJsonValue | null | undefined),
-          ...asOptionalJsonField('mileage', providerResult.mileage as Prisma.InputJsonValue | null | undefined),
-          ...asOptionalJsonField('recall', providerResult.recall as Prisma.InputJsonValue | null | undefined),
+          vin: enrichedProviderResult.vin,
+          provider: enrichedProviderResult.provider,
+          ...asOptionalJsonField('year', enrichedProviderResult.year),
+          ...asOptionalJsonField('make', enrichedProviderResult.make),
+          ...asOptionalJsonField('model', enrichedProviderResult.model),
+          ...asOptionalJsonField('trim', enrichedProviderResult.trim),
+          ...asOptionalJsonField('vehicleClass', enrichedProviderResult.vehicleClass),
+          ...asOptionalJsonField('country', enrichedProviderResult.country),
+          ...asOptionalJsonField('bodyStyle', enrichedProviderResult.bodyStyle),
+          ...asOptionalJsonField('doors', enrichedProviderResult.doors),
+          ...asOptionalJsonField('drivetrain', enrichedProviderResult.drivetrain),
+          ...asOptionalJsonField('transmissionType', enrichedProviderResult.transmissionType),
+          ...asOptionalJsonField('wheelSize', enrichedProviderResult.wheelSize),
+          ...asOptionalJsonField('engineSize', enrichedProviderResult.engineSize),
+          ...asOptionalJsonField('cylinders', enrichedProviderResult.cylinders),
+          ...asOptionalJsonField('fuelType', enrichedProviderResult.fuelType),
+          ...asOptionalJsonField('manufacturer', enrichedProviderResult.manufacturer),
+          ...asOptionalJsonField('horsepower', enrichedProviderResult.horsepower),
+          ...asOptionalJsonField('eventCount', enrichedProviderResult.eventCount),
+          ...asOptionalJsonField('providerResultCode', enrichedProviderResult.providerResultCode),
+          ...asOptionalJsonField('providerResultMessage', enrichedProviderResult.providerResultMessage),
+          ...asOptionalJsonField('quickCheck', enrichedProviderResult.quickCheck as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('ownershipHistory', enrichedProviderResult.ownershipHistory as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('accident', enrichedProviderResult.accident as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('mileage', enrichedProviderResult.mileage as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('recall', enrichedProviderResult.recall as Prisma.InputJsonValue | null | undefined),
           ...asOptionalJsonField('nhtsaRecalls', nhtsaRecalls as Prisma.InputJsonValue | null | undefined),
-          ...asOptionalJsonField('titleProblem', providerResult.titleProblem as Prisma.InputJsonValue | null | undefined),
-          ...asOptionalJsonField('titleBrand', providerResult.titleBrand as Prisma.InputJsonValue | null | undefined)
+          ...asOptionalJsonField('vinSpecFallback', fallbackSpecs as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('titleProblem', enrichedProviderResult.titleProblem as Prisma.InputJsonValue | null | undefined),
+          ...asOptionalJsonField('titleBrand', enrichedProviderResult.titleBrand as Prisma.InputJsonValue | null | undefined)
         }
 
         const transitioned = await prisma.claim.updateMany({
@@ -477,8 +572,8 @@ async function run() {
                 : Prisma.JsonNull,
             vinDataProvider: provider.name,
             vinDataFetchedAt: new Date(),
-            vinDataProviderResultCode: providerResult.providerResultCode ?? null,
-            vinDataProviderResultMessage: providerResult.providerResultMessage ?? null,
+            vinDataProviderResultCode: enrichedProviderResult.providerResultCode ?? null,
+            vinDataProviderResultMessage: enrichedProviderResult.providerResultMessage ?? null,
             status: ClaimStatus.ReadyForAI,
             vinLookupLastError: null,
             vinLookupLastFailedAt: null
@@ -528,9 +623,9 @@ async function run() {
           source: claim.source ?? payload.source,
           vin,
           provider: provider.name,
-          year: providerResult.year,
-          make: providerResult.make,
-          model: providerResult.model
+          year: enrichedProviderResult.year,
+          make: enrichedProviderResult.make,
+          model: enrichedProviderResult.model
         })
 
         if (fetchedAuditResult.ok) {
@@ -575,6 +670,134 @@ async function run() {
             : providerLookupError?.message ?? 'Unknown VIN lookup processing error'
         const providerFailureReason = providerLookupError?.reason ?? providerLookupError?.code ?? 'provider_lookup_failed'
         const failureStatus = providerName ? ClaimStatus.ProviderFailed : ClaimStatus.ProcessingError
+
+        const fallbackSpecs = await lookupVinSpecsFallbackBestEffort(vin, {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber
+        })
+
+        if (fallbackSpecs && hasMinimumVinSpecFields(fallbackSpecs)) {
+          let nhtsaRecallsFromFallback: NhtsaRecallsResult | null = null
+
+          try {
+            const recallsProvider = new NhtsaRecallsProvider()
+            nhtsaRecallsFromFallback = await recallsProvider.lookupRecalls(vin)
+          } catch (nhtsaError) {
+            logError('nhtsa recalls enrichment failed during fallback recovery', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              vin,
+              error: nhtsaError
+            })
+          }
+
+          const fallbackVinDataResult: Prisma.InputJsonObject = {
+            vin,
+            provider: fallbackSpecs.source,
+            ...asOptionalJsonField('year', fallbackSpecs.year),
+            ...asOptionalJsonField('make', fallbackSpecs.make),
+            ...asOptionalJsonField('model', fallbackSpecs.model),
+            ...asOptionalJsonField('trim', fallbackSpecs.trim),
+            ...asOptionalJsonField('bodyStyle', fallbackSpecs.bodyStyle),
+            ...asOptionalJsonField('drivetrain', fallbackSpecs.drivetrain),
+            ...asOptionalJsonField('transmissionType', fallbackSpecs.transmissionType),
+            ...asOptionalJsonField('engineSize', fallbackSpecs.engineSize),
+            ...asOptionalJsonField('cylinders', fallbackSpecs.cylinders),
+            ...asOptionalJsonField('fuelType', fallbackSpecs.fuelType),
+            ...asOptionalJsonField('manufacturer', fallbackSpecs.manufacturer),
+            ...asOptionalJsonField('vinSpecFallback', fallbackSpecs as Prisma.InputJsonValue | null | undefined),
+            ...asOptionalJsonField('nhtsaRecalls', nhtsaRecallsFromFallback as Prisma.InputJsonValue | null | undefined),
+            ...asOptionalJsonField('providerResultMessage', `primary_provider_failed:${errorMessage}`)
+          }
+
+          const recovered = await prisma.claim.updateMany({
+            where: {
+              id: claim.id,
+              status: ClaimStatus.AwaitingVinData,
+              OR: [
+                { reviewDecision: null },
+                {
+                  reviewDecision: {
+                    notIn: FINAL_REVIEW_DECISIONS
+                  }
+                }
+              ]
+            },
+            data: {
+              vinDataResult: fallbackVinDataResult,
+              vinDataRawPayload: Prisma.JsonNull,
+              vinDataProvider: fallbackSpecs.source,
+              vinDataFetchedAt: new Date(),
+              vinDataProviderResultCode: null,
+              vinDataProviderResultMessage: `Primary provider failed; recovered by fallback (${fallbackSpecs.source})`,
+              status: ClaimStatus.ReadyForAI,
+              vinLookupLastError: null,
+              vinLookupLastFailedAt: null
+            }
+          })
+
+          if (recovered.count > 0) {
+            log('claim recovered by vin spec fallback', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              source: fallbackSpecs.source,
+              year: fallbackSpecs.year,
+              make: fallbackSpecs.make,
+              model: fallbackSpecs.model,
+              attemptsMade,
+              attemptsAllowed
+            })
+
+            await evaluateClaimRulesBestEffort(claim.id, 'worker_fallback_specs_recovered_ready_for_ai')
+            await enqueueReviewSummaryBestEffort(claim.id, 'worker_ready_for_ai_after_vin_spec_fallback')
+
+            const fetchedAuditResult = await logVinDataFetchedAudit({
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id?.toString(),
+              attemptsMade,
+              attemptsAllowed,
+              source: claim.source ?? payload.source,
+              vin,
+              provider: fallbackSpecs.source,
+              year: fallbackSpecs.year,
+              make: fallbackSpecs.make,
+              model: fallbackSpecs.model
+            })
+
+            if (fetchedAuditResult.ok) {
+              log('audit log written', {
+                action: 'vin_data_fetched',
+                claimId: claim.id,
+                claimNumber: claim.claimNumber,
+                auditLogId: fetchedAuditResult.auditLogId
+              })
+            } else {
+              logError('audit log failed', {
+                action: 'vin_data_fetched',
+                claimId: claim.id,
+                claimNumber: claim.claimNumber,
+                error: fetchedAuditResult.error
+              })
+            }
+
+            return {
+              ok: true,
+              fallbackRecovered: true
+            }
+          }
+        }
 
         if (providerLookupError && isRateLimitedProviderLookupError(providerLookupError)) {
           const rateLimitedError = providerLookupError

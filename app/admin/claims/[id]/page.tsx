@@ -209,6 +209,22 @@ type NhtsaRecallsViewModel = {
   items: NhtsaRecallItem[]
 }
 
+type VinSpecFallbackViewModel = {
+  source: string
+  fetchedAt: string | null
+  year: number | null
+  make: string | null
+  model: string | null
+  trim: string | null
+  bodyStyle: string | null
+  drivetrain: string | null
+  transmissionType: string | null
+  engineSize: string | null
+  cylinders: string | null
+  fuelType: string | null
+  manufacturer: string | null
+}
+
 function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
   const record = asRecord(value)
   const nhtsaRecord = asRecord(record.nhtsaRecalls)
@@ -241,6 +257,31 @@ function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
     fetchedAt: getOptionalString(nhtsaRecord.fetchedAt),
     message: getOptionalString(nhtsaRecord.message),
     items
+  }
+}
+
+function getVinSpecFallback(value: unknown): VinSpecFallbackViewModel | null {
+  const record = asRecord(value)
+  const fallbackRecord = asRecord(record.vinSpecFallback)
+
+  if (Object.keys(fallbackRecord).length === 0) {
+    return null
+  }
+
+  return {
+    source: getOptionalString(fallbackRecord.source) || 'nhtsa_vpic',
+    fetchedAt: getOptionalString(fallbackRecord.fetchedAt),
+    year: getOptionalNumber(fallbackRecord.year),
+    make: getOptionalString(fallbackRecord.make),
+    model: getOptionalString(fallbackRecord.model),
+    trim: getOptionalString(fallbackRecord.trim),
+    bodyStyle: getOptionalString(fallbackRecord.bodyStyle),
+    drivetrain: getOptionalString(fallbackRecord.drivetrain),
+    transmissionType: getOptionalString(fallbackRecord.transmissionType),
+    engineSize: getOptionalString(fallbackRecord.engineSize),
+    cylinders: getOptionalString(fallbackRecord.cylinders),
+    fuelType: getOptionalString(fallbackRecord.fuelType),
+    manufacturer: getOptionalString(fallbackRecord.manufacturer)
   }
 }
 
@@ -589,6 +630,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const vinDataYear = getOptionalNumber(vinDataResult.year)
   const vinDataMake = getOptionalString(vinDataResult.make)
   const vinDataModel = getOptionalString(vinDataResult.model)
+  const vinSpecFallback = getVinSpecFallback(vinDataResult)
   const nhtsaRecalls = getNhtsaRecalls(vinDataResult)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
@@ -871,6 +913,38 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <p>
             <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
             {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Spec Fallback Source:</span>{' '}
+            {vinSpecFallback?.source || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Spec Fallback Fetched At:</span>{' '}
+            {formatIsoDate(vinSpecFallback?.fetchedAt)}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Body Style:</span>{' '}
+            {vinSpecFallback?.bodyStyle || getOptionalString(vinDataResult.bodyStyle) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Drivetrain:</span>{' '}
+            {vinSpecFallback?.drivetrain || getOptionalString(vinDataResult.drivetrain) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Transmission:</span>{' '}
+            {vinSpecFallback?.transmissionType || getOptionalString(vinDataResult.transmissionType) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Engine:</span>{' '}
+            {vinSpecFallback?.engineSize || getOptionalString(vinDataResult.engineSize) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Fuel Type:</span>{' '}
+            {vinSpecFallback?.fuelType || getOptionalString(vinDataResult.fuelType) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Manufacturer:</span>{' '}
+            {vinSpecFallback?.manufacturer || getOptionalString(vinDataResult.manufacturer) || '—'}
           </p>
         </div>
       </div>

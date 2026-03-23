@@ -110,6 +110,13 @@ function buildProviderResultSummary(value: unknown): Record<string, unknown> {
     make: getOptionalString(record.make),
     model: getOptionalString(record.model),
     trim: getOptionalString(record.trim),
+    bodyStyle: getOptionalString(record.bodyStyle),
+    drivetrain: getOptionalString(record.drivetrain),
+    transmissionType: getOptionalString(record.transmissionType),
+    engineSize: getOptionalString(record.engineSize),
+    cylinders: getOptionalString(record.cylinders),
+    fuelType: getOptionalString(record.fuelType),
+    manufacturer: getOptionalString(record.manufacturer),
     eventCount: getOptionalNumber(record.eventCount),
     providerResultCode: getOptionalNumber(record.providerResultCode),
     providerResultMessage: getOptionalString(record.providerResultMessage),
@@ -119,6 +126,7 @@ function buildProviderResultSummary(value: unknown): Record<string, unknown> {
     mileage: record.mileage,
     recall: record.recall,
     nhtsaRecalls: record.nhtsaRecalls,
+    vinSpecFallback: record.vinSpecFallback,
     titleProblem: record.titleProblem,
     titleBrand: record.titleBrand
   }
