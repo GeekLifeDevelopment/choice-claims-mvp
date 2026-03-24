@@ -1,5 +1,8 @@
 import '../styles/globals.css'
 import Header from '../components/Header'
+import { ensureEnvConfigValidated } from '../lib/config/validate-env'
+
+ensureEnvConfigValidated('app')
 
 export const metadata = {
   title: 'Choice Claims MVP (staging)'

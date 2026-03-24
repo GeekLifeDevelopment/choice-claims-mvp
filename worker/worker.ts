@@ -6,6 +6,7 @@ import {
   logVinDataFetchFailedAudit
 } from '../lib/audit/intake-audit-log'
 import { ClaimStatus } from '../lib/domain/claims'
+import { ensureEnvConfigValidated } from '../lib/config/validate-env'
 import { prisma } from '../lib/prisma'
 import { getQueueRuntimeConfig } from '../lib/queue/config'
 import { JOB_NAMES } from '../lib/queue/job-names'
@@ -328,6 +329,8 @@ async function enqueueReviewSummaryBestEffort(claimId: string, context: string):
 }
 
 async function run() {
+  ensureEnvConfigValidated('worker')
+
   const { connection, prefix } = getQueueRuntimeConfig()
 
   log('starting', {

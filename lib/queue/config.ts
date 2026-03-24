@@ -1,4 +1,5 @@
 import type { ConnectionOptions } from 'bullmq'
+import { ensureEnvConfigValidated } from '../config/validate-env'
 
 const DEFAULT_QUEUE_PREFIX = 'choice-claims'
 
@@ -72,15 +73,26 @@ function readRedisUrl(): string {
 }
 
 export function getQueuePrefix(): string {
+  ensureEnvConfigValidated('queue')
+
   const raw = process.env.QUEUE_PREFIX?.trim()
-  return raw || DEFAULT_QUEUE_PREFIX
+  if (!raw) {
+    throw new Error(
+      `[QUEUE_CONFIG] Missing required environment variable: QUEUE_PREFIX (default ${DEFAULT_QUEUE_PREFIX} is disabled in production-readiness mode).`
+    )
+  }
+
+  return raw
 }
 
 export function getRedisConnection(): ConnectionOptions {
+  ensureEnvConfigValidated('queue')
   return toRedisConnectionOptions(readRedisUrl())
 }
 
 export function getQueueRuntimeConfig(): QueueRuntimeConfig {
+  ensureEnvConfigValidated('queue')
+
   return {
     connection: getRedisConnection(),
     prefix: getQueuePrefix()
