@@ -611,8 +611,28 @@ function getReviewDecisionBannerMessage(value: string | undefined): string | nul
     return 'Reviewer decision was saved successfully.'
   }
 
+  if (value === 'locked_final_decision') {
+    return 'Save blocked: this claim is locked by a final reviewer decision.'
+  }
+
   if (value === 'invalid') {
     return 'Save failed: review decision is invalid.'
+  }
+
+  if (value === 'invalid-notes') {
+    return 'Save failed: reviewer notes are invalid.'
+  }
+
+  if (value === 'notes-too-long') {
+    return 'Save failed: reviewer notes are too long.'
+  }
+
+  if (value === 'invalid-override-reason') {
+    return 'Save failed: override reason is invalid.'
+  }
+
+  if (value === 'override-reason-too-long') {
+    return 'Save failed: override reason is too long.'
   }
 
   if (value === 'not-found') {
@@ -629,6 +649,10 @@ function getReviewDecisionBannerMessage(value: string | undefined): string | nul
 function getReviewDecisionBannerClassName(value: string | undefined): string {
   if (value === 'saved') {
     return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  if (value === 'locked_final_decision') {
+    return 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'
   }
 
   return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
@@ -990,6 +1014,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <select
                 name="decision"
                 defaultValue={claim.reviewDecision || 'NeedsReview'}
+                disabled={claimLockedForProcessing}
                 className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               >
                 <option value="NeedsReview">NeedsReview</option>
@@ -1005,6 +1030,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               name="notes"
               defaultValue={claim.reviewDecisionNotes || ''}
               rows={4}
+              disabled={claimLockedForProcessing}
               className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               placeholder="Add reviewer notes"
             />
@@ -1016,6 +1042,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               name="override"
               value="true"
               defaultChecked={currentOverrideUsed}
+              disabled={claimLockedForProcessing}
               className="h-4 w-4 rounded border-slate-300"
             />
             <span className="font-medium text-slate-900">Override recommended outcome</span>
@@ -1027,13 +1054,19 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               name="overrideReason"
               defaultValue={currentOverrideReason}
               rows={3}
+              disabled={claimLockedForProcessing}
               className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               placeholder="Explain why reviewer is overriding the guidance"
             />
           </label>
 
+          {claimLockedForProcessing ? (
+            <p className="text-sm text-amber-900">Reviewer decision is read-only because this claim is locked.</p>
+          ) : null}
+
           <button
             type="submit"
+            disabled={claimLockedForProcessing}
             className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
           >
             Save Reviewer Decision
