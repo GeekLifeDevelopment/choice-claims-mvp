@@ -47,17 +47,24 @@ function toRedisConnectionOptions(redisUrl: string): ConnectionOptions {
     password: parsedUrl.password || undefined,
     db,
     tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
+    // BullMQ workers require this for reliability on blocking Redis operations.
+    maxRetriesPerRequest: null,
     // Upstash commonly blocks INFO for constrained users.
     enableReadyCheck: false
   }
 }
 
-function readRequiredEnv(name: 'REDIS_URL'): string {
-  const value = process.env[name]?.trim()
+function readRedisUrl(): string {
+  const queueSpecificRedisUrl = process.env.QUEUE_PREREDIS_URL?.trim()
+  if (queueSpecificRedisUrl) {
+    return queueSpecificRedisUrl
+  }
+
+  const value = process.env.REDIS_URL?.trim()
 
   if (!value) {
     throw new Error(
-      `[QUEUE_CONFIG] Missing required environment variable: ${name}. Set ${name} before using queue infrastructure.`
+      '[QUEUE_CONFIG] Missing required environment variable: REDIS_URL (or QUEUE_PREREDIS_URL). Set one before using queue infrastructure.'
     )
   }
 
@@ -70,7 +77,7 @@ export function getQueuePrefix(): string {
 }
 
 export function getRedisConnection(): ConnectionOptions {
-  return toRedisConnectionOptions(readRequiredEnv('REDIS_URL'))
+  return toRedisConnectionOptions(readRedisUrl())
 }
 
 export function getQueueRuntimeConfig(): QueueRuntimeConfig {

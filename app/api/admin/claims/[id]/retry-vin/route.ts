@@ -10,7 +10,11 @@ type RouteContext = {
   params: Promise<{ id: string }>
 }
 
-const RETRYABLE_STATUSES = new Set<string>([ClaimStatus.ProviderFailed, ClaimStatus.ProcessingError])
+const RETRYABLE_STATUSES = new Set<string>([
+  ClaimStatus.Submitted,
+  ClaimStatus.ProviderFailed,
+  ClaimStatus.ProcessingError
+])
 
 function buildClaimDetailUrl(requestUrl: string, claimId: string, retry: string): URL {
   const url = new URL(`/admin/claims/${claimId}`, requestUrl)
