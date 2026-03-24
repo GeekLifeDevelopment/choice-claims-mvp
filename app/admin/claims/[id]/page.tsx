@@ -691,8 +691,16 @@ function getReviewDecisionBannerMessage(value: string | undefined): string | nul
     return 'Save failed: override reason is invalid.'
   }
 
+  if (value === 'missing-override-reason') {
+    return 'Save failed: override reason is required when override is enabled.'
+  }
+
   if (value === 'override-reason-too-long') {
     return 'Save failed: override reason is too long.'
+  }
+
+  if (value === 'invalid-payload') {
+    return 'Save failed: request payload is invalid.'
   }
 
   if (value === 'not-found') {
@@ -910,6 +918,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     reviewRuleEvaluatedAt: claim.reviewRuleEvaluatedAt
   })
   const canRegenerateSummary = summaryRegenerateDisabledReason === null
+  const saveDecisionButtonLabel = claimLockedForProcessing
+    ? 'Locked (disabled)'
+    : currentOverrideUsed
+      ? 'Override Decision'
+      : 'Save Decision'
 
   return (
     <section className="card space-y-4">
@@ -1040,10 +1053,35 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Reviewer Decision</h2>
 
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <p>
+              <span className="font-medium text-slate-900">Current Decision:</span>{' '}
+              {claim.reviewDecision || 'None'}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Locked:</span>{' '}
+              {claimLockedForProcessing ? 'Yes' : 'No'}
+            </p>
+          </div>
+        </div>
+
+        {claimLockedForProcessing ? (
+          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            This claim is locked due to final decision.
+          </p>
+        ) : null}
+
+        {reviewDecisionBannerMessage ? (
+          <p className={getReviewDecisionBannerClassName(resolvedSearchParams.reviewDecision)}>
+            {reviewDecisionBannerMessage}
+          </p>
+        ) : null}
+
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
           <p>
             <span className="font-medium text-slate-900">Current Decision:</span>{' '}
-            {claim.reviewDecision || '—'}
+            {claim.reviewDecision || 'None'}
           </p>
           <p>
             <span className="font-medium text-slate-900">Last Updated:</span>{' '}
@@ -1108,6 +1146,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             <span className="font-medium text-slate-900">Override recommended outcome</span>
           </label>
 
+          {currentOverrideUsed ? (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Override enabled - this will replace the existing decision.
+            </p>
+          ) : null}
+
           <label className="block space-y-1 text-sm text-slate-700">
             <span className="font-medium text-slate-900">Override Reason (optional)</span>
             <textarea
@@ -1129,7 +1173,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             disabled={claimLockedForProcessing}
             className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
           >
-            Save Reviewer Decision
+            {saveDecisionButtonLabel}
           </button>
         </form>
       </div>
