@@ -2,6 +2,11 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { HeicImagePreview } from '../../../../components/HeicImagePreview'
 import { ClaimStatus } from '../../../../lib/domain/claims'
+import { getProviderConfigStatus } from '../../../../lib/providers/config'
+import {
+  getProviderHealthStatus,
+  type ProviderHealthStatus
+} from '../../../../lib/providers/provider-health-log'
 import { prisma } from '../../../../lib/prisma'
 import { isClaimLockedForProcessing } from '../../../../lib/review/claim-lock'
 
@@ -333,6 +338,43 @@ type ValuationViewModel = {
   confidence: number | null
   currency: string | null
   message: string | null
+}
+
+type ProviderHealthRow = {
+  provider: string
+  status: ProviderHealthStatus
+  source: string
+  note: string
+}
+
+function formatProviderHealthStatus(status: ProviderHealthStatus): string {
+  if (status === 'missing_config') {
+    return 'missing config'
+  }
+
+  return status
+}
+
+function getProviderHealthBadgeClassName(status: ProviderHealthStatus): string {
+  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+
+  if (status === 'ok') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (status === 'configured') {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (status === 'stub') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (status === 'missing_config') {
+    return `${base} border-slate-300 bg-slate-50 text-slate-700`
+  }
+
+  return `${base} border-red-300 bg-red-50 text-red-700`
 }
 
 function getNhtsaRecalls(value: unknown): NhtsaRecallsViewModel | null {
@@ -910,6 +952,83 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       : ''
   const timelineAuditLogs = claim.auditLogs
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
+  const providerConfigStatus = getProviderConfigStatus()
+  const openAiSummaryConfigured = Boolean(process.env.OPENAI_API_KEY?.trim())
+
+  const providerHealthRows: ProviderHealthRow[] = [
+    {
+      provider: 'MarketCheck',
+      status: getProviderHealthStatus({
+        configured: providerConfigStatus.marketCheckConfigured,
+        source: claim.vinDataProvider,
+        hasData: claim.vinDataProvider === 'marketcheck',
+        error:
+          claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError
+            ? claim.vinLookupLastError
+            : null
+      }),
+      source: claim.vinDataProvider || '—',
+      note: claim.vinLookupLastError || 'VIN decode provider health'
+    },
+    {
+      provider: 'NHTSA Recalls',
+      status: getProviderHealthStatus({
+        configured: true,
+        source: nhtsaRecalls?.items.length ? 'nhtsa' : nhtsaRecalls?.message,
+        hasData: Boolean(nhtsaRecalls)
+      }),
+      source: nhtsaRecalls ? 'nhtsa' : '—',
+      note: nhtsaRecalls?.message || 'Recall enrichment health'
+    },
+    {
+      provider: 'Title History',
+      status: getProviderHealthStatus({
+        configured: providerConfigStatus.titleHistoryConfigured,
+        source: titleHistory?.source,
+        hasData: Boolean(titleHistory),
+        error: titleHistory?.message && titleHistory.message.toLowerCase().includes('failed') ? titleHistory.message : null
+      }),
+      source: titleHistory?.source || '—',
+      note: titleHistory?.message || 'Title enrichment health'
+    },
+    {
+      provider: 'Service History',
+      status: getProviderHealthStatus({
+        configured: providerConfigStatus.serviceHistoryConfigured,
+        source: serviceHistory?.source,
+        hasData: Boolean(serviceHistory),
+        error:
+          serviceHistory?.message && serviceHistory.message.toLowerCase().includes('failed')
+            ? serviceHistory.message
+            : null
+      }),
+      source: serviceHistory?.source || '—',
+      note: serviceHistory?.message || 'Service enrichment health'
+    },
+    {
+      provider: 'Valuation',
+      status: getProviderHealthStatus({
+        configured: providerConfigStatus.valuationConfigured,
+        source: valuation?.source,
+        hasData: Boolean(valuation),
+        error:
+          valuation?.message && valuation.message.toLowerCase().includes('failed') ? valuation.message : null
+      }),
+      source: valuation?.source || '—',
+      note: valuation?.message || 'Valuation enrichment health'
+    },
+    {
+      provider: 'OpenAI Summary',
+      status: getProviderHealthStatus({
+        configured: openAiSummaryConfigured,
+        hasData: Boolean(claim.reviewSummaryText),
+        error: claim.reviewSummaryStatus === 'Failed' ? claim.reviewSummaryLastError : null
+      }),
+      source: claim.reviewSummaryVersion || '—',
+      note: claim.reviewSummaryLastError || 'Summary generation health'
+    }
+  ]
+
   const claimLockedForProcessing = isClaimLockedForProcessing(claim)
   const summaryRegenerateDisabledReason = getSummaryRegenerateDisabledReason({
     claimLockedForProcessing,
@@ -1302,6 +1421,40 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-slate-900">Enrichment &amp; Processing</h2>
         <p className="text-sm text-slate-600">Provider and downstream enrichment outputs grouped for review.</p>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Provider Health</h2>
+        <p className="text-sm text-slate-600">
+          Runtime provider status summary based on current config and persisted enrichment outputs.
+        </p>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-slate-600">
+                <th className="py-2 pr-4 font-medium">Provider</th>
+                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 pr-4 font-medium">Source</th>
+                <th className="py-2 pr-4 font-medium">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {providerHealthRows.map((entry) => (
+                <tr key={entry.provider} className="border-b last:border-0 align-top">
+                  <td className="py-2 pr-4 font-medium text-slate-900">{entry.provider}</td>
+                  <td className="py-2 pr-4">
+                    <span className={getProviderHealthBadgeClassName(entry.status)}>
+                      {formatProviderHealthStatus(entry.status)}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 text-slate-700">{entry.source}</td>
+                  <td className="py-2 pr-4 text-slate-700">{entry.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="space-y-2">

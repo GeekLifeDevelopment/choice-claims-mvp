@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { ClaimStatus } from '../domain/claims'
 import { prisma } from '../prisma'
+import { logProviderHealth } from '../providers/provider-health-log'
 import { buildClaimEvaluationInput, type ClaimEvaluationInput } from './claim-evaluation-input'
 import { buildReviewSummaryPrompt } from './build-review-summary-prompt'
 import { isClaimLockedForProcessing } from './claim-lock'
@@ -196,8 +197,24 @@ async function persistReviewSummaryFailure(claimId: string, message: string): Pr
 async function callOpenAiForReviewSummary(systemMessage: string, userMessage: string): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
+    logProviderHealth({
+      provider: 'openai',
+      capability: 'summary_generation',
+      event: 'unconfigured',
+      mode: 'unconfigured',
+      reason: 'missing_openai_api_key'
+    })
+
     throw new Error('OPENAI_API_KEY is not configured.')
   }
+
+  logProviderHealth({
+    provider: 'openai',
+    capability: 'summary_generation',
+    event: 'configured',
+    mode: 'live',
+    source: DEFAULT_OPENAI_MODEL
+  })
 
   const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
     method: 'POST',
@@ -218,6 +235,17 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
 
   if (!response.ok) {
     const errorBody = await response.text()
+
+    logProviderHealth({
+      provider: 'openai',
+      capability: 'summary_generation',
+      event: 'live_failure',
+      mode: 'failed',
+      status: response.status,
+      reason: 'openai_http_error',
+      details: errorBody.slice(0, 300)
+    })
+
     throw new Error(`OpenAI request failed (${response.status}): ${errorBody.slice(0, 300)}`)
   }
 
@@ -229,8 +257,24 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
   const text = typeof content === 'string' ? trimSummaryText(content) : ''
 
   if (!text) {
+    logProviderHealth({
+      provider: 'openai',
+      capability: 'summary_generation',
+      event: 'capability_unavailable',
+      mode: 'failed',
+      reason: 'empty_summary_text'
+    })
+
     throw new Error('OpenAI response did not include summary text.')
   }
+
+  logProviderHealth({
+    provider: 'openai',
+    capability: 'summary_generation',
+    event: 'live_success',
+    mode: 'live',
+    source: DEFAULT_OPENAI_MODEL
+  })
 
   return text
 }
