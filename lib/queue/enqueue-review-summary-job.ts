@@ -18,9 +18,24 @@ export async function enqueueReviewSummaryJob(
   const queueName = getQueueNameForJob(jobName)
   const queue = getQueue(queueName)
 
+  console.info('[summary] enqueue start', {
+    queueName,
+    jobName,
+    claimId: payload.claimId,
+    claimNumber: payload.claimNumber
+  })
+
   try {
     const job = await queue.add(jobName, payload, {
       attempts: REVIEW_SUMMARY_JOB_ATTEMPTS
+    })
+
+    console.info('[summary] enqueue success', {
+      queueName,
+      jobName,
+      jobId: job.id?.toString(),
+      claimId: payload.claimId,
+      claimNumber: payload.claimNumber
     })
 
     return {
@@ -28,6 +43,16 @@ export async function enqueueReviewSummaryJob(
       jobName,
       jobId: job.id?.toString()
     }
+  } catch (error) {
+    console.error('[summary] enqueue failed', {
+      queueName,
+      jobName,
+      claimId: payload.claimId,
+      claimNumber: payload.claimNumber,
+      error
+    })
+
+    throw error
   } finally {
     await queue.close()
   }

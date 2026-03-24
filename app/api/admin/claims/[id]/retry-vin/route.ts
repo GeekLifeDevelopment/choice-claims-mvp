@@ -25,6 +25,10 @@ function buildClaimDetailUrl(requestUrl: string, claimId: string, retry: string)
 export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params
 
+  console.info('[retry] request received', {
+    claimId: id
+  })
+
   const claim = await prisma.claim.findUnique({
     where: { id },
     select: {
@@ -38,10 +42,19 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
+    console.warn('[retry] claim not found', {
+      claimId: id
+    })
     return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
+    console.warn('[retry] locked claim skipped', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      reviewDecision: claim.reviewDecision
+    })
+
     console.warn('[ADMIN_RETRY] blocked by final decision lock', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -55,6 +68,12 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   if (!RETRYABLE_STATUSES.has(claim.status)) {
+    console.warn('[retry] invalid status skipped', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      status: claim.status
+    })
+
     console.warn('[ADMIN_RETRY] blocked by non-retryable status', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -89,6 +108,11 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (transitioned.count === 0) {
+    console.warn('[retry] transition race skipped', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      previousStatus
+    })
     return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'duplicate-blocked'), {
       status: 303
     })
@@ -127,6 +151,14 @@ export async function POST(request: Request, context: RouteContext) {
       vin: claim.vin ?? undefined
     })
 
+    console.info('[retry] vin lookup queued', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      queueName: enqueued.queueName,
+      jobName: enqueued.jobName,
+      jobId: enqueued.jobId
+    })
+
     console.info('[ADMIN_RETRY] VIN lookup re-enqueued', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -150,6 +182,12 @@ export async function POST(request: Request, context: RouteContext) {
     })
 
     console.error('[ADMIN_RETRY] failed to re-enqueue VIN lookup', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      error
+    })
+
+    console.error('[retry] enqueue failed', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
       error

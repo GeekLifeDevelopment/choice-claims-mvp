@@ -19,6 +19,13 @@ export async function enqueueVinLookupJob(payload: VinLookupJobPayload): Promise
   const queueName = getQueueNameForJob(jobName)
   const queue = getQueue(queueName)
 
+  console.info('[enqueue] vin lookup enqueue start', {
+    queueName,
+    jobName,
+    claimId: payload.claimId,
+    claimNumber: payload.claimNumber
+  })
+
   try {
     const job = await queue.add(jobName, payload, {
       attempts: VIN_LOOKUP_MAX_ATTEMPTS,
@@ -28,11 +35,29 @@ export async function enqueueVinLookupJob(payload: VinLookupJobPayload): Promise
       }
     })
 
+    console.info('[enqueue] vin lookup enqueue success', {
+      queueName,
+      jobName,
+      jobId: job.id?.toString(),
+      claimId: payload.claimId,
+      claimNumber: payload.claimNumber
+    })
+
     return {
       queueName,
       jobName,
       jobId: job.id?.toString()
     }
+  } catch (error) {
+    console.error('[enqueue] vin lookup enqueue failed', {
+      queueName,
+      jobName,
+      claimId: payload.claimId,
+      claimNumber: payload.claimNumber,
+      error
+    })
+
+    throw error
   } finally {
     await queue.close()
   }

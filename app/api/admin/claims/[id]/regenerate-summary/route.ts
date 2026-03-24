@@ -41,6 +41,10 @@ function mapIneligibleReasonToResult(reason: string | null): string {
 export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params
 
+  console.info('[summary] regenerate request received', {
+    claimId: id
+  })
+
   const claim = await prisma.claim.findUnique({
     where: { id },
     select: {
@@ -53,10 +57,19 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
+    console.warn('[summary] regenerate claim not found', {
+      claimId: id
+    })
     return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
+    console.warn('[summary] regenerate locked claim skipped', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      reviewDecision: claim.reviewDecision
+    })
+
     console.warn('[ADMIN_SUMMARY_REGENERATE] blocked by final decision lock', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -76,6 +89,13 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (!result.enqueued) {
       const mappedResult = mapIneligibleReasonToResult(result.reason)
+
+      console.warn('[summary] regenerate skipped', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        reason: result.reason,
+        mappedResult
+      })
 
       console.warn('[ADMIN_SUMMARY_REGENERATE] not enqueued', {
         claimId: claim.id,
@@ -104,6 +124,14 @@ export async function POST(request: Request, context: RouteContext) {
       reviewerDecision: claim.reviewDecision ?? undefined
     })
 
+    console.info('[summary] regenerate queued', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      queueName: result.queueName,
+      jobName: result.jobName,
+      jobId: result.jobId
+    })
+
     console.info('[ADMIN_SUMMARY_REGENERATE] summary regeneration queued', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -118,6 +146,12 @@ export async function POST(request: Request, context: RouteContext) {
       status: 303
     })
   } catch (error) {
+    console.error('[summary] regenerate failed', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      error
+    })
+
     console.error('[ADMIN_SUMMARY_REGENERATE] unexpected failure', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,

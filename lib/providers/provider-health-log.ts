@@ -38,9 +38,7 @@ export function isProviderHealthDebugEnabled(provider?: string): boolean {
 }
 
 export function logProviderHealth(input: ProviderHealthLogInput): void {
-  if (!isProviderHealthDebugEnabled(input.provider)) {
-    return
-  }
+  const debugEnabled = isProviderHealthDebugEnabled(input.provider)
 
   const payload: Record<string, unknown> = {
     provider: input.provider,
@@ -69,9 +67,38 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
     payload.details = input.details
   }
 
+  const compactMessage = `[provider] ${input.provider} ${input.capability} ${input.event}`
+  const compactPayload: Record<string, unknown> = {
+    mode: input.mode
+  }
+
+  if (input.reason) {
+    compactPayload.reason = input.reason
+  }
+
+  if (typeof input.status === 'number') {
+    compactPayload.status = input.status
+  }
+
+  if (input.vin) {
+    compactPayload.vin = input.vin
+  }
+
+  const shouldWarn = input.event === 'live_failure' || input.event === 'capability_unavailable'
+
+  if (shouldWarn) {
+    console.warn(compactMessage, compactPayload)
+  } else {
+    console.info(compactMessage, compactPayload)
+  }
+
+  if (!debugEnabled) {
+    return
+  }
+
   const message = '[PROVIDER_HEALTH]'
 
-  if (input.event === 'live_failure' || input.event === 'capability_unavailable') {
+  if (shouldWarn) {
     console.warn(message, payload)
     return
   }
