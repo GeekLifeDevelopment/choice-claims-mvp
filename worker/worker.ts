@@ -28,6 +28,7 @@ import { ServiceHistoryProvider } from '../lib/providers/service-history-provide
 import { TitleHistoryProvider } from '../lib/providers/title-history-provider'
 import { ValuationProvider } from '../lib/providers/valuation-provider'
 import { VinSpecFallbackProvider } from '../lib/providers/vin-spec-fallback-provider'
+import { classifyExternalFailure } from '../lib/providers/failure-classification'
 import { isProviderLookupError } from '../lib/providers/provider-error'
 import type {
   NhtsaRecallsResult,
@@ -816,6 +817,26 @@ async function run() {
             : providerLookupError?.message ?? 'Unknown VIN lookup processing error'
         const providerFailureReason = providerLookupError?.reason ?? providerLookupError?.code ?? 'provider_lookup_failed'
         const failureStatus = providerName ? ClaimStatus.ProviderFailed : ClaimStatus.ProcessingError
+        const failureCategory = classifyExternalFailure({
+          status: providerLookupError?.status,
+          reason: providerFailureReason,
+          errorMessage,
+          fallbackCategory: 'unknown_error'
+        })
+
+        logError('provider failed safely', {
+          queueName: QUEUE_NAMES.VIN_DATA,
+          jobName: job.name,
+          jobId: job.id,
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          provider: providerName,
+          failureCategory,
+          providerFailureReason,
+          providerErrorStatus: providerLookupError?.status,
+          attemptsMade,
+          attemptsAllowed
+        })
 
         const fallbackSpecs = await lookupVinSpecsFallbackBestEffort(vin, {
           queueName: QUEUE_NAMES.VIN_DATA,

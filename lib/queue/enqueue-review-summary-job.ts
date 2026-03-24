@@ -4,6 +4,7 @@ import { getQueueNameForJob } from './contracts'
 import { getQueue } from './get-queue'
 
 const REVIEW_SUMMARY_JOB_ATTEMPTS = 3
+const REVIEW_SUMMARY_JOB_BACKOFF_MS = 5_000
 
 export type EnqueueReviewSummaryJobResult = {
   queueName: string
@@ -27,7 +28,11 @@ export async function enqueueReviewSummaryJob(
 
   try {
     const job = await queue.add(jobName, payload, {
-      attempts: REVIEW_SUMMARY_JOB_ATTEMPTS
+      attempts: REVIEW_SUMMARY_JOB_ATTEMPTS,
+      backoff: {
+        type: 'exponential',
+        delay: REVIEW_SUMMARY_JOB_BACKOFF_MS
+      }
     })
 
     console.info('[summary] enqueue success', {

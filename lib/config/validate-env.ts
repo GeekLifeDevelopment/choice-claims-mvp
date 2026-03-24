@@ -103,7 +103,7 @@ export function validateEnvConfig(scope: ValidationScope = 'app'): void {
 
   const redisUrl = requireEnv('REDIS_URL')
   const databaseUrl = requireEnv('DATABASE_URL')
-  const queuePrefix = requireEnv('QUEUE_PREFIX')
+  const queuePrefix = readEnvValue('QUEUE_PREFIX').value
 
   validateUrl(redisUrl, 'REDIS_URL')
   validateUrl(databaseUrl, 'DATABASE_URL')
@@ -119,8 +119,10 @@ export function validateEnvConfig(scope: ValidationScope = 'app'): void {
     validateUrl(queuePreRedis, 'QUEUE_PREREDIS_URL')
   }
 
-  if (queuePrefix.length > 0) {
+  if (queuePrefix) {
     logConfigInfo('QUEUE_PREFIX ok')
+  } else {
+    logConfigWarn('QUEUE_PREFIX missing (defaulting to choice-claims)')
   }
 
   warnOptionalMissing('OPENAI_API_KEY', 'summary disabled')

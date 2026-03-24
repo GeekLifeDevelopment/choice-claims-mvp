@@ -1,3 +1,5 @@
+import { classifyExternalFailure } from './failure-classification'
+
 export type ProviderMode = 'live' | 'stub' | 'unconfigured' | 'unavailable' | 'failed'
 
 export type ProviderHealthEvent =
@@ -129,7 +131,6 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
     payload.details = input.details
   }
 
-  const compactMessage = `[provider] ${input.provider} ${status}`
   const compactPayload: Record<string, unknown> = {
     capability: input.capability,
     event: input.event,
@@ -149,6 +150,22 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
   }
 
   const shouldWarn = input.event === 'live_failure' || input.event === 'capability_unavailable'
+  const failureCategory = shouldWarn
+    ? classifyExternalFailure({
+        status: input.status,
+        reason: input.reason,
+        errorMessage: input.details,
+        fallbackCategory: input.event === 'capability_unavailable' ? 'unavailable' : 'unknown_error'
+      })
+    : null
+
+  if (failureCategory) {
+    compactPayload.failureCategory = failureCategory
+  }
+
+  const compactMessage = failureCategory
+    ? `[provider] ${input.provider} ${failureCategory}`
+    : `[provider] ${input.provider} ${status}`
 
   if (shouldWarn) {
     console.warn(compactMessage, compactPayload)
