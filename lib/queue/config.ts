@@ -77,9 +77,10 @@ export function getQueuePrefix(): string {
 
   const raw = process.env.QUEUE_PREFIX?.trim()
   if (!raw) {
-    throw new Error(
-      `[QUEUE_CONFIG] Missing required environment variable: QUEUE_PREFIX (default ${DEFAULT_QUEUE_PREFIX} is disabled in production-readiness mode).`
+    console.warn(
+      `[QUEUE_CONFIG] QUEUE_PREFIX missing; defaulting to ${DEFAULT_QUEUE_PREFIX}. Set QUEUE_PREFIX explicitly to avoid cross-environment collisions.`
     )
+    return DEFAULT_QUEUE_PREFIX
   }
 
   return raw

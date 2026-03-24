@@ -1,4 +1,5 @@
 export const DEFAULT_VIN_PROVIDER_TIMEOUT_MS = 10_000
+export const DEFAULT_OPENAI_TIMEOUT_MS = 15_000
 export const DEFAULT_MARKETCHECK_BASE_URL = 'https://api.marketcheck.com'
 export const DEFAULT_MARKETCHECK_DECODE_BASE_URL = 'https://api.marketcheck.com/v2/decode/car'
 export const DEFAULT_MARKETCHECK_TITLE_HISTORY_GENERATE_PATH = '/v2/vindata/aamva/report/generate'
@@ -82,15 +83,15 @@ export function getOptionalEnv(name: string): string | null {
   return readOptionalEnv(name)
 }
 
-function parseProviderTimeoutMs(rawValue: string | null): number {
+function parseTimeoutMs(rawValue: string | null, fallback: number): number {
   if (!rawValue) {
-    return DEFAULT_VIN_PROVIDER_TIMEOUT_MS
+    return fallback
   }
 
   const parsed = Number(rawValue)
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_VIN_PROVIDER_TIMEOUT_MS
+    return fallback
   }
 
   return Math.floor(parsed)
@@ -207,7 +208,11 @@ export function getVinSpecFallbackBaseUrl(): string {
 }
 
 export function getProviderTimeoutMs(): number {
-  return parseProviderTimeoutMs(readOptionalEnv('VIN_PROVIDER_TIMEOUT_MS'))
+  return parseTimeoutMs(readOptionalEnv('VIN_PROVIDER_TIMEOUT_MS'), DEFAULT_VIN_PROVIDER_TIMEOUT_MS)
+}
+
+export function getOpenAiTimeoutMs(): number {
+  return parseTimeoutMs(readOptionalEnv('OPENAI_TIMEOUT_MS'), DEFAULT_OPENAI_TIMEOUT_MS)
 }
 
 export function getExperianOAuthConfig(): ExperianOAuthConfig {

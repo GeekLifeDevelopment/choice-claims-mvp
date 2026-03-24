@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client'
 import { ClaimStatus } from '../domain/claims'
 import { prisma } from '../prisma'
+import { classifyExternalFailure, type ExternalFailureCategory } from '../providers/failure-classification'
+import { getOpenAiTimeoutMs } from '../providers/config'
 import { logProviderHealth } from '../providers/provider-health-log'
 import { buildClaimEvaluationInput, type ClaimEvaluationInput } from './claim-evaluation-input'
 import { buildReviewSummaryPrompt } from './build-review-summary-prompt'
@@ -52,6 +54,20 @@ export type ProcessReviewSummaryJobResult = {
 
 type ProcessReviewSummaryJobOptions = {
   requestedAt?: string | null
+}
+
+class OpenAiSummaryError extends Error {
+  readonly category: ExternalFailureCategory
+  readonly status?: number
+  readonly reason?: string
+
+  constructor(message: string, category: ExternalFailureCategory, options?: { status?: number; reason?: string }) {
+    super(message)
+    this.name = 'OpenAiSummaryError'
+    this.category = category
+    this.status = options?.status
+    this.reason = options?.reason
+  }
 }
 
 function toErrorMessage(error: unknown): string {
@@ -216,25 +232,84 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
     source: DEFAULT_OPENAI_MODEL
   })
 
-  const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: DEFAULT_OPENAI_MODEL,
-      temperature: 0.1,
-      max_tokens: 280,
-      messages: [
-        { role: 'system', content: systemMessage },
-        { role: 'user', content: userMessage }
-      ]
+  const timeoutMs = getOpenAiTimeoutMs()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  let response: Response
+
+  try {
+    response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: DEFAULT_OPENAI_MODEL,
+        temperature: 0.1,
+        max_tokens: 280,
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userMessage }
+        ]
+      }),
+      signal: controller.signal
     })
-  })
+  } catch (error) {
+    const category = classifyExternalFailure({
+      errorMessage: error instanceof Error ? error.message : null,
+      fallbackCategory: 'network_error'
+    })
+
+    if (category === 'timeout') {
+      logProviderHealth({
+        provider: 'openai',
+        capability: 'summary_generation',
+        event: 'live_failure',
+        mode: 'failed',
+        reason: 'openai_timeout'
+      })
+
+      console.warn('[summary] openai timeout', {
+        timeoutMs,
+        model: DEFAULT_OPENAI_MODEL
+      })
+
+      throw new OpenAiSummaryError(`OpenAI request timed out after ${timeoutMs}ms`, 'timeout', {
+        reason: 'openai_timeout'
+      })
+    }
+
+    logProviderHealth({
+      provider: 'openai',
+      capability: 'summary_generation',
+      event: 'live_failure',
+      mode: 'failed',
+      reason: 'openai_network_error',
+      details: error instanceof Error ? error.message : undefined
+    })
+
+    console.error('[summary] openai network_error', {
+      model: DEFAULT_OPENAI_MODEL,
+      error: error instanceof Error ? error.message : 'Unknown OpenAI network error'
+    })
+
+    throw new OpenAiSummaryError('OpenAI request failed before response.', 'network_error', {
+      reason: 'openai_network_error'
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!response.ok) {
     const errorBody = await response.text()
+    const failureCategory = classifyExternalFailure({
+      status: response.status,
+      reason: 'openai_http_error',
+      errorMessage: errorBody,
+      fallbackCategory: 'unknown_error'
+    })
 
     logProviderHealth({
       provider: 'openai',
@@ -246,11 +321,46 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       details: errorBody.slice(0, 300)
     })
 
-    throw new Error(`OpenAI request failed (${response.status}): ${errorBody.slice(0, 300)}`)
+    console.warn(`[summary] openai ${failureCategory}`, {
+      status: response.status,
+      model: DEFAULT_OPENAI_MODEL
+    })
+
+    throw new OpenAiSummaryError(
+      `OpenAI request failed (${response.status}): ${errorBody.slice(0, 300)}`,
+      failureCategory,
+      {
+        status: response.status,
+        reason: 'openai_http_error'
+      }
+    )
   }
 
-  const payload = (await response.json()) as {
+  let payload: {
     choices?: Array<{ message?: { content?: string | null } }>
+  }
+
+  try {
+    payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>
+    }
+  } catch {
+    logProviderHealth({
+      provider: 'openai',
+      capability: 'summary_generation',
+      event: 'live_failure',
+      mode: 'failed',
+      reason: 'openai_invalid_json'
+    })
+
+    console.warn('[summary] openai bad_response', {
+      reason: 'openai_invalid_json',
+      model: DEFAULT_OPENAI_MODEL
+    })
+
+    throw new OpenAiSummaryError('OpenAI response was not valid JSON.', 'bad_response', {
+      reason: 'openai_invalid_json'
+    })
   }
 
   const content = payload.choices?.[0]?.message?.content
@@ -265,7 +375,14 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       reason: 'empty_summary_text'
     })
 
-    throw new Error('OpenAI response did not include summary text.')
+    console.warn('[summary] openai bad_response', {
+      reason: 'empty_summary_text',
+      model: DEFAULT_OPENAI_MODEL
+    })
+
+    throw new OpenAiSummaryError('OpenAI response did not include summary text.', 'bad_response', {
+      reason: 'empty_summary_text'
+    })
   }
 
   logProviderHealth({
@@ -493,9 +610,18 @@ export async function processReviewSummaryJob(
     }
   } catch (error) {
     const message = toErrorMessage(error)
+    const failureCategory =
+      error instanceof OpenAiSummaryError
+        ? error.category
+        : classifyExternalFailure({
+            errorMessage: message,
+            fallbackCategory: 'unknown_error'
+          })
+
     console.error('[summary] job failed', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
+      failureCategory,
       error: message
     })
 
