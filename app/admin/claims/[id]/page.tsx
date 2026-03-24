@@ -163,6 +163,66 @@ function getAuditMessage(action: string, metadata: unknown): string | null {
   )
 }
 
+const AUDIT_TIMELINE_LIMIT = 100
+
+function getAuditActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    claim_created: 'Claim created',
+    duplicate_blocked: 'Duplicate blocked',
+    vin_lookup_enqueued: 'VIN lookup queued',
+    vin_lookup_requeued: 'VIN retry requested',
+    vin_data_fetched: 'VIN data fetched',
+    vin_data_fetch_failed: 'VIN data fetch failed',
+    review_summary_queued: 'Summary generation queued',
+    review_summary_generated: 'Summary generated',
+    review_summary_failed: 'Summary generation failed',
+    review_summary_regenerate_queued: 'Summary regenerate requested',
+    review_decision_changed: 'Decision changed',
+    intake_validation_failed: 'Validation failed'
+  }
+
+  return labels[action] || action.replace(/_/g, ' ')
+}
+
+function getTimelineMetadataDetails(action: string, metadata: unknown): string | null {
+  const record = asRecord(metadata)
+  const source = getOptionalString(record.source)
+  const reason = getOptionalString(record.reason)
+  const reviewer = getOptionalString(record.reviewer)
+  const provider = getOptionalString(record.provider)
+  const queueName = getOptionalString(record.queueName)
+
+  if (action === 'review_decision_changed') {
+    const toDecision = getOptionalString(record.toDecision)
+    const fromDecision = getOptionalString(record.fromDecision)
+    if (toDecision) {
+      return `Decision changed${fromDecision ? ` from ${fromDecision}` : ''} to ${toDecision}`
+    }
+  }
+
+  if (reason) {
+    return `Reason: ${reason}`
+  }
+
+  if (reviewer) {
+    return `Reviewer: ${reviewer}`
+  }
+
+  if (provider) {
+    return `Provider: ${provider}`
+  }
+
+  if (queueName) {
+    return `Queue: ${queueName}`
+  }
+
+  if (source) {
+    return `Source: ${source}`
+  }
+
+  return null
+}
+
 function formatDebugJson(value: unknown): string {
   if (value == null) {
     return ''
@@ -797,7 +857,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       },
       auditLogs: {
         orderBy: { createdAt: 'desc' },
-        take: 20,
+        take: AUDIT_TIMELINE_LIMIT,
         select: {
           id: true,
           action: true,
@@ -840,7 +900,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     latestReviewDecisionChange && latestReviewDecisionChange.overrideReason !== '—'
       ? latestReviewDecisionChange.overrideReason
       : ''
-  const timelineAuditLogs = [...claim.auditLogs].reverse()
+  const timelineAuditLogs = claim.auditLogs
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
   const claimLockedForProcessing = isClaimLockedForProcessing(claim)
   const summaryRegenerateDisabledReason = getSummaryRegenerateDisabledReason({
@@ -1568,36 +1628,26 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         ) : (
           <ol className="space-y-3">
             {timelineAuditLogs.map((auditLog) => {
-              const metadata = asRecord(auditLog.metadata)
-              const actor = getAuditActor(metadata)
-              const provider = getAuditProvider(metadata)
+              const label = getAuditActionLabel(auditLog.action)
               const message = getAuditMessage(auditLog.action, auditLog.metadata)
+              const metadataDetails = getTimelineMetadataDetails(auditLog.action, auditLog.metadata)
 
               return (
                 <li key={auditLog.id} className="rounded-md border border-slate-200 bg-slate-50 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="min-w-0 break-all text-sm font-medium text-slate-900">{auditLog.action}</p>
+                    <p className="min-w-0 break-all text-sm font-medium text-slate-900">{label}</p>
                     <p className="whitespace-nowrap text-xs text-slate-600">{formatDate(auditLog.createdAt)}</p>
                   </div>
 
                   <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
                     <p>
-                      <span className="font-medium text-slate-900">Actor:</span> {actor || '—'}
-                    </p>
-                    <p>
-                      <span className="font-medium text-slate-900">Provider:</span> {provider || '—'}
+                      <span className="font-medium text-slate-900">Event:</span> {auditLog.action}
                     </p>
                   </div>
 
-                  {message ? (
-                    <p className="mt-2 break-words text-sm text-slate-700">{message}</p>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500">No event message.</p>
-                  )}
+                  {message ? <p className="mt-2 break-words text-sm text-slate-700">{message}</p> : null}
 
-                  {!message && auditLog.metadata ? (
-                    <p className="mt-1 break-words text-xs text-slate-500">Metadata: {formatMetadataPreview(auditLog.metadata)}</p>
-                  ) : null}
+                  {metadataDetails ? <p className="mt-1 break-words text-xs text-slate-600">{metadataDetails}</p> : null}
                 </li>
               )
             })}
