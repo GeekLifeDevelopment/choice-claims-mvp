@@ -20,6 +20,62 @@ export type ProviderHealthLogInput = {
   details?: string
 }
 
+export type ProviderHealthStatus = 'configured' | 'stub' | 'missing_config' | 'error' | 'ok'
+
+export type ProviderHealthStatusInput = {
+  configured?: boolean
+  mode?: ProviderMode
+  event?: ProviderHealthEvent
+  source?: string | null
+  error?: string | null
+  hasData?: boolean
+}
+
+function hasStubSource(value: string | null | undefined): boolean {
+  if (!value) {
+    return false
+  }
+
+  return value.toLowerCase().includes('stub')
+}
+
+export function getProviderHealthStatus(input: ProviderHealthStatusInput): ProviderHealthStatus {
+  if (input.error && input.error.trim().length > 0) {
+    return 'error'
+  }
+
+  if (
+    input.mode === 'failed' ||
+    input.mode === 'unavailable' ||
+    input.event === 'live_failure' ||
+    input.event === 'capability_unavailable'
+  ) {
+    return 'error'
+  }
+
+  if (input.mode === 'stub' || input.event === 'stub_fallback' || hasStubSource(input.source)) {
+    return 'stub'
+  }
+
+  if (input.mode === 'unconfigured' || input.event === 'unconfigured' || input.configured === false) {
+    return 'missing_config'
+  }
+
+  if (input.event === 'configured') {
+    return 'configured'
+  }
+
+  if (input.event === 'live_success' || input.hasData) {
+    return 'ok'
+  }
+
+  if (input.configured === true) {
+    return 'configured'
+  }
+
+  return 'ok'
+}
+
 function toBooleanEnv(name: string): boolean {
   const value = process.env[name]?.trim().toLowerCase()
   return value === '1' || value === 'true' || value === 'yes'
@@ -39,6 +95,12 @@ export function isProviderHealthDebugEnabled(provider?: string): boolean {
 
 export function logProviderHealth(input: ProviderHealthLogInput): void {
   const debugEnabled = isProviderHealthDebugEnabled(input.provider)
+  const status = getProviderHealthStatus({
+    mode: input.mode,
+    event: input.event,
+    source: input.source ?? null,
+    configured: input.mode !== 'unconfigured'
+  })
 
   const payload: Record<string, unknown> = {
     provider: input.provider,
@@ -67,8 +129,10 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
     payload.details = input.details
   }
 
-  const compactMessage = `[provider] ${input.provider} ${input.capability} ${input.event}`
+  const compactMessage = `[provider] ${input.provider} ${status}`
   const compactPayload: Record<string, unknown> = {
+    capability: input.capability,
+    event: input.event,
     mode: input.mode
   }
 
