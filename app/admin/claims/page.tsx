@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Prisma } from '@prisma/client'
+import { BulkReviewDecisionForm } from '../../../components/admin/BulkReviewDecisionForm'
 import { ClaimStatus } from '../../../lib/domain/claims'
 import { prisma } from '../../../lib/prisma'
 import { isFinalReviewDecision } from '../../../lib/review/claim-lock'
@@ -126,6 +127,12 @@ type PageProps = {
     ready?: string
     needsSummary?: string
     sort?: string
+    bulkDecision?: string
+    bulkDecisionValue?: string
+    bulkAttempted?: string
+    bulkSaved?: string
+    bulkLocked?: string
+    bulkFailed?: string
   }>
 }
 
@@ -280,6 +287,70 @@ function getSortOrder(sort: SortFilterValue): Prisma.ClaimOrderByWithRelationInp
   }
 
   return [{ submittedAt: 'desc' }]
+}
+
+function getBulkDecisionLabel(decision: string | undefined): string {
+  if (decision === 'Approved') {
+    return 'Approve'
+  }
+
+  if (decision === 'Denied') {
+    return 'Reject'
+  }
+
+  if (decision === 'NeedsReview') {
+    return 'NeedsReview'
+  }
+
+  return 'Update'
+}
+
+function toSafeCount(value: string | undefined): number {
+  if (!value) {
+    return 0
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function getBulkDecisionBannerMessage(params: Awaited<PageProps['searchParams']>): string | null {
+  const status = params.bulkDecision
+
+  if (status === 'invalid') {
+    return 'Bulk action failed: invalid reviewer decision.'
+  }
+
+  if (status === 'no-selection') {
+    return 'Bulk action skipped: select at least one claim.'
+  }
+
+  if (status !== 'done') {
+    return null
+  }
+
+  const actionLabel = getBulkDecisionLabel(params.bulkDecisionValue)
+  const attempted = toSafeCount(params.bulkAttempted)
+  const saved = toSafeCount(params.bulkSaved)
+  const locked = toSafeCount(params.bulkLocked)
+  const failed = toSafeCount(params.bulkFailed)
+
+  return `${actionLabel} complete: ${saved}/${attempted} updated. Locked skipped: ${locked}. Failed: ${failed}.`
+}
+
+function getBulkDecisionBannerClassName(params: Awaited<PageProps['searchParams']>): string {
+  const status = params.bulkDecision
+  const failed = toSafeCount(params.bulkFailed)
+
+  if (status === 'done' && failed === 0) {
+    return 'mt-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800'
+  }
+
+  if (status === 'done') {
+    return 'mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900'
+  }
+
+  return 'mt-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800'
 }
 
 export default async function AdminClaimsPage({ searchParams }: PageProps) {
@@ -448,6 +519,18 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
     (selectedLocked === 'all' ? 0 : 1) +
     (selectedReady === 'all' ? 0 : 1) +
     (selectedNeedsSummary === 'all' ? 0 : 1)
+
+  const bulkDecisionBannerMessage = getBulkDecisionBannerMessage(resolvedSearchParams)
+  const bulkDecisionBannerClassName = getBulkDecisionBannerClassName(resolvedSearchParams)
+  const bulkFormReturnTo = buildClaimsUrl(
+    selectedStatus,
+    selectedDecision,
+    selectedSummary,
+    selectedLocked,
+    selectedReady,
+    selectedNeedsSummary,
+    selectedSort
+  )
 
   return (
     <section className="card">
@@ -629,7 +712,11 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
             Export CSV
           </a>
         </div>
+
+        {!dbError && claims.length > 0 ? <BulkReviewDecisionForm returnTo={bulkFormReturnTo} /> : null}
       </div>
+
+      {bulkDecisionBannerMessage ? <div className={bulkDecisionBannerClassName}>{bulkDecisionBannerMessage}</div> : null}
 
       {dbError ? (
         <div className="mt-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
@@ -646,6 +733,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b text-left text-slate-600">
+                <th className="py-2 pr-2 font-medium">Select</th>
                 <th className="py-2 pr-4 font-medium">Claim #</th>
                 <th className="py-2 pr-4 font-medium">Submitted</th>
                 <th className="py-2 pr-4 font-medium">Status</th>
@@ -691,6 +779,17 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
                           : 'border-b last:border-0'
                     }
                   >
+                    <td className="py-2 pr-2">
+                      <input
+                        type="checkbox"
+                        name="claimIds"
+                        value={claim.id}
+                        form="bulk-review-form"
+                        disabled={locked}
+                        className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Select ${claim.claimNumber}`}
+                      />
+                    </td>
                     <td className="py-2 pr-4 font-medium text-slate-900">
                       <Link href={`/admin/claims/${claim.id}`} className="underline underline-offset-2">
                         {claim.claimNumber}
