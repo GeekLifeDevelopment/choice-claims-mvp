@@ -48,12 +48,14 @@ function toRedisConnectionOptions(redisUrl) {
     password: parsedUrl.password || undefined,
     db,
     tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
+    maxRetriesPerRequest: null,
     enableReadyCheck: false
   }
 }
 
 function getQueueRuntimeConfig() {
-  const connection = toRedisConnectionOptions(readRequiredEnv('REDIS_URL'))
+  const redisUrl = process.env.QUEUE_PREREDIS_URL?.trim() || readRequiredEnv('REDIS_URL')
+  const connection = toRedisConnectionOptions(redisUrl)
   const prefix = process.env.QUEUE_PREFIX?.trim() || DEFAULT_QUEUE_PREFIX
 
   return {

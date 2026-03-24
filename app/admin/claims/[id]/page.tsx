@@ -636,7 +636,7 @@ function getRetryBannerMessage(retryParam: string | undefined): string | null {
   }
 
   if (retryParam === 'invalid-status') {
-    return 'Retry is only available when claim status is ProviderFailed or ProcessingError.'
+    return 'Retry is only available when claim status is Submitted, ProviderFailed, or ProcessingError.'
   }
 
   if (retryParam === 'duplicate-blocked') {
@@ -1306,7 +1306,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
-        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
+        {(claim.status === ClaimStatus.Submitted ||
+          claim.status === ClaimStatus.ProviderFailed ||
+          claim.status === ClaimStatus.ProcessingError) &&
         !claimLockedForProcessing ? (
           <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
             <button
@@ -1318,7 +1320,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </form>
         ) : null}
 
-        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
+        {(claim.status === ClaimStatus.Submitted ||
+          claim.status === ClaimStatus.ProviderFailed ||
+          claim.status === ClaimStatus.ProcessingError) &&
         claimLockedForProcessing ? (
           <p className="text-sm text-amber-900">Claim locked by final decision</p>
         ) : null}

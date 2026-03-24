@@ -57,6 +57,10 @@ type ClaimSummary = {
   claimNumber: string
   status: string
   createdAt: Date
+  vin?: string | null
+  vinLookupLastJobId?: string | null
+  vinLookupLastJobName?: string | null
+  vinLookupLastQueueName?: string | null
   rawSubmissionPayload: unknown
 }
 
@@ -166,9 +170,134 @@ async function getExistingClaimByDedupeKey(dedupeKey: string): Promise<ClaimSumm
       claimNumber: true,
       status: true,
       createdAt: true,
+      vin: true,
+      vinLookupLastJobId: true,
+      vinLookupLastJobName: true,
+      vinLookupLastQueueName: true,
       rawSubmissionPayload: true
     }
   })
+}
+
+async function attemptCognitoReplayRecovery(input: {
+  existingClaim: ClaimSummary
+  dedupeKey: string
+  source: string
+  vin?: string
+}) {
+  if (input.source.toLowerCase() !== 'cognito') {
+    return null
+  }
+
+  if (input.existingClaim.status !== ClaimStatus.Submitted) {
+    return null
+  }
+
+  if (
+    input.existingClaim.vinLookupLastJobId ||
+    input.existingClaim.vinLookupLastJobName ||
+    input.existingClaim.vinLookupLastQueueName
+  ) {
+    return null
+  }
+
+  const transitioned = await prisma.claim.updateMany({
+    where: {
+      id: input.existingClaim.id,
+      status: ClaimStatus.Submitted,
+      vinLookupLastJobId: null,
+      vinLookupLastJobName: null,
+      vinLookupLastQueueName: null
+    },
+    data: {
+      status: ClaimStatus.AwaitingVinData,
+      vinLookupLastError: null,
+      vinLookupLastFailedAt: null
+    }
+  })
+
+  if (transitioned.count === 0) {
+    logClaimPersistence('duplicate replay recovery skipped due state change', {
+      claimId: input.existingClaim.id,
+      claimNumber: input.existingClaim.claimNumber
+    })
+    return null
+  }
+
+  const vinLookupPayload = buildVinLookupJobPayload({
+    claimId: input.existingClaim.id,
+    vin: input.vin ?? input.existingClaim.vin ?? null,
+    source: 'cognito_replay_recovery',
+    dedupeKey: input.dedupeKey,
+    claimNumber: input.existingClaim.claimNumber
+  })
+
+  try {
+    const enqueueResult = await enqueueVinLookupJob(vinLookupPayload)
+
+    await prisma.claim.update({
+      where: { id: input.existingClaim.id },
+      data: {
+        vinLookupLastJobId: enqueueResult.jobId ?? null,
+        vinLookupLastJobName: enqueueResult.jobName,
+        vinLookupLastQueueName: enqueueResult.queueName
+      }
+    })
+
+    const enqueueAuditResult = await logVinLookupEnqueuedAudit({
+      claimId: input.existingClaim.id,
+      claimNumber: input.existingClaim.claimNumber,
+      queueName: enqueueResult.queueName,
+      jobName: enqueueResult.jobName,
+      jobId: enqueueResult.jobId,
+      source: 'cognito_replay_recovery',
+      vin: input.vin ?? input.existingClaim.vin ?? undefined
+    })
+
+    if (!enqueueAuditResult.ok) {
+      logClaimPersistenceError('failed to write replay recovery vin_lookup_enqueued audit log', {
+        claimId: input.existingClaim.id,
+        claimNumber: input.existingClaim.claimNumber,
+        error: enqueueAuditResult.error
+      })
+    }
+
+    logClaimPersistence('duplicate replay recovery enqueued vin lookup', {
+      claimId: input.existingClaim.id,
+      claimNumber: input.existingClaim.claimNumber,
+      queueName: enqueueResult.queueName,
+      jobName: enqueueResult.jobName,
+      jobId: enqueueResult.jobId
+    })
+
+    return {
+      status: ClaimStatus.AwaitingVinData,
+      enqueued: enqueueResult
+    }
+  } catch (error) {
+    await prisma.claim.updateMany({
+      where: {
+        id: input.existingClaim.id,
+        status: ClaimStatus.AwaitingVinData
+      },
+      data: {
+        status: ClaimStatus.Submitted,
+        vinLookupLastError:
+          error instanceof Error
+            ? `Replay recovery enqueue failed: ${error.message}`
+            : 'Replay recovery enqueue failed',
+        vinLookupLastFailedAt: new Date()
+      }
+    })
+
+    logClaimPersistenceError('duplicate replay recovery enqueue failed', {
+      claimId: input.existingClaim.id,
+      claimNumber: input.existingClaim.claimNumber,
+      error
+    })
+
+    return null
+  }
 }
 
 function isLikelyCognitoReplay(input: {
@@ -213,6 +342,8 @@ async function buildDuplicateResult(input: {
   claimantEmail?: string
   vin?: string
 }): Promise<ClaimCreationDuplicate> {
+  let claimForResponse = input.existingClaim
+
   const isReplay = isLikelyCognitoReplay({
     source: input.source,
     existingClaimCreatedAt: input.existingClaim.createdAt,
@@ -270,6 +401,22 @@ async function buildDuplicateResult(input: {
     cognitoEntryNumber: replayIdentity.cognitoEntryNumber
   })
 
+  if (isReplay) {
+    const recoveryResult = await attemptCognitoReplayRecovery({
+      existingClaim: input.existingClaim,
+      dedupeKey: input.dedupeKey,
+      source: input.source,
+      vin: input.vin
+    })
+
+    if (recoveryResult) {
+      claimForResponse = {
+        ...input.existingClaim,
+        status: recoveryResult.status
+      }
+    }
+  }
+
   await evaluateAndStoreClaimRulesBestEffort(input.existingClaim.id, 'duplicate_submission')
 
   return {
@@ -277,7 +424,7 @@ async function buildDuplicateResult(input: {
     duplicate: true,
     dedupeKey: input.dedupeKey,
     message: 'Duplicate submission detected',
-    claim: input.existingClaim
+    claim: claimForResponse
   }
 }
 
@@ -427,6 +574,19 @@ export async function createClaimFromSubmission(
           jobId: enqueueResult.jobId
         })
       } catch (error) {
+        await prisma.claim.updateMany({
+          where: {
+            id: createdClaim.id,
+            status: ClaimStatus.Submitted
+          },
+          data: {
+            status: ClaimStatus.ProcessingError,
+            vinLookupLastError:
+              error instanceof Error ? error.message : 'VIN lookup enqueue failed during intake',
+            vinLookupLastFailedAt: new Date()
+          }
+        })
+
         logClaimPersistenceError('vin lookup enqueue failed', {
           claimId: createdClaim.id,
           claimNumber: createdClaim.claimNumber,
