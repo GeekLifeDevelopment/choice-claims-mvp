@@ -2,6 +2,9 @@
   command = "npm run prisma:generate && npm run build"
   publish = ".next"
 
+  [build.environment]
+    QUEUE_PREFIX = "choice-claims"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
