@@ -1179,82 +1179,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
-        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
-        !claimLockedForProcessing ? (
-          <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
-            <button
-              type="submit"
-              className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
-            >
-              Retry VIN lookup
-            </button>
-          </form>
-        ) : null}
-
-        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
-        claimLockedForProcessing ? (
-          <p className="text-sm text-amber-900">Claim locked by final decision</p>
-        ) : null}
-
-        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-          <p>
-            <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Year:</span>{' '}
-            {vinDataYear !== null ? String(vinDataYear) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Make:</span> {vinDataMake || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Model:</span> {vinDataModel || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Provider Endpoint:</span>{' '}
-            {providerEndpointHint || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
-            {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">VIN Spec Fallback Source:</span>{' '}
-            {vinSpecFallback?.source || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">VIN Spec Fallback Fetched At:</span>{' '}
-            {formatIsoDate(vinSpecFallback?.fetchedAt)}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Body Style:</span>{' '}
-            {vinSpecFallback?.bodyStyle || getOptionalString(vinDataResult.bodyStyle) || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Drivetrain:</span>{' '}
-            {vinSpecFallback?.drivetrain || getOptionalString(vinDataResult.drivetrain) || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Transmission:</span>{' '}
-            {vinSpecFallback?.transmissionType || getOptionalString(vinDataResult.transmissionType) || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Engine:</span>{' '}
-            {vinSpecFallback?.engineSize || getOptionalString(vinDataResult.engineSize) || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Fuel Type:</span>{' '}
-            {vinSpecFallback?.fuelType || getOptionalString(vinDataResult.fuelType) || '—'}
-          </p>
-          <p>
-            <span className="font-medium text-slate-900">Manufacturer:</span>{' '}
-            {vinSpecFallback?.manufacturer || getOptionalString(vinDataResult.manufacturer) || '—'}
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Attachments</h2>
         <p className="text-sm text-slate-600">Preview image only. Use Open file for PDFs and other file types.</p>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
@@ -1373,6 +1297,87 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             })}
           </div>
         )}
+      </div>
+
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold text-slate-900">Enrichment &amp; Processing</h2>
+        <p className="text-sm text-slate-600">Provider and downstream enrichment outputs grouped for review.</p>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
+        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
+        !claimLockedForProcessing ? (
+          <form method="post" action={`/api/admin/claims/${claim.id}/retry-vin`}>
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
+            >
+              Retry VIN lookup
+            </button>
+          </form>
+        ) : null}
+
+        {(claim.status === ClaimStatus.ProviderFailed || claim.status === ClaimStatus.ProcessingError) &&
+        claimLockedForProcessing ? (
+          <p className="text-sm text-amber-900">Claim locked by final decision</p>
+        ) : null}
+
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Provider:</span> {claim.vinDataProvider || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Year:</span>{' '}
+            {vinDataYear !== null ? String(vinDataYear) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Make:</span> {vinDataMake || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Model:</span> {vinDataModel || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Provider Endpoint:</span>{' '}
+            {providerEndpointHint || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Fetched At:</span>{' '}
+            {claim.vinDataFetchedAt ? formatDate(claim.vinDataFetchedAt) : '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Spec Fallback Source:</span>{' '}
+            {vinSpecFallback?.source || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">VIN Spec Fallback Fetched At:</span>{' '}
+            {formatIsoDate(vinSpecFallback?.fetchedAt)}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Body Style:</span>{' '}
+            {vinSpecFallback?.bodyStyle || getOptionalString(vinDataResult.bodyStyle) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Drivetrain:</span>{' '}
+            {vinSpecFallback?.drivetrain || getOptionalString(vinDataResult.drivetrain) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Transmission:</span>{' '}
+            {vinSpecFallback?.transmissionType || getOptionalString(vinDataResult.transmissionType) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Engine:</span>{' '}
+            {vinSpecFallback?.engineSize || getOptionalString(vinDataResult.engineSize) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Fuel Type:</span>{' '}
+            {vinSpecFallback?.fuelType || getOptionalString(vinDataResult.fuelType) || '—'}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Manufacturer:</span>{' '}
+            {vinSpecFallback?.manufacturer || getOptionalString(vinDataResult.manufacturer) || '—'}
+          </p>
+        </div>
       </div>
 
       <div className="space-y-2">
