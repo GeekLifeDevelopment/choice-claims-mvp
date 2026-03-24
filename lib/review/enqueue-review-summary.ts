@@ -37,6 +37,11 @@ export async function enqueueReviewSummaryForClaim(
   claimId: string,
   source: ReviewSummaryJobSource = 'rules_ready'
 ): Promise<EnqueueReviewSummaryForClaimResult> {
+  console.info('[summary] queue check start', {
+    claimId,
+    source
+  })
+
   const claim = await prisma.claim.findUnique({
     where: { id: claimId },
     select: {
@@ -50,6 +55,11 @@ export async function enqueueReviewSummaryForClaim(
   })
 
   if (!claim) {
+    console.warn('[summary] queue skipped claim missing', {
+      claimId,
+      source
+    })
+
     return {
       enqueued: false,
       claimId,
@@ -58,6 +68,12 @@ export async function enqueueReviewSummaryForClaim(
   }
 
   if (isClaimLockedForProcessing(claim)) {
+    console.warn('[summary] queue skipped locked claim', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      reviewDecision: claim.reviewDecision
+    })
+
     return {
       enqueued: false,
       claimId: claim.id,
@@ -66,6 +82,12 @@ export async function enqueueReviewSummaryForClaim(
   }
 
   if (claim.status !== ClaimStatus.ReadyForAI) {
+    console.warn('[summary] queue skipped not-ready status', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      status: claim.status
+    })
+
     return {
       enqueued: false,
       claimId: claim.id,
@@ -74,6 +96,11 @@ export async function enqueueReviewSummaryForClaim(
   }
 
   if (!claim.reviewRuleEvaluatedAt) {
+    console.warn('[summary] queue skipped missing rule evaluation', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber
+    })
+
     return {
       enqueued: false,
       claimId: claim.id,
@@ -82,6 +109,11 @@ export async function enqueueReviewSummaryForClaim(
   }
 
   if (claim.reviewSummaryStatus === REVIEW_SUMMARY_STATUS.Queued) {
+    console.info('[summary] queue skipped already queued', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber
+    })
+
     return {
       enqueued: false,
       claimId: claim.id,
@@ -111,6 +143,11 @@ export async function enqueueReviewSummaryForClaim(
   })
 
   if (transitioned.count === 0) {
+    console.info('[summary] queue skipped transition race', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber
+    })
+
     return {
       enqueued: false,
       claimId: claim.id,
@@ -134,6 +171,14 @@ export async function enqueueReviewSummaryForClaim(
       }
     })
 
+    console.info('[summary] queued', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      queueName: enqueued.queueName,
+      jobName: enqueued.jobName,
+      jobId: enqueued.jobId
+    })
+
     return {
       enqueued: true,
       claimId: claim.id,
@@ -145,6 +190,12 @@ export async function enqueueReviewSummaryForClaim(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Failed to enqueue review summary generation job'
+
+    console.error('[summary] queue failed', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      error: message
+    })
 
     await prisma.claim.update({
       where: { id: claim.id },

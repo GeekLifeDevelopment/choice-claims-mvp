@@ -256,6 +256,11 @@ export async function processReviewSummaryJob(
   claimId: string,
   options: ProcessReviewSummaryJobOptions = {}
 ): Promise<ProcessReviewSummaryJobResult> {
+  console.info('[summary] job started', {
+    claimId,
+    requestedAt: options.requestedAt ?? null
+  })
+
   const requestedAt = parseRequestedAt(options.requestedAt)
   const claim = await prisma.claim.findUnique({
     where: { id: claimId },
@@ -263,6 +268,10 @@ export async function processReviewSummaryJob(
   })
 
   if (!claim) {
+    console.error('[summary] job failed claim missing', {
+      claimId
+    })
+
     return {
       ok: false,
       claimId,
@@ -272,6 +281,12 @@ export async function processReviewSummaryJob(
   }
 
   if (isClaimLockedForProcessing(claim)) {
+    console.warn('[summary] job skipped locked claim', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      reviewDecision: claim.reviewDecision
+    })
+
     return {
       ok: true,
       claimId: claim.id,
@@ -281,6 +296,12 @@ export async function processReviewSummaryJob(
   }
 
   if (claim.reviewSummaryStatus !== 'Queued') {
+    console.info('[summary] job skipped non-queued status', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      reviewSummaryStatus: claim.reviewSummaryStatus
+    })
+
     return {
       ok: true,
       claimId: claim.id,
@@ -290,6 +311,13 @@ export async function processReviewSummaryJob(
   }
 
   if (isStaleRequestedAt(requestedAt, claim.updatedAt)) {
+    console.info('[summary] job skipped stale request', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      requestedAt: options.requestedAt ?? null,
+      claimUpdatedAt: claim.updatedAt.toISOString()
+    })
+
     return {
       ok: true,
       claimId: claim.id,
@@ -395,6 +423,11 @@ export async function processReviewSummaryJob(
     })
 
     if (persisted.count === 0) {
+      console.info('[summary] job skipped obsolete claim state', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber
+      })
+
       return {
         ok: true,
         claimId: claim.id,
@@ -403,6 +436,12 @@ export async function processReviewSummaryJob(
       }
     }
 
+    console.info('[summary] job finished', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      status: 'generated'
+    })
+
     return {
       ok: true,
       claimId: claim.id,
@@ -410,6 +449,12 @@ export async function processReviewSummaryJob(
     }
   } catch (error) {
     const message = toErrorMessage(error)
+    console.error('[summary] job failed', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      error: message
+    })
+
     await persistReviewSummaryFailure(claim.id, message)
 
     return {

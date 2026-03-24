@@ -71,7 +71,12 @@ export async function POST(request: Request) {
   const returnPath = getSafeReturnPath(formData.get('returnTo'))
   const decisionValue = formData.get('decision')
 
+  console.info('[bulk-decision] request received', {
+    returnPath
+  })
+
   if (typeof decisionValue !== 'string') {
+    console.warn('[bulk-decision] invalid payload missing decision')
     const redirectUrl = buildReturnUrl(request.url, returnPath)
     redirectUrl.searchParams.set('bulkDecision', 'invalid')
     return NextResponse.redirect(redirectUrl, { status: 303 })
@@ -79,6 +84,9 @@ export async function POST(request: Request) {
 
   const decision = decisionValue.trim()
   if (!ALLOWED_DECISIONS.has(decision)) {
+    console.warn('[bulk-decision] invalid decision value', {
+      decision
+    })
     const redirectUrl = buildReturnUrl(request.url, returnPath)
     redirectUrl.searchParams.set('bulkDecision', 'invalid')
     return NextResponse.redirect(redirectUrl, { status: 303 })
@@ -95,10 +103,16 @@ export async function POST(request: Request) {
   )
 
   if (selectedClaimIds.length === 0) {
+    console.warn('[bulk-decision] no claim selection')
     const redirectUrl = buildReturnUrl(request.url, returnPath)
     redirectUrl.searchParams.set('bulkDecision', 'no-selection')
     return NextResponse.redirect(redirectUrl, { status: 303 })
   }
+
+  console.info('[bulk-decision] processing started', {
+    decision,
+    attempted: selectedClaimIds.length
+  })
 
   let saved = 0
   let locked = 0
@@ -117,6 +131,11 @@ export async function POST(request: Request) {
       }
     } catch (error) {
       failed += 1
+      console.error('[bulk-decision] claim update failed', {
+        claimId,
+        decision,
+        error
+      })
       console.error('[ADMIN_BULK_REVIEW_DECISION] failed to apply decision', {
         claimId,
         decision,
@@ -133,6 +152,14 @@ export async function POST(request: Request) {
     locked,
     failed
   )
+
+  console.info('[bulk-decision] processing finished', {
+    decision,
+    attempted: selectedClaimIds.length,
+    saved,
+    locked,
+    failed
+  })
 
   return NextResponse.redirect(redirectUrl, { status: 303 })
 }
