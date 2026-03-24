@@ -27,14 +27,19 @@ type DecisionFilterValue = (typeof DECISION_FILTER_VALUES)[number]
 const SUMMARY_FILTER_VALUES = ['all', 'NotRequested', 'Queued', 'Generated', 'Failed'] as const
 type SummaryFilterValue = (typeof SUMMARY_FILTER_VALUES)[number]
 
-const SORT_FILTER_VALUES = [
-  'submitted_desc',
-  'submitted_asc',
-  'updated_desc',
-  'evaluated_desc',
-  'summarized_desc'
-] as const
+const LOCKED_FILTER_VALUES = ['all', 'true', 'false'] as const
+type LockedFilterValue = (typeof LOCKED_FILTER_VALUES)[number]
+
+const READY_FILTER_VALUES = ['all', 'true', 'false'] as const
+type ReadyFilterValue = (typeof READY_FILTER_VALUES)[number]
+
+const NEEDS_SUMMARY_FILTER_VALUES = ['all', 'true', 'false'] as const
+type NeedsSummaryFilterValue = (typeof NEEDS_SUMMARY_FILTER_VALUES)[number]
+
+const SORT_FILTER_VALUES = ['submitted_desc', 'submitted_asc', 'updated_desc'] as const
 type SortFilterValue = (typeof SORT_FILTER_VALUES)[number]
+
+const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied'].filter((decision) => isFinalReviewDecision(decision))
 
 function getStatusBadgeClassName(status: string): string {
   const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
@@ -117,6 +122,9 @@ type PageProps = {
     status?: string
     decision?: string
     summary?: string
+    locked?: string
+    ready?: string
+    needsSummary?: string
     sort?: string
   }>
 }
@@ -159,17 +167,26 @@ function buildClaimsUrl(
   selectedStatus: StatusFilterValue,
   selectedDecision: DecisionFilterValue,
   selectedSummary: SummaryFilterValue,
+  selectedLocked: LockedFilterValue,
+  selectedReady: ReadyFilterValue,
+  selectedNeedsSummary: NeedsSummaryFilterValue,
   selectedSort: SortFilterValue,
   patch?: Partial<{
     status: StatusFilterValue
     decision: DecisionFilterValue
     summary: SummaryFilterValue
+    locked: LockedFilterValue
+    ready: ReadyFilterValue
+    needsSummary: NeedsSummaryFilterValue
     sort: SortFilterValue
   }>
 ): string {
   const nextStatus = patch?.status ?? selectedStatus
   const nextDecision = patch?.decision ?? selectedDecision
   const nextSummary = patch?.summary ?? selectedSummary
+  const nextLocked = patch?.locked ?? selectedLocked
+  const nextReady = patch?.ready ?? selectedReady
+  const nextNeedsSummary = patch?.needsSummary ?? selectedNeedsSummary
   const nextSort = patch?.sort ?? selectedSort
 
   const params = new URLSearchParams()
@@ -186,6 +203,18 @@ function buildClaimsUrl(
     params.set('summary', nextSummary)
   }
 
+  if (nextLocked !== 'all') {
+    params.set('locked', nextLocked)
+  }
+
+  if (nextReady !== 'all') {
+    params.set('ready', nextReady)
+  }
+
+  if (nextNeedsSummary !== 'all') {
+    params.set('needsSummary', nextNeedsSummary)
+  }
+
   if (nextSort !== 'submitted_desc') {
     params.set('sort', nextSort)
   }
@@ -198,6 +227,9 @@ function buildClaimsExportUrl(
   selectedStatus: StatusFilterValue,
   selectedDecision: DecisionFilterValue,
   selectedSummary: SummaryFilterValue,
+  selectedLocked: LockedFilterValue,
+  selectedReady: ReadyFilterValue,
+  selectedNeedsSummary: NeedsSummaryFilterValue,
   selectedSort: SortFilterValue
 ): string {
   const params = new URLSearchParams()
@@ -212,6 +244,18 @@ function buildClaimsExportUrl(
 
   if (selectedSummary !== 'all') {
     params.set('summary', selectedSummary)
+  }
+
+  if (selectedLocked !== 'all') {
+    params.set('locked', selectedLocked)
+  }
+
+  if (selectedReady !== 'all') {
+    params.set('ready', selectedReady)
+  }
+
+  if (selectedNeedsSummary !== 'all') {
+    params.set('needsSummary', selectedNeedsSummary)
   }
 
   if (selectedSort !== 'submitted_desc') {
@@ -233,14 +277,6 @@ function getSortOrder(sort: SortFilterValue): Prisma.ClaimOrderByWithRelationInp
 
   if (sort === 'updated_desc') {
     return [{ updatedAt: 'desc' }, { submittedAt: 'desc' }]
-  }
-
-  if (sort === 'evaluated_desc') {
-    return [{ reviewRuleEvaluatedAt: 'desc' }, { submittedAt: 'desc' }]
-  }
-
-  if (sort === 'summarized_desc') {
-    return [{ reviewSummaryGeneratedAt: 'desc' }, { submittedAt: 'desc' }]
   }
 
   return [{ submittedAt: 'desc' }]
@@ -266,6 +302,24 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
   )
     ? resolvedSearchParams.summary
     : 'all'
+  const selectedLocked: LockedFilterValue = isValidFilterValue(
+    resolvedSearchParams.locked,
+    LOCKED_FILTER_VALUES
+  )
+    ? resolvedSearchParams.locked
+    : 'all'
+  const selectedReady: ReadyFilterValue = isValidFilterValue(
+    resolvedSearchParams.ready,
+    READY_FILTER_VALUES
+  )
+    ? resolvedSearchParams.ready
+    : 'all'
+  const selectedNeedsSummary: NeedsSummaryFilterValue = isValidFilterValue(
+    resolvedSearchParams.needsSummary,
+    NEEDS_SUMMARY_FILTER_VALUES
+  )
+    ? resolvedSearchParams.needsSummary
+    : 'all'
   const selectedSort: SortFilterValue = isValidFilterValue(resolvedSearchParams.sort, SORT_FILTER_VALUES)
     ? resolvedSearchParams.sort
     : 'submitted_desc'
@@ -288,6 +342,70 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
     })
   } else if (selectedSummary !== 'all') {
     whereClauses.push({ reviewSummaryStatus: selectedSummary })
+  }
+
+  if (selectedLocked === 'true') {
+    whereClauses.push({
+      reviewDecision: {
+        in: FINAL_REVIEW_DECISIONS
+      }
+    })
+  } else if (selectedLocked === 'false') {
+    whereClauses.push({
+      OR: [{ reviewDecision: null }, { reviewDecision: { notIn: FINAL_REVIEW_DECISIONS } }]
+    })
+  }
+
+  if (selectedReady === 'true') {
+    whereClauses.push({
+      AND: [
+        { status: ClaimStatus.ReadyForAI },
+        { reviewSummaryStatus: 'Generated' },
+        { OR: [{ reviewDecision: null }, { reviewDecision: { notIn: FINAL_REVIEW_DECISIONS } }] }
+      ]
+    })
+  } else if (selectedReady === 'false') {
+    whereClauses.push({
+      NOT: {
+        AND: [
+          { status: ClaimStatus.ReadyForAI },
+          { reviewSummaryStatus: 'Generated' },
+          { OR: [{ reviewDecision: null }, { reviewDecision: { notIn: FINAL_REVIEW_DECISIONS } }] }
+        ]
+      }
+    })
+  }
+
+  if (selectedNeedsSummary === 'true') {
+    whereClauses.push({
+      AND: [
+        { status: ClaimStatus.ReadyForAI },
+        {
+          OR: [
+            { reviewSummaryStatus: null },
+            { reviewSummaryStatus: 'NotRequested' },
+            { reviewSummaryStatus: 'Failed' }
+          ]
+        },
+        { OR: [{ reviewDecision: null }, { reviewDecision: { notIn: FINAL_REVIEW_DECISIONS } }] }
+      ]
+    })
+  } else if (selectedNeedsSummary === 'false') {
+    whereClauses.push({
+      NOT: {
+        AND: [
+          { status: ClaimStatus.ReadyForAI },
+          {
+            OR: [
+              { reviewSummaryStatus: null },
+              { reviewSummaryStatus: 'NotRequested' },
+              { reviewSummaryStatus: 'Failed' }
+            ]
+          },
+          { OR: [{ reviewDecision: null }, { reviewDecision: { notIn: FINAL_REVIEW_DECISIONS } }] }
+        ]
+      }
+    })
   }
 
   const where: Prisma.ClaimWhereInput | undefined =
@@ -326,144 +444,170 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
   const filterCount =
     (selectedStatus === 'all' ? 0 : 1) +
     (selectedDecision === 'all' ? 0 : 1) +
-    (selectedSummary === 'all' ? 0 : 1)
+    (selectedSummary === 'all' ? 0 : 1) +
+    (selectedLocked === 'all' ? 0 : 1) +
+    (selectedReady === 'all' ? 0 : 1) +
+    (selectedNeedsSummary === 'all' ? 0 : 1)
 
   return (
     <section className="card">
       <h1 className="text-2xl">Admin — Claims</h1>
-      <p className="mt-2 text-slate-700">
-        Reviewer queue with server-side status, decision, summary, and sort controls.
-      </p>
+      <p className="mt-2 text-slate-700">Reviewer queue with server-side filtering and sorting controls.</p>
 
       <div className="mt-4 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-slate-700">Queue Presets:</span>
+          <span className="font-medium text-slate-700">Quick Filters:</span>
           <Link
-            href={buildClaimsUrl('all', 'all', 'all', selectedSort)}
+            href={buildClaimsUrl('all', 'all', 'all', 'all', 'all', 'all', selectedSort)}
             className="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100"
           >
             All
           </Link>
           <Link
-            href={buildClaimsUrl(ClaimStatus.ReadyForAI, 'Unset', 'Generated', selectedSort)}
+            href={buildClaimsUrl('all', 'all', 'all', 'false', 'true', 'all', selectedSort)}
             className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 hover:bg-amber-100"
           >
-            Needs Review Now
+            ReadyForReview
           </Link>
           <Link
-            href={buildClaimsUrl(ClaimStatus.AwaitingVinData, 'all', 'all', selectedSort)}
+            href={buildClaimsUrl('all', 'all', 'all', 'false', 'all', 'true', selectedSort)}
             className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-sky-900 hover:bg-sky-100"
           >
-            Waiting on Provider
+            NeedsSummary
           </Link>
           <Link
-            href={buildClaimsUrl('all', 'Unset', 'Generated', selectedSort)}
-            className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-900 hover:bg-emerald-100"
+            href={buildClaimsUrl('all', 'all', 'all', 'true', 'all', 'all', selectedSort)}
+            className="rounded-md border border-slate-400 bg-slate-100 px-2 py-1 text-slate-800 hover:bg-slate-200"
           >
-            Summary Ready
+            Locked
           </Link>
           <Link
-            href={buildClaimsUrl('all', 'Approved', 'all', selectedSort)}
+            href={buildClaimsUrl('all', 'Approved', 'all', 'all', 'all', 'all', selectedSort)}
             className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-900 hover:bg-emerald-100"
           >
             Approved
           </Link>
           <Link
-            href={buildClaimsUrl('all', 'Denied', 'all', selectedSort)}
+            href={buildClaimsUrl('all', 'Denied', 'all', 'all', 'all', 'all', selectedSort)}
             className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-red-900 hover:bg-red-100"
           >
-            Denied
+            Rejected
           </Link>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-slate-700">Status:</span>
-          {STATUS_FILTER_VALUES.map((status) => (
-            <Link
-              key={status}
-              href={buildClaimsUrl(selectedStatus, selectedDecision, selectedSummary, selectedSort, {
-                status
-              })}
-              className={
-                selectedStatus === status
-                  ? 'rounded-md border border-slate-300 bg-white px-2 py-1 font-medium text-slate-900'
-                  : 'rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100'
-              }
+        <form action="/admin/claims" method="get" className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Status</span>
+            <select
+              name="status"
+              defaultValue={selectedStatus}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
             >
-              {status === 'all' ? 'All' : status}
-            </Link>
-          ))}
-        </div>
+              {STATUS_FILTER_VALUES.map((status) => (
+                <option key={status} value={status}>
+                  {status === 'all' ? 'All' : status}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-slate-700">Reviewer Decision:</span>
-          {DECISION_FILTER_VALUES.map((decision) => (
-            <Link
-              key={decision}
-              href={buildClaimsUrl(selectedStatus, selectedDecision, selectedSummary, selectedSort, {
-                decision
-              })}
-              className={
-                selectedDecision === decision
-                  ? 'rounded-md border border-slate-300 bg-white px-2 py-1 font-medium text-slate-900'
-                  : 'rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100'
-              }
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Decision</span>
+            <select
+              name="decision"
+              defaultValue={selectedDecision}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
             >
-              {decision}
-            </Link>
-          ))}
-        </div>
+              {DECISION_FILTER_VALUES.map((decision) => (
+                <option key={decision} value={decision}>
+                  {decision}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-slate-700">Summary:</span>
-          {SUMMARY_FILTER_VALUES.map((summary) => (
-            <Link
-              key={summary}
-              href={buildClaimsUrl(selectedStatus, selectedDecision, selectedSummary, selectedSort, {
-                summary
-              })}
-              className={
-                selectedSummary === summary
-                  ? 'rounded-md border border-slate-300 bg-white px-2 py-1 font-medium text-slate-900'
-                  : 'rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100'
-              }
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Summary</span>
+            <select
+              name="summary"
+              defaultValue={selectedSummary}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
             >
-              {summary}
+              {SUMMARY_FILTER_VALUES.map((summary) => (
+                <option key={summary} value={summary}>
+                  {summary}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Locked</span>
+            <select
+              name="locked"
+              defaultValue={selectedLocked}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            >
+              <option value="all">All</option>
+              <option value="true">Locked only</option>
+              <option value="false">Unlocked only</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Ready For Review</span>
+            <select
+              name="ready"
+              defaultValue={selectedReady}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            >
+              <option value="all">All</option>
+              <option value="true">Ready only</option>
+              <option value="false">Not ready only</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Needs Summary</span>
+            <select
+              name="needsSummary"
+              defaultValue={selectedNeedsSummary}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            >
+              <option value="all">All</option>
+              <option value="true">Needs summary only</option>
+              <option value="false">No summary needed only</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-slate-700">
+            <span className="font-medium">Sort</span>
+            <select
+              name="sort"
+              defaultValue={selectedSort}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            >
+              <option value="submitted_desc">Newest first</option>
+              <option value="submitted_asc">Oldest first</option>
+              <option value="updated_desc">Recently updated</option>
+            </select>
+          </label>
+
+          <div className="flex items-end gap-2">
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
+            >
+              Apply Filters
+            </button>
+            <Link
+              href="/admin/claims"
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Clear
             </Link>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-slate-700">Sort:</span>
-          {SORT_FILTER_VALUES.map((sort) => {
-            const label =
-              sort === 'submitted_desc'
-                ? 'Newest submitted'
-                : sort === 'submitted_asc'
-                  ? 'Oldest submitted'
-                  : sort === 'updated_desc'
-                    ? 'Recently updated'
-                    : sort === 'evaluated_desc'
-                      ? 'Recently evaluated'
-                      : 'Recently summarized'
-
-            return (
-              <Link
-                key={sort}
-                href={buildClaimsUrl(selectedStatus, selectedDecision, selectedSummary, selectedSort, {
-                  sort
-                })}
-                className={
-                  selectedSort === sort
-                    ? 'rounded-md border border-slate-300 bg-white px-2 py-1 font-medium text-slate-900'
-                    : 'rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-100'
-                }
-              >
-                {label}
-              </Link>
-            )
-          })}
-        </div>
+          </div>
+        </form>
 
         <p className="text-xs text-slate-600">
           Showing {claims.length} claims{filterCount > 0 ? ` with ${filterCount} active filters` : ''}.
@@ -471,7 +615,15 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
 
         <div className="pt-1">
           <a
-            href={buildClaimsExportUrl(selectedStatus, selectedDecision, selectedSummary, selectedSort)}
+            href={buildClaimsExportUrl(
+              selectedStatus,
+              selectedDecision,
+              selectedSummary,
+              selectedLocked,
+              selectedReady,
+              selectedNeedsSummary,
+              selectedSort
+            )}
             className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
           >
             Export CSV
