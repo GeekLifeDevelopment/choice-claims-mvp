@@ -6,7 +6,9 @@ import { classifyExternalFailure, type ExternalFailureCategory } from '../provid
 import { getOpenAiTimeoutMs } from '../providers/config'
 import { logProviderHealth } from '../providers/provider-health-log'
 import { buildClaimEvaluationInput, type ClaimEvaluationInput } from './claim-evaluation-input'
+import { parseAdjudicationAiEnvelope, type AdjudicationAiFinding } from './adjudication-ai-contract'
 import { buildAdjudicationResult } from './adjudication-result'
+import { buildAdjudicationAiPrompt } from './build-adjudication-ai-prompt'
 import { buildReviewSummaryPrompt } from './build-review-summary-prompt'
 import { isClaimLockedForProcessing } from './claim-lock'
 
@@ -200,6 +202,87 @@ function buildPersistedVinDataResult(
   return {
     ...vinData,
     adjudicationResult
+  }
+}
+
+async function callOpenAiChatCompletions(systemMessage: string, userMessage: string, maxTokens: number): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured.')
+  }
+
+  const timeoutMs = getOpenAiTimeoutMs()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  let response: Response
+
+  try {
+    response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: DEFAULT_OPENAI_MODEL,
+        temperature: 0.1,
+        max_tokens: maxTokens,
+        response_format: {
+          type: 'json_object'
+        },
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userMessage }
+        ]
+      }),
+      signal: controller.signal
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text()
+    throw new Error(`OpenAI request failed (${response.status}): ${errorBody.slice(0, 300)}`)
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string | null } }>
+  }
+
+  const content = payload.choices?.[0]?.message?.content
+  const text = typeof content === 'string' ? content.trim() : ''
+  if (!text) {
+    throw new Error('OpenAI response did not include content.')
+  }
+
+  return text
+}
+
+async function callOpenAiForAdjudicationFindings(systemMessage: string, userMessage: string): Promise<AdjudicationAiFinding[]> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    return []
+  }
+
+  try {
+    const raw = await callOpenAiChatCompletions(systemMessage, userMessage, 700)
+    const parsed = parseAdjudicationAiEnvelope(raw)
+
+    if (parsed.rejectedCount > 0) {
+      console.warn('[adjudication_ai] rejected findings during validation', {
+        rejectedCount: parsed.rejectedCount,
+        acceptedCount: parsed.findings.length
+      })
+    }
+
+    return parsed.findings
+  } catch (error) {
+    console.warn('[adjudication_ai] extraction failed; continuing without AI findings', {
+      error: error instanceof Error ? error.message : 'unknown_error'
+    })
+    return []
   }
 }
 
@@ -586,10 +669,17 @@ export async function processReviewSummaryJob(
     })
 
     const reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage)
+    const aiPrompt = buildAdjudicationAiPrompt({
+      claimNumber: claim.claimNumber,
+      status: claim.status,
+      summaryInputJson
+    })
+    const aiFindings = await callOpenAiForAdjudicationFindings(aiPrompt.systemMessage, aiPrompt.userMessage)
     const adjudicationResult = buildAdjudicationResult({
       evaluationInput,
       vinDataResult: claim.vinDataResult,
-      reviewSummaryText
+      reviewSummaryText,
+      aiFindings
     })
     const persistedVinDataResult = buildPersistedVinDataResult(claim.vinDataResult, adjudicationResult)
 

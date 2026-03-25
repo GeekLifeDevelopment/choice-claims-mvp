@@ -1,5 +1,9 @@
 import type { ClaimEvaluationInput } from './claim-evaluation-input'
 import {
+  ADJUDICATION_AI_SUPPORTED_QUESTION_IDS,
+  type AdjudicationAiFinding
+} from './adjudication-ai-contract'
+import {
   buildDeterministicQuestionScores,
   computeDeterministicTotalScore,
   mapRecommendationFromScore
@@ -31,6 +35,7 @@ export type AdjudicationQuestionResult = {
   score: number | null
   explanation: string
   evidence: AdjudicationEvidenceEntry[]
+  confidence?: number
   sourceType: AdjudicationSourceType
   providerStatus: AdjudicationProviderStatus
 }
@@ -45,7 +50,8 @@ export type AdjudicationResult = {
   questions: AdjudicationQuestionResult[]
 }
 
-const ADJUDICATION_RESULT_VERSION = 's8_5_ticket2_v1'
+const ADJUDICATION_RESULT_VERSION = 's8_5_ticket3_v1'
+const AI_INTERPRETATION_QUESTION_ID_SET = new Set<string>(ADJUDICATION_AI_SUPPORTED_QUESTION_IDS)
 
 function buildQuestion(
   input: Pick<AdjudicationQuestionResult, 'id' | 'title' | 'sourceType' | 'status' | 'score' | 'explanation' | 'providerStatus'> & {
@@ -75,10 +81,59 @@ function resolveCompleteness(scoredCount: number, totalCount: number): Adjudicat
   return 'low'
 }
 
+function resolveProviderStatusFromAiStatus(status: AdjudicationQuestionStatus): AdjudicationProviderStatus {
+  if (status === 'provider_unavailable') {
+    return 'unavailable'
+  }
+
+  if (status === 'not_applicable') {
+    return 'not_applicable'
+  }
+
+  return 'available'
+}
+
+function mergeAiFindingsIntoQuestions(
+  questions: AdjudicationQuestionResult[],
+  aiFindings: AdjudicationAiFinding[]
+): AdjudicationQuestionResult[] {
+  if (aiFindings.length === 0) {
+    return questions
+  }
+
+  const findingsByQuestion = new Map<string, AdjudicationAiFinding>()
+  for (const finding of aiFindings) {
+    findingsByQuestion.set(finding.questionId, finding)
+  }
+
+  return questions.map((question) => {
+    if (!AI_INTERPRETATION_QUESTION_ID_SET.has(question.id)) {
+      return question
+    }
+
+    const aiFinding = findingsByQuestion.get(question.id)
+    if (!aiFinding) {
+      return question
+    }
+
+    return {
+      ...question,
+      status: aiFinding.status,
+      score: aiFinding.status === 'scored' ? aiFinding.scoreSuggestion ?? null : null,
+      explanation: aiFinding.explanation,
+      evidence: aiFinding.evidence,
+      confidence: aiFinding.confidence,
+      sourceType: aiFinding.sourceType,
+      providerStatus: resolveProviderStatusFromAiStatus(aiFinding.status)
+    }
+  })
+}
+
 export function buildAdjudicationResult(input: {
   evaluationInput: ClaimEvaluationInput
   vinDataResult: unknown
   reviewSummaryText: string
+  aiFindings?: AdjudicationAiFinding[]
 }): AdjudicationResult {
   const hasAttachments = input.evaluationInput.snapshot.attachments?.count
     ? input.evaluationInput.snapshot.attachments.count > 0
@@ -89,7 +144,7 @@ export function buildAdjudicationResult(input: {
     vinDataResult: input.vinDataResult
   })
 
-  const questions: AdjudicationQuestionResult[] = [
+  const baseQuestions: AdjudicationQuestionResult[] = [
     deterministicScores.miles_since_purchase ??
       buildQuestion({
         id: 'miles_since_purchase',
@@ -207,6 +262,7 @@ export function buildAdjudicationResult(input: {
       })
   ]
 
+  const questions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
   const scoredQuestions = questions.filter((question) => question.status === 'scored' && question.score !== null)
   const totalScore = computeDeterministicTotalScore(questions)
   const recommendation = mapRecommendationFromScore(totalScore, scoredQuestions.length)
