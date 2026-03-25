@@ -487,6 +487,46 @@ function formatRecommendationLabel(value: unknown): string {
   return 'Unknown'
 }
 
+function formatReviewerDecisionLabel(value: string | null | undefined): string {
+  if (!value) {
+    return 'None'
+  }
+
+  if (value === 'NeedsReview') {
+    return 'NeedsReview'
+  }
+
+  if (value === 'Approved' || value === 'Denied' || value === 'Partial') {
+    return value
+  }
+
+  return value
+}
+
+function normalizeDecisionForCompare(value: string | null | undefined): string {
+  if (!value) {
+    return 'none'
+  }
+
+  if (value === 'manual_review' || value === 'NeedsReview') {
+    return 'manual_review'
+  }
+
+  if (value === 'approve' || value === 'Approved') {
+    return 'approve'
+  }
+
+  if (value === 'deny' || value === 'Denied') {
+    return 'deny'
+  }
+
+  if (value === 'partial' || value === 'Partial') {
+    return 'partial'
+  }
+
+  return String(value).toLowerCase()
+}
+
 type ProviderHealthRow = {
   provider: string
   status: ProviderHealthStatus
@@ -1185,6 +1225,18 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     reviewRuleEvaluatedAt: claim.reviewRuleEvaluatedAt
   })
   const canRegenerateSummary = summaryRegenerateDisabledReason === null
+  const overrideValidationError =
+    resolvedSearchParams.reviewDecision === 'missing-override-reason' ||
+    resolvedSearchParams.reviewDecision === 'invalid-override-reason' ||
+    resolvedSearchParams.reviewDecision === 'override-reason-too-long'
+  const systemRecommendationLabel = adjudicationResult
+    ? formatRecommendationLabel(adjudicationResult.recommendation)
+    : '—'
+  const recommendationDiffersFromReviewer =
+    Boolean(adjudicationResult?.recommendation) &&
+    claim.reviewDecision !== null &&
+    normalizeDecisionForCompare(adjudicationResult?.recommendation) !==
+      normalizeDecisionForCompare(claim.reviewDecision)
   const saveDecisionButtonLabel = claimLockedForProcessing
     ? 'Locked (disabled)'
     : currentOverrideUsed
@@ -1475,17 +1527,38 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Reviewer Decision</h2>
 
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <p>
+              <span className="font-medium text-slate-900">System Recommendation:</span>{' '}
+              {systemRecommendationLabel}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Confidence:</span>{' '}
+              {formatPercentFromFraction(adjudicationResult?.overallConfidence)}
+            </p>
+            <p>
+              <span className="font-medium text-slate-900">Completeness:</span>{' '}
+              {formatPercentFromFraction(adjudicationResult?.overallCompleteness)}
+            </p>
+          </div>
+
           <div className="grid gap-2 sm:grid-cols-2">
             <p>
               <span className="font-medium text-slate-900">Current Decision:</span>{' '}
-              {claim.reviewDecision || 'None'}
+              {formatReviewerDecisionLabel(claim.reviewDecision)}
             </p>
             <p>
               <span className="font-medium text-slate-900">Locked:</span>{' '}
               {claimLockedForProcessing ? 'Yes' : 'No'}
             </p>
           </div>
+
+          {recommendationDiffersFromReviewer ? (
+            <p className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+              Reviewer decision differs from system recommendation.
+            </p>
+          ) : null}
         </div>
 
         {claimLockedForProcessing ? (
@@ -1500,10 +1573,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </p>
         ) : null}
 
-        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2 rounded-md border border-slate-200 bg-white p-3">
           <p>
             <span className="font-medium text-slate-900">Current Decision:</span>{' '}
-            {claim.reviewDecision || 'None'}
+            {formatReviewerDecisionLabel(claim.reviewDecision)}
           </p>
           <p>
             <span className="font-medium text-slate-900">Last Updated:</span>{' '}
@@ -1528,6 +1601,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           action={`/api/admin/claims/${claim.id}/review-decision`}
           className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
         >
+          <p className="text-sm font-medium text-slate-900">Decision Update Form</p>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm text-slate-700">
               <span className="font-medium text-slate-900">Decision</span>
@@ -1568,14 +1643,18 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             <span className="font-medium text-slate-900">Override recommended outcome</span>
           </label>
 
+          <p className="text-xs text-slate-600">
+            Use override only when reviewer judgment should supersede system recommendation.
+          </p>
+
           {currentOverrideUsed ? (
             <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              Override enabled - this will replace the existing decision.
+              You are overriding the system recommendation.
             </p>
           ) : null}
 
           <label className="block space-y-1 text-sm text-slate-700">
-            <span className="font-medium text-slate-900">Override Reason (optional)</span>
+            <span className="font-medium text-slate-900">Override Reason</span>
             <textarea
               name="overrideReason"
               defaultValue={currentOverrideReason}
@@ -1585,6 +1664,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               placeholder="Explain why reviewer is overriding the guidance"
             />
           </label>
+
+          {overrideValidationError ? (
+            <p className="text-sm text-red-700">Override reason is required when override is enabled.</p>
+          ) : null}
 
           {claimLockedForProcessing ? (
             <p className="text-sm text-amber-900">Reviewer decision is read-only because this claim is locked.</p>
