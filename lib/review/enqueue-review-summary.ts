@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { isFeatureEnabled } from '../config/feature-flags'
 import { ClaimStatus } from '../domain/claims'
 import { prisma } from '../prisma'
 import { buildReviewSummaryJobPayload } from '../queue/build-review-summary-job'
@@ -18,6 +19,7 @@ export const REVIEW_SUMMARY_STATUS = {
 export type ReviewSummaryStatus = (typeof REVIEW_SUMMARY_STATUS)[keyof typeof REVIEW_SUMMARY_STATUS]
 
 export type EnqueueReviewSummaryIneligibleReason =
+  | 'summary_disabled'
   | 'not_found'
   | 'locked_final_decision'
   | 'not_ready_for_ai'
@@ -37,6 +39,19 @@ export async function enqueueReviewSummaryForClaim(
   claimId: string,
   source: ReviewSummaryJobSource = 'rules_ready'
 ): Promise<EnqueueReviewSummaryForClaimResult> {
+  if (!isFeatureEnabled('summary_generation') || !isFeatureEnabled('openai')) {
+    console.info('[feature] openai disabled', {
+      claimId,
+      source
+    })
+
+    return {
+      enqueued: false,
+      claimId,
+      reason: 'summary_disabled'
+    }
+  }
+
   console.info('[summary] queue check start', {
     claimId,
     source

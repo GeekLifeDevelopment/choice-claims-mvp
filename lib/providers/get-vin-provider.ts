@@ -1,6 +1,7 @@
 import { AutoCheckProviderStub } from './autocheck-provider-stub'
 import { AutoCheckProviderLive } from './autocheck-provider-live'
 import { CarfaxProviderStub } from './carfax-provider-stub'
+import { isFeatureEnabled } from '../config/feature-flags'
 import { hasCarfaxProviderConfig, hasExperianOAuthConfig, hasMarketCheckProviderConfig } from './config'
 import { MarketCheckProviderLive } from './marketcheck-provider-live'
 import { logProviderHealth } from './provider-health-log'
@@ -10,6 +11,34 @@ import type { VinDataResult } from './types'
 import type { VinProviderName } from './types'
 
 const DEFAULT_PROVIDER: VinProviderName = 'carfax'
+
+function isProviderFeatureEnabled(providerName: VinProviderPriorityName): boolean {
+  if (providerName === 'fallback') {
+    return true
+  }
+
+  if (providerName === 'autocheck') {
+    return isFeatureEnabled('provider_autocheck')
+  }
+
+  if (providerName === 'carfax') {
+    return isFeatureEnabled('provider_carfax')
+  }
+
+  return isFeatureEnabled('provider_marketcheck')
+}
+
+class DisabledVinDataProvider implements VinDataProvider {
+  readonly name: VinProviderName = 'carfax'
+
+  async lookupVinData(vin: string): Promise<VinDataResult> {
+    return {
+      vin,
+      provider: this.name,
+      providerResultMessage: 'vin_enrichment_disabled'
+    }
+  }
+}
 
 function normalizeProviderName(value: string | undefined): VinProviderName {
   const normalized = value?.trim().toLowerCase()
@@ -57,12 +86,32 @@ class PriorityVinDataProvider implements VinDataProvider {
 
   async lookupVinData(vin: string): Promise<VinDataResult> {
     for (const providerName of this.priorities) {
+      if (!isProviderFeatureEnabled(providerName)) {
+        if (providerName === 'autocheck') {
+          console.info('[feature] provider autocheck disabled')
+        }
+
+        if (providerName === 'carfax') {
+          console.info('[feature] provider carfax disabled')
+        }
+
+        if (providerName === 'marketcheck') {
+          console.info('[feature] provider marketcheck disabled')
+        }
+
+        continue
+      }
+
       if (providerName === 'fallback') {
-        const fallbackProvider = new CarfaxProviderStub()
+        const fallbackProvider = isFeatureEnabled('provider_carfax')
+          ? new CarfaxProviderStub()
+          : isFeatureEnabled('provider_autocheck')
+            ? new AutoCheckProviderStub()
+            : new DisabledVinDataProvider()
         this.activeProviderName = fallbackProvider.name
 
         logProviderHealth({
-          provider: 'carfax',
+          provider: fallbackProvider.name,
           capability: 'vin_decode',
           event: 'stub_fallback',
           mode: 'stub',
@@ -195,11 +244,15 @@ class PriorityVinDataProvider implements VinDataProvider {
       }
     }
 
-    const fallbackProvider = new AutoCheckProviderStub()
+    const fallbackProvider = isFeatureEnabled('provider_autocheck')
+      ? new AutoCheckProviderStub()
+      : isFeatureEnabled('provider_carfax')
+        ? new CarfaxProviderStub()
+        : new DisabledVinDataProvider()
     this.activeProviderName = fallbackProvider.name
 
     logProviderHealth({
-      provider: 'autocheck',
+      provider: fallbackProvider.name,
       capability: 'vin_decode',
       event: 'stub_fallback',
       mode: 'stub',

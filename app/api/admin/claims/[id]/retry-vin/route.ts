@@ -5,6 +5,7 @@ import { prisma } from '../../../../../../lib/prisma'
 import { buildVinLookupJobPayload } from '../../../../../../lib/queue/build-vin-lookup-job'
 import { enqueueVinLookupJob } from '../../../../../../lib/queue/enqueue-vin-lookup-job'
 import { isClaimLockedForProcessing } from '../../../../../../lib/review/claim-lock'
+import { isFeatureEnabled } from '../../../../../../lib/config/feature-flags'
 
 type RouteContext = {
   params: Promise<{ id: string }>
@@ -119,6 +120,27 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
+    if (!isFeatureEnabled('enrichment')) {
+      console.info('[feature] enrichment disabled')
+
+      await prisma.claim.updateMany({
+        where: {
+          id: claim.id,
+          status: ClaimStatus.AwaitingVinData
+        },
+        data: {
+          status: ClaimStatus.ReadyForAI,
+          vinLookupLastError: null,
+          vinLookupLastFailedAt: null,
+          vinDataProviderResultMessage: 'enrichment_disabled'
+        }
+      })
+
+      return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'skipped-feature-disabled'), {
+        status: 303
+      })
+    }
+
     const payload = buildVinLookupJobPayload({
       claimId: claim.id,
       vin: claim.vin,

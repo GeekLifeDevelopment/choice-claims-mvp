@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { isFeatureEnabled } from '../config/feature-flags'
 import { ClaimStatus } from '../domain/claims'
 import { prisma } from '../prisma'
 import { classifyExternalFailure, type ExternalFailureCategory } from '../providers/failure-classification'
@@ -417,6 +418,19 @@ export async function processReviewSummaryJob(
   claimId: string,
   options: ProcessReviewSummaryJobOptions = {}
 ): Promise<ProcessReviewSummaryJobResult> {
+  if (!isFeatureEnabled('summary_generation') || !isFeatureEnabled('openai')) {
+    console.info('[feature] openai disabled', {
+      claimId
+    })
+
+    return {
+      ok: true,
+      claimId,
+      status: 'skipped',
+      reason: 'summary_disabled'
+    }
+  }
+
   console.info('[summary] job started', {
     claimId,
     requestedAt: options.requestedAt ?? null

@@ -12,6 +12,8 @@ import { generateClaimNumber } from './generate-claim-number'
 import { buildVinLookupJobPayload } from '../queue/build-vin-lookup-job'
 import { enqueueVinLookupJob } from '../queue/enqueue-vin-lookup-job'
 import { evaluateAndStoreClaimRules } from '../review/evaluate-and-store-claim-rules'
+import { enqueueReviewSummaryForClaim } from '../review/enqueue-review-summary'
+import { isFeatureEnabled } from '../config/feature-flags'
 
 const CLAIM_NUMBER_MAX_ATTEMPTS = 5
 const COGNITO_REPLAY_WINDOW_MS = 2 * 60 * 1000
@@ -222,6 +224,32 @@ async function attemptCognitoReplayRecovery(input: {
       claimNumber: input.existingClaim.claimNumber
     })
     return null
+  }
+
+  if (!isFeatureEnabled('enrichment')) {
+    console.info('[feature] enrichment disabled')
+
+    await prisma.claim.updateMany({
+      where: {
+        id: input.existingClaim.id,
+        status: ClaimStatus.AwaitingVinData
+      },
+      data: {
+        status: ClaimStatus.ReadyForAI,
+        vinLookupLastError: null,
+        vinLookupLastFailedAt: null,
+        vinDataProviderResultMessage: 'enrichment_disabled'
+      }
+    })
+
+    return {
+      status: ClaimStatus.ReadyForAI,
+      enqueued: {
+        queueName: 'feature-disabled',
+        jobName: 'lookup-vin-data',
+        jobId: undefined
+      }
+    }
   }
 
   const vinLookupPayload = buildVinLookupJobPayload({
@@ -559,6 +587,49 @@ export async function createClaimFromSubmission(
         dedupeKey,
         claimNumber: createdClaim.claimNumber
       })
+
+      if (!isFeatureEnabled('enrichment')) {
+        console.info('[feature] enrichment disabled')
+
+        const claimAfterSkip = await prisma.claim.update({
+          where: { id: createdClaim.id },
+          data: {
+            status: ClaimStatus.ReadyForAI,
+            vinLookupLastError: null,
+            vinLookupLastFailedAt: null,
+            vinDataProviderResultMessage: 'enrichment_disabled'
+          },
+          select: {
+            id: true,
+            claimNumber: true,
+            status: true
+          }
+        })
+
+        await evaluateAndStoreClaimRulesBestEffort(claimAfterSkip.id, 'claim_created_enrichment_disabled')
+
+        try {
+          await enqueueReviewSummaryForClaim(claimAfterSkip.id, 'rules_ready')
+        } catch (summaryError) {
+          logClaimPersistenceError('summary enqueue failed after enrichment-disabled claim creation', {
+            claimId: claimAfterSkip.id,
+            claimNumber: claimAfterSkip.claimNumber,
+            error: summaryError
+          })
+        }
+
+        return {
+          ok: true,
+          duplicate: false,
+          dedupeKey,
+          enqueued: {
+            queueName: 'feature-disabled',
+            jobName: 'lookup-vin-data',
+            jobId: undefined
+          },
+          claim: claimAfterSkip
+        }
+      }
 
       let enqueueResult: Awaited<ReturnType<typeof enqueueVinLookupJob>>
 
