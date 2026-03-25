@@ -8,6 +8,10 @@ import {
   computeDeterministicTotalScore,
   mapRecommendationFromScore
 } from './adjudication-scoring'
+import { buildQuestionEvidenceAndMissing } from './adjudication-evidence'
+import { calculateQuestionCompleteness } from './adjudication-completeness'
+import { calculateQuestionConfidence } from './adjudication-confidence'
+import { resolveQuestionProviderStatus } from './provider-status'
 
 export type AdjudicationQuestionStatus =
   | 'scored'
@@ -21,7 +25,14 @@ export type AdjudicationCompleteness = 'low' | 'medium' | 'high'
 
 export type AdjudicationSourceType = 'provider' | 'claim' | 'documents' | 'system'
 
-export type AdjudicationProviderStatus = 'available' | 'unavailable' | 'not_applicable'
+export type AdjudicationProviderStatus =
+  | 'ok'
+  | 'not_configured'
+  | 'error'
+  | 'no_result'
+  | 'available'
+  | 'unavailable'
+  | 'not_applicable'
 
 export type AdjudicationEvidenceEntry = {
   label: string
@@ -35,6 +46,8 @@ export type AdjudicationQuestionResult = {
   score: number | null
   explanation: string
   evidence: AdjudicationEvidenceEntry[]
+  missing?: string[]
+  completeness?: number
   confidence?: number
   sourceType: AdjudicationSourceType
   providerStatus: AdjudicationProviderStatus
@@ -50,17 +63,23 @@ export type AdjudicationResult = {
   questions: AdjudicationQuestionResult[]
 }
 
-const ADJUDICATION_RESULT_VERSION = 's8_5_ticket3_v1'
+const ADJUDICATION_RESULT_VERSION = 's8_5_ticket4_v1'
 const AI_INTERPRETATION_QUESTION_ID_SET = new Set<string>(ADJUDICATION_AI_SUPPORTED_QUESTION_IDS)
 
 function buildQuestion(
   input: Pick<AdjudicationQuestionResult, 'id' | 'title' | 'sourceType' | 'status' | 'score' | 'explanation' | 'providerStatus'> & {
     evidence?: AdjudicationEvidenceEntry[]
+    missing?: string[]
+    completeness?: number
+    confidence?: number
   }
 ): AdjudicationQuestionResult {
   return {
     ...input,
-    evidence: input.evidence ?? []
+    evidence: input.evidence ?? [],
+    missing: input.missing ?? [],
+    completeness: input.completeness ?? 0,
+    confidence: input.confidence ?? 0
   }
 }
 
@@ -79,18 +98,6 @@ function resolveCompleteness(scoredCount: number, totalCount: number): Adjudicat
   }
 
   return 'low'
-}
-
-function resolveProviderStatusFromAiStatus(status: AdjudicationQuestionStatus): AdjudicationProviderStatus {
-  if (status === 'provider_unavailable') {
-    return 'unavailable'
-  }
-
-  if (status === 'not_applicable') {
-    return 'not_applicable'
-  }
-
-  return 'available'
 }
 
 function mergeAiFindingsIntoQuestions(
@@ -122,9 +129,63 @@ function mergeAiFindingsIntoQuestions(
       score: aiFinding.status === 'scored' ? aiFinding.scoreSuggestion ?? null : null,
       explanation: aiFinding.explanation,
       evidence: aiFinding.evidence,
-      confidence: aiFinding.confidence,
-      sourceType: aiFinding.sourceType,
-      providerStatus: resolveProviderStatusFromAiStatus(aiFinding.status)
+      confidence: aiFinding.confidence ?? question.confidence,
+      sourceType: aiFinding.sourceType
+    }
+  })
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function applyQuestionMetadata(
+  questions: AdjudicationQuestionResult[],
+  input: {
+    evaluationInput: ClaimEvaluationInput
+    vinDataResult: unknown
+    aiFindings?: AdjudicationAiFinding[]
+  }
+): AdjudicationQuestionResult[] {
+  const vinDataResultRecord = asRecord(input.vinDataResult)
+  const claimSnapshotRecord = asRecord(input.evaluationInput.snapshot)
+  const aiFindingsByQuestion = new Map<string, AdjudicationAiFinding>(
+    (input.aiFindings ?? []).map((finding) => [finding.questionId, finding])
+  )
+
+  return questions.map((question) => {
+    const providerStatus = resolveQuestionProviderStatus(question.id, vinDataResultRecord)
+    const evidenceAndMissing = buildQuestionEvidenceAndMissing({
+      questionId: question.id,
+      existingEvidence: question.evidence,
+      providerStatus,
+      vinDataResult: vinDataResultRecord,
+      claimSnapshot: claimSnapshotRecord,
+      hasAiFinding: aiFindingsByQuestion.has(question.id)
+    })
+
+    const completeness = calculateQuestionCompleteness({
+      providerStatus,
+      evidence: evidenceAndMissing.evidence.map((entry) => entry.label),
+      missing: evidenceAndMissing.missing
+    })
+
+    const confidence = calculateQuestionConfidence({
+      status: question.status,
+      providerStatus,
+      completeness,
+      aiConfidence: question.confidence
+    })
+
+    return {
+      ...question,
+      providerStatus,
+      evidence: evidenceAndMissing.evidence,
+      missing: evidenceAndMissing.missing,
+      completeness,
+      confidence
     }
   })
 }
@@ -153,7 +214,7 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Purchase mileage baseline is not available.',
         sourceType: 'claim',
-        providerStatus: 'not_applicable'
+        providerStatus: 'no_result'
       }),
     deterministicScores.days_since_purchase ??
       buildQuestion({
@@ -163,7 +224,7 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Purchase date is not currently captured for deterministic scoring.',
         sourceType: 'claim',
-        providerStatus: 'not_applicable'
+        providerStatus: 'no_result'
       }),
     deterministicScores.maintenance_history ??
       buildQuestion({
@@ -173,7 +234,7 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Service history provider data is unavailable.',
         sourceType: 'provider',
-        providerStatus: 'unavailable'
+        providerStatus: 'no_result'
       }),
     deterministicScores.branded_title ??
       buildQuestion({
@@ -183,7 +244,7 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Title history provider data is unavailable.',
         sourceType: 'provider',
-        providerStatus: 'unavailable'
+        providerStatus: 'no_result'
       }),
     deterministicScores.recall_relevance ??
       buildQuestion({
@@ -193,7 +254,7 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Recall provider data is unavailable.',
         sourceType: 'provider',
-        providerStatus: 'unavailable'
+        providerStatus: 'no_result'
       }),
     buildQuestion({
       id: 'prior_repairs',
@@ -202,7 +263,7 @@ export function buildAdjudicationResult(input: {
       score: null,
       explanation: 'Prior repair pattern logic is deferred to a later ticket.',
       sourceType: 'provider',
-      providerStatus: 'not_applicable'
+      providerStatus: 'no_result'
     }),
     buildQuestion({
       id: 'document_match',
@@ -213,7 +274,7 @@ export function buildAdjudicationResult(input: {
         ? 'Attachments exist, but document matching logic is not implemented in this ticket.'
         : 'No documents attached for matching.',
       sourceType: 'documents',
-      providerStatus: 'not_applicable',
+      providerStatus: 'no_result',
       evidence: [
         {
           label: 'attachment_count',
@@ -230,7 +291,7 @@ export function buildAdjudicationResult(input: {
         ? 'Image-forensics scoring is deferred to a future ticket.'
         : 'No image evidence attached.',
       sourceType: 'documents',
-      providerStatus: 'not_applicable'
+      providerStatus: 'no_result'
     }),
     buildQuestion({
       id: 'obd_codes',
@@ -239,7 +300,7 @@ export function buildAdjudicationResult(input: {
       score: null,
       explanation: 'OBD code ingestion is not yet part of the current processing flow.',
       sourceType: 'claim',
-      providerStatus: 'not_applicable'
+      providerStatus: 'no_result'
     }),
     buildQuestion({
       id: 'warranty_support',
@@ -248,7 +309,7 @@ export function buildAdjudicationResult(input: {
       score: null,
       explanation: 'Warranty eligibility checks are deferred to later adjudication tickets.',
       sourceType: 'system',
-      providerStatus: 'not_applicable'
+      providerStatus: 'no_result'
     }),
     deterministicScores.valuation_context ??
       buildQuestion({
@@ -258,11 +319,12 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Valuation provider data is unavailable.',
         sourceType: 'provider',
-        providerStatus: 'unavailable'
+          providerStatus: 'no_result'
       })
   ]
 
-  const questions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
+        const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
+        const questions = applyQuestionMetadata(mergedQuestions, input)
   const scoredQuestions = questions.filter((question) => question.status === 'scored' && question.score !== null)
   const totalScore = computeDeterministicTotalScore(questions)
   const recommendation = mapRecommendationFromScore(totalScore, scoredQuestions.length)
