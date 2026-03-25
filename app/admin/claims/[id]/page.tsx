@@ -381,6 +381,101 @@ function getAdjudicationStatusBadgeClassName(status: AdjudicationQuestionStatus)
   return `${base} border-red-300 bg-red-50 text-red-700`
 }
 
+function formatPercentFromFraction(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—'
+  }
+
+  return `${Math.round(value * 100)}%`
+}
+
+function getProviderStatusLabel(value: unknown): string {
+  if (value === 'ok' || value === 'available') {
+    return 'OK'
+  }
+
+  if (value === 'not_configured') {
+    return 'Not configured'
+  }
+
+  if (value === 'error') {
+    return 'Error'
+  }
+
+  if (value === 'no_result' || value === 'unavailable') {
+    return 'No result'
+  }
+
+  if (value === 'not_applicable') {
+    return 'Not applicable'
+  }
+
+  return 'Unknown'
+}
+
+function getProviderStatusBadgeClassName(value: unknown): string {
+  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+
+  if (value === 'ok' || value === 'available') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (value === 'not_configured') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (value === 'error') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  if (value === 'no_result' || value === 'unavailable') {
+    return `${base} border-slate-300 bg-slate-50 text-slate-700`
+  }
+
+  if (value === 'not_applicable') {
+    return `${base} border-slate-300 bg-slate-50 text-slate-700`
+  }
+
+  return `${base} border-slate-300 bg-slate-50 text-slate-700`
+}
+
+function getRecommendationBadgeClassName(value: unknown): string {
+  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold'
+
+  if (value === 'approve') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (value === 'partial') {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (value === 'manual_review') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (value === 'deny') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  return `${base} border-slate-300 bg-slate-50 text-slate-700`
+}
+
+function formatRecommendationLabel(value: unknown): string {
+  if (value === 'manual_review') {
+    return 'Manual Review'
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+  }
+
+  return 'Unknown'
+}
+
 type ProviderHealthRow = {
   provider: string
   status: ProviderHealthStatus
@@ -1188,78 +1283,118 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         {!adjudicationResult ? (
           <p className="text-slate-600">No adjudication result scaffold generated yet.</p>
         ) : (
-          <div className="space-y-3">
-            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-              <p>
-                <span className="font-medium text-slate-900">Version:</span> {adjudicationResult.version}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Generated At:</span>{' '}
-                {formatIsoDate(adjudicationResult.generatedAt)}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Total Score:</span>{' '}
-                {String(adjudicationResult.totalScore)}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Recommendation:</span>{' '}
-                {adjudicationResult.recommendation}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Completeness:</span>{' '}
-                {adjudicationResult.completeness}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Overall Completeness:</span>{' '}
-                {typeof adjudicationResult.overallCompleteness === 'number'
-                  ? adjudicationResult.overallCompleteness.toFixed(2)
-                  : '—'}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Overall Confidence:</span>{' '}
-                {typeof adjudicationResult.overallConfidence === 'number'
-                  ? adjudicationResult.overallConfidence.toFixed(2)
-                  : '—'}
-              </p>
-              <p>
-                <span className="font-medium text-slate-900">Question Count:</span>{' '}
-                {String(adjudicationResult.questions.length)}
-              </p>
+          <div className="space-y-4">
+            <div className="rounded-md border border-slate-200 bg-white p-4">
+              <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Recommendation</p>
+                  <p className="mt-1">
+                    <span className={getRecommendationBadgeClassName(adjudicationResult.recommendation)}>
+                      {formatRecommendationLabel(adjudicationResult.recommendation)}
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Confidence</p>
+                  <p className="mt-1 text-base font-semibold text-slate-900">
+                    {formatPercentFromFraction(adjudicationResult.overallConfidence)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Completeness</p>
+                  <p className="mt-1 text-base font-semibold text-slate-900">
+                    {formatPercentFromFraction(adjudicationResult.overallCompleteness)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Total Score</p>
+                  <p className="mt-1 text-base font-semibold text-slate-900">{String(adjudicationResult.totalScore)}</p>
+                </div>
+              </div>
+
+              {typeof adjudicationResult.explanation === 'string' && adjudicationResult.explanation ? (
+                <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  <p className="font-medium text-slate-900">Explanation</p>
+                  <p className="mt-1">{adjudicationResult.explanation}</p>
+                </div>
+              ) : null}
+
+              {typeof adjudicationResult.overrideSuggestion === 'string' && adjudicationResult.overrideSuggestion ? (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-medium">Override guidance</p>
+                  <p className="mt-1">{adjudicationResult.overrideSuggestion}</p>
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                <p>
+                  <span className="font-medium text-slate-700">Version:</span> {adjudicationResult.version}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-700">Generated:</span>{' '}
+                  {formatIsoDate(adjudicationResult.generatedAt)}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-700">Legacy Completeness:</span>{' '}
+                  {adjudicationResult.completeness}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-700">Questions:</span>{' '}
+                  {String(adjudicationResult.questions.length)}
+                </p>
+              </div>
             </div>
 
-            {Array.isArray(adjudicationResult.reasons) && adjudicationResult.reasons.length > 0 ? (
+            <div className="grid gap-3 lg:grid-cols-2">
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Decision Reasons</p>
-                <ul className="mt-2 list-disc pl-5">
-                  {adjudicationResult.reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
+                <p className="font-medium text-slate-900">Reasons</p>
+                {Array.isArray(adjudicationResult.reasons) && adjudicationResult.reasons.length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5">
+                    {adjudicationResult.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-slate-600">No explicit reasons recorded.</p>
+                )}
               </div>
-            ) : null}
 
-            {typeof adjudicationResult.explanation === 'string' && adjudicationResult.explanation ? (
-              <p className="text-sm text-slate-700">
-                <span className="font-medium text-slate-900">Decision Explanation:</span>{' '}
-                {adjudicationResult.explanation}
-              </p>
-            ) : null}
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">Missing Data</p>
+                {Array.from(
+                  new Set(
+                    adjudicationResult.questions.flatMap((question) =>
+                      Array.isArray(question.missing) ? question.missing : []
+                    )
+                  )
+                ).length > 0 ? (
+                  <ul className="mt-2 list-disc pl-5">
+                    {Array.from(
+                      new Set(
+                        adjudicationResult.questions.flatMap((question) =>
+                          Array.isArray(question.missing) ? question.missing : []
+                        )
+                      )
+                    ).map((entry) => (
+                      <li key={entry}>{entry}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-slate-600">No missing data recorded.</p>
+                )}
+              </div>
+            </div>
 
-            {typeof adjudicationResult.overrideSuggestion === 'string' && adjudicationResult.overrideSuggestion ? (
-              <p className="text-sm text-slate-700">
-                <span className="font-medium text-slate-900">Override Guidance:</span>{' '}
-                {adjudicationResult.overrideSuggestion}
-              </p>
-            ) : null}
-
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-slate-600">
                     <th className="py-2 pr-4 font-medium">Question</th>
                     <th className="py-2 pr-4 font-medium">Status</th>
                     <th className="py-2 pr-4 font-medium">Score</th>
-                    <th className="py-2 pr-4 font-medium">Provider Status</th>
+                    <th className="py-2 pr-4 font-medium">Confidence</th>
+                    <th className="py-2 pr-4 font-medium">Provider</th>
+                    <th className="py-2 pr-4 font-medium">Missing</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1277,7 +1412,17 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       <td className="py-2 pr-4 text-slate-700">
                         {question.score !== null ? String(question.score) : '—'}
                       </td>
-                      <td className="py-2 pr-4 text-slate-700">{question.providerStatus}</td>
+                      <td className="py-2 pr-4 text-slate-700">{formatPercentFromFraction(question.confidence)}</td>
+                      <td className="py-2 pr-4">
+                        <span className={getProviderStatusBadgeClassName(question.providerStatus)}>
+                          {getProviderStatusLabel(question.providerStatus)}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {Array.isArray(question.missing) && question.missing.length > 0
+                          ? question.missing.join(', ')
+                          : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
