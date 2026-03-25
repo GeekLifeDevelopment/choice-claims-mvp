@@ -1210,10 +1210,47 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 {adjudicationResult.completeness}
               </p>
               <p>
+                <span className="font-medium text-slate-900">Overall Completeness:</span>{' '}
+                {typeof adjudicationResult.overallCompleteness === 'number'
+                  ? adjudicationResult.overallCompleteness.toFixed(2)
+                  : '—'}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Overall Confidence:</span>{' '}
+                {typeof adjudicationResult.overallConfidence === 'number'
+                  ? adjudicationResult.overallConfidence.toFixed(2)
+                  : '—'}
+              </p>
+              <p>
                 <span className="font-medium text-slate-900">Question Count:</span>{' '}
                 {String(adjudicationResult.questions.length)}
               </p>
             </div>
+
+            {Array.isArray(adjudicationResult.reasons) && adjudicationResult.reasons.length > 0 ? (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">Decision Reasons</p>
+                <ul className="mt-2 list-disc pl-5">
+                  {adjudicationResult.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {typeof adjudicationResult.explanation === 'string' && adjudicationResult.explanation ? (
+              <p className="text-sm text-slate-700">
+                <span className="font-medium text-slate-900">Decision Explanation:</span>{' '}
+                {adjudicationResult.explanation}
+              </p>
+            ) : null}
+
+            {typeof adjudicationResult.overrideSuggestion === 'string' && adjudicationResult.overrideSuggestion ? (
+              <p className="text-sm text-slate-700">
+                <span className="font-medium text-slate-900">Override Guidance:</span>{' '}
+                {adjudicationResult.overrideSuggestion}
+              </p>
+            ) : null}
 
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">

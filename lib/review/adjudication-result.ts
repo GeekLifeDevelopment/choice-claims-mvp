@@ -5,13 +5,16 @@ import {
 } from './adjudication-ai-contract'
 import {
   buildDeterministicQuestionScores,
-  computeDeterministicTotalScore,
-  mapRecommendationFromScore
+  computeDeterministicTotalScore
 } from './adjudication-scoring'
 import { buildQuestionEvidenceAndMissing } from './adjudication-evidence'
 import { calculateQuestionCompleteness } from './adjudication-completeness'
 import { calculateQuestionConfidence } from './adjudication-confidence'
 import { resolveQuestionProviderStatus } from './provider-status'
+import { calculateOverallCompleteness, calculateOverallConfidence } from './adjudication-overall'
+import { calculateRecommendation, buildOverrideSuggestion } from './adjudication-recommendation'
+import { buildDecisionReasons } from './adjudication-reasons'
+import { buildDecisionExplanation } from './adjudication-explanation'
 
 export type AdjudicationQuestionStatus =
   | 'scored'
@@ -59,11 +62,16 @@ export type AdjudicationResult = {
   totalScore: number
   recommendation: AdjudicationRecommendation
   completeness: AdjudicationCompleteness
+  overallCompleteness?: number
+  overallConfidence?: number
+  reasons?: string[]
+  explanation?: string
+  overrideSuggestion?: string
   summary: string
   questions: AdjudicationQuestionResult[]
 }
 
-const ADJUDICATION_RESULT_VERSION = 's8_5_ticket4_v1'
+const ADJUDICATION_RESULT_VERSION = 's8_5_ticket5_v1'
 const AI_INTERPRETATION_QUESTION_ID_SET = new Set<string>(ADJUDICATION_AI_SUPPORTED_QUESTION_IDS)
 
 function buildQuestion(
@@ -319,15 +327,42 @@ export function buildAdjudicationResult(input: {
         score: null,
         explanation: 'Valuation provider data is unavailable.',
         sourceType: 'provider',
-          providerStatus: 'no_result'
+        providerStatus: 'no_result'
       })
   ]
 
-        const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
-        const questions = applyQuestionMetadata(mergedQuestions, input)
+  const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
+  const questions = applyQuestionMetadata(mergedQuestions, input)
   const scoredQuestions = questions.filter((question) => question.status === 'scored' && question.score !== null)
   const totalScore = computeDeterministicTotalScore(questions)
-  const recommendation = mapRecommendationFromScore(totalScore, scoredQuestions.length)
+  const overallCompleteness = calculateOverallCompleteness({ questions })
+  const overallConfidence = calculateOverallConfidence({
+    questions,
+    overallCompleteness
+  })
+  const recommendation = calculateRecommendation({
+    totalScore,
+    overallCompleteness,
+    overallConfidence,
+    questions
+  })
+  const reasons = buildDecisionReasons({
+    questions,
+    overallCompleteness,
+    overallConfidence
+  })
+  const explanation = buildDecisionExplanation({
+    recommendation,
+    reasons,
+    overallCompleteness,
+    overallConfidence
+  })
+  const overrideSuggestion = buildOverrideSuggestion({
+    recommendation,
+    overallCompleteness,
+    overallConfidence,
+    questions
+  })
 
   return {
     version: ADJUDICATION_RESULT_VERSION,
@@ -335,6 +370,11 @@ export function buildAdjudicationResult(input: {
     totalScore,
     recommendation,
     completeness: resolveCompleteness(scoredQuestions.length, questions.length),
+    overallCompleteness,
+    overallConfidence,
+    reasons,
+    explanation,
+    overrideSuggestion,
     summary: input.reviewSummaryText,
     questions
   }
