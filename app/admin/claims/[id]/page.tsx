@@ -1211,6 +1211,32 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       : ''
   const timelineAuditLogs = claim.auditLogs
   const persistedRuleFlags = getPersistedRuleFlags(claim.reviewRuleFlags)
+  const hasLegacyRuleFlags = persistedRuleFlags.length > 0
+  const adjudicationReasons = Array.isArray(adjudicationResult?.reasons)
+    ? adjudicationResult.reasons.filter(
+        (reason): reason is string => typeof reason === 'string' && reason.trim().length > 0
+      )
+    : []
+  const adjudicationMissingData = adjudicationResult
+    ? Array.from(
+        new Set(
+          adjudicationResult.questions.flatMap((question) =>
+            Array.isArray(question.missing)
+              ? question.missing.filter(
+                  (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+                )
+              : []
+          )
+        )
+      )
+    : []
+  const adjudicationProviderGaps = adjudicationResult
+    ? adjudicationResult.questions
+        .filter((question) => question.providerStatus !== 'available')
+        .map((question) => `${question.title}: ${getProviderStatusLabel(question.providerStatus)}`)
+    : []
+  const hasAdjudicationSignals =
+    adjudicationReasons.length > 0 || adjudicationMissingData.length > 0 || adjudicationProviderGaps.length > 0
   const providerConfigStatus = getProviderConfigStatus()
   const openAiSummaryConfigured = Boolean(process.env.OPENAI_API_KEY?.trim())
 
@@ -1569,8 +1595,48 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Rule Flags</h2>
 
-        {persistedRuleFlags.length === 0 ? (
-          <p className="text-slate-600">No rule flags</p>
+        <p className="text-sm text-slate-600">
+          Legacy/system rule outputs from the earlier rule evaluation step.
+        </p>
+
+        <p className="text-xs text-slate-500">
+          Adjudication Result is a separate recommendation layer and may show reasons or missing data even when
+          legacy rule flags are empty.
+        </p>
+
+        {!hasLegacyRuleFlags ? (
+          <div className="space-y-3">
+            <p className="text-slate-600">No legacy rule flags for this claim.</p>
+
+            {hasAdjudicationSignals ? (
+              <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                <p className="font-medium">Adjudication Signals (reference)</p>
+
+                {adjudicationReasons.length > 0 ? (
+                  <p className="mt-2">
+                    <span className="font-medium">Reasons:</span>{' '}
+                    {adjudicationReasons.slice(0, 3).join('; ')}
+                  </p>
+                ) : null}
+
+                {adjudicationMissingData.length > 0 ? (
+                  <p className="mt-1">
+                    <span className="font-medium">Missing data:</span>{' '}
+                    {adjudicationMissingData.slice(0, 3).join(', ')}
+                  </p>
+                ) : null}
+
+                {adjudicationProviderGaps.length > 0 ? (
+                  <p className="mt-1">
+                    <span className="font-medium">Provider gaps:</span>{' '}
+                    {adjudicationProviderGaps.slice(0, 2).join('; ')}
+                  </p>
+                ) : null}
+
+                <p className="mt-2 text-xs text-sky-800">See Adjudication Result for full recommendation details.</p>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">

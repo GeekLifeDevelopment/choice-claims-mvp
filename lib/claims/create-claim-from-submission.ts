@@ -631,6 +631,42 @@ export async function createClaimFromSubmission(
         }
       }
 
+      let claimAfterEnqueue
+
+      try {
+        claimAfterEnqueue = await prisma.claim.update({
+          where: { id: createdClaim.id },
+          data: { status: ClaimStatus.AwaitingVinData },
+          select: {
+            id: true,
+            claimNumber: true,
+            status: true
+          }
+        })
+
+        logClaimPersistence('claim status updated before enqueue', {
+          claimId: claimAfterEnqueue.id,
+          claimNumber: claimAfterEnqueue.claimNumber,
+          status: claimAfterEnqueue.status
+        })
+      } catch (error) {
+        logClaimPersistenceError('claim status update failed before enqueue', {
+          claimId: createdClaim.id,
+          claimNumber: createdClaim.claimNumber,
+          dedupeKey,
+          error
+        })
+
+        return {
+          ok: false,
+          error: 'claim_status_update_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Claim created, but status update failed before VIN lookup enqueue'
+        }
+      }
+
       let enqueueResult: Awaited<ReturnType<typeof enqueueVinLookupJob>>
 
       try {
@@ -648,7 +684,7 @@ export async function createClaimFromSubmission(
         await prisma.claim.updateMany({
           where: {
             id: createdClaim.id,
-            status: ClaimStatus.Submitted
+            status: ClaimStatus.AwaitingVinData
           },
           data: {
             status: ClaimStatus.ProcessingError,
@@ -672,42 +708,6 @@ export async function createClaimFromSubmission(
             error instanceof Error
               ? error.message
               : 'Claim created, but VIN lookup job enqueue failed'
-        }
-      }
-
-      let claimAfterEnqueue
-
-      try {
-        claimAfterEnqueue = await prisma.claim.update({
-          where: { id: createdClaim.id },
-          data: { status: ClaimStatus.AwaitingVinData },
-          select: {
-            id: true,
-            claimNumber: true,
-            status: true
-          }
-        })
-
-        logClaimPersistence('claim status updated after enqueue', {
-          claimId: claimAfterEnqueue.id,
-          claimNumber: claimAfterEnqueue.claimNumber,
-          status: claimAfterEnqueue.status
-        })
-      } catch (error) {
-        logClaimPersistenceError('claim status update failed after enqueue', {
-          claimId: createdClaim.id,
-          claimNumber: createdClaim.claimNumber,
-          dedupeKey,
-          error
-        })
-
-        return {
-          ok: false,
-          error: 'claim_status_update_failed',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'Claim created and VIN lookup enqueued, but status update failed'
         }
       }
 
