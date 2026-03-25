@@ -1,4 +1,9 @@
 import type { ClaimEvaluationInput } from './claim-evaluation-input'
+import {
+  buildDeterministicQuestionScores,
+  computeDeterministicTotalScore,
+  mapRecommendationFromScore
+} from './adjudication-scoring'
 
 export type AdjudicationQuestionStatus =
   | 'scored'
@@ -40,17 +45,7 @@ export type AdjudicationResult = {
   questions: AdjudicationQuestionResult[]
 }
 
-const ADJUDICATION_RESULT_VERSION = 's8_5_ticket1_v1'
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function hasArrayData(value: unknown): boolean {
-  return Array.isArray(value) && value.length > 0
-}
+const ADJUDICATION_RESULT_VERSION = 's8_5_ticket2_v1'
 
 function buildQuestion(
   input: Pick<AdjudicationQuestionResult, 'id' | 'title' | 'sourceType' | 'status' | 'score' | 'explanation' | 'providerStatus'> & {
@@ -85,100 +80,74 @@ export function buildAdjudicationResult(input: {
   vinDataResult: unknown
   reviewSummaryText: string
 }): AdjudicationResult {
-  const providerResult = asRecord(input.vinDataResult)
-  const titleHistory = asRecord(providerResult.titleHistory)
-  const serviceHistory = asRecord(providerResult.serviceHistory)
-  const nhtsaRecalls = asRecord(providerResult.nhtsaRecalls)
-  const valuation = asRecord(providerResult.valuation)
-
-  const hasTitleHistory = Object.keys(titleHistory).length > 0
-  const hasServiceHistory = Object.keys(serviceHistory).length > 0
-  const hasRecalls = Object.keys(nhtsaRecalls).length > 0
-  const hasValuation = Object.keys(valuation).length > 0
   const hasAttachments = input.evaluationInput.snapshot.attachments?.count
     ? input.evaluationInput.snapshot.attachments.count > 0
     : false
 
+  const deterministicScores = buildDeterministicQuestionScores({
+    evaluationInput: input.evaluationInput,
+    vinDataResult: input.vinDataResult
+  })
+
   const questions: AdjudicationQuestionResult[] = [
-    buildQuestion({
-      id: 'miles_since_purchase',
-      title: 'Miles since purchase',
-      status: 'insufficient_data',
-      score: null,
-      explanation: 'Purchase baseline is not yet modeled in the adjudication scaffold.',
-      sourceType: 'claim',
-      providerStatus: 'not_applicable'
-    }),
-    buildQuestion({
-      id: 'days_since_purchase',
-      title: 'Days since purchase',
-      status: 'insufficient_data',
-      score: null,
-      explanation: 'Purchase date baseline is not yet modeled in the adjudication scaffold.',
-      sourceType: 'claim',
-      providerStatus: 'not_applicable'
-    }),
-    buildQuestion({
-      id: 'maintenance_history',
-      title: 'Maintenance history consistency',
-      status: hasServiceHistory ? 'scored' : 'provider_unavailable',
-      score: hasServiceHistory ? 55 : null,
-      explanation: hasServiceHistory
-        ? 'Service history is present; deterministic scoring will be added in a later ticket.'
-        : 'Service history provider data is unavailable.',
-      sourceType: 'provider',
-      providerStatus: hasServiceHistory ? 'available' : 'unavailable',
-      evidence: [
-        {
-          label: 'event_count',
-          value: typeof serviceHistory.eventCount === 'number' ? serviceHistory.eventCount : null
-        }
-      ]
-    }),
-    buildQuestion({
-      id: 'branded_title',
-      title: 'Branded title risk',
-      status: hasTitleHistory ? 'scored' : 'provider_unavailable',
-      score: hasTitleHistory ? 45 : null,
-      explanation: hasTitleHistory
-        ? 'Title history is present; detailed brand severity logic is deferred.'
-        : 'Title history provider data is unavailable.',
-      sourceType: 'provider',
-      providerStatus: hasTitleHistory ? 'available' : 'unavailable',
-      evidence: [
-        {
-          label: 'brand_flags_present',
-          value: hasArrayData(titleHistory.brandFlags)
-        }
-      ]
-    }),
-    buildQuestion({
-      id: 'recall_relevance',
-      title: 'Recall relevance to claim',
-      status: hasRecalls ? 'scored' : 'provider_unavailable',
-      score: hasRecalls ? 60 : null,
-      explanation: hasRecalls
-        ? 'Recall data is present; claim-specific relevance scoring is deferred.'
-        : 'Recall provider data is unavailable.',
-      sourceType: 'provider',
-      providerStatus: hasRecalls ? 'available' : 'unavailable',
-      evidence: [
-        {
-          label: 'recall_count',
-          value: typeof nhtsaRecalls.count === 'number' ? nhtsaRecalls.count : null
-        }
-      ]
-    }),
+    deterministicScores.miles_since_purchase ??
+      buildQuestion({
+        id: 'miles_since_purchase',
+        title: 'Miles since purchase',
+        status: 'insufficient_data',
+        score: null,
+        explanation: 'Purchase mileage baseline is not available.',
+        sourceType: 'claim',
+        providerStatus: 'not_applicable'
+      }),
+    deterministicScores.days_since_purchase ??
+      buildQuestion({
+        id: 'days_since_purchase',
+        title: 'Days since purchase',
+        status: 'insufficient_data',
+        score: null,
+        explanation: 'Purchase date is not currently captured for deterministic scoring.',
+        sourceType: 'claim',
+        providerStatus: 'not_applicable'
+      }),
+    deterministicScores.maintenance_history ??
+      buildQuestion({
+        id: 'maintenance_history',
+        title: 'Maintenance history consistency',
+        status: 'provider_unavailable',
+        score: null,
+        explanation: 'Service history provider data is unavailable.',
+        sourceType: 'provider',
+        providerStatus: 'unavailable'
+      }),
+    deterministicScores.branded_title ??
+      buildQuestion({
+        id: 'branded_title',
+        title: 'Branded title risk',
+        status: 'provider_unavailable',
+        score: null,
+        explanation: 'Title history provider data is unavailable.',
+        sourceType: 'provider',
+        providerStatus: 'unavailable'
+      }),
+    deterministicScores.recall_relevance ??
+      buildQuestion({
+        id: 'recall_relevance',
+        title: 'Recall relevance to claim',
+        status: 'provider_unavailable',
+        score: null,
+        explanation: 'Recall provider data is unavailable.',
+        sourceType: 'provider',
+        providerStatus: 'unavailable'
+      }),
     buildQuestion({
       id: 'prior_repairs',
       title: 'Prior repairs evidence',
-      status: hasServiceHistory ? 'scored' : 'provider_unavailable',
-      score: hasServiceHistory ? 50 : null,
-      explanation: hasServiceHistory
-        ? 'Service events exist; repair-pattern scoring is deferred.'
-        : 'Service history provider data is unavailable.',
+      status: 'insufficient_data',
+      score: null,
+      explanation: 'Prior repair pattern logic is deferred to a later ticket.',
       sourceType: 'provider',
-      providerStatus: hasServiceHistory ? 'available' : 'unavailable'
+      providerStatus: 'not_applicable'
     }),
     buildQuestion({
       id: 'document_match',
@@ -226,32 +195,27 @@ export function buildAdjudicationResult(input: {
       sourceType: 'system',
       providerStatus: 'not_applicable'
     }),
-    buildQuestion({
-      id: 'valuation_context',
-      title: 'Valuation context',
-      status: hasValuation ? 'scored' : 'provider_unavailable',
-      score: hasValuation ? 58 : null,
-      explanation: hasValuation
-        ? 'Valuation data is present; threshold-based financial scoring is deferred.'
-        : 'Valuation provider data is unavailable.',
-      sourceType: 'provider',
-      providerStatus: hasValuation ? 'available' : 'unavailable'
-    })
+    deterministicScores.valuation_context ??
+      buildQuestion({
+        id: 'valuation_context',
+        title: 'Valuation context',
+        status: 'provider_unavailable',
+        score: null,
+        explanation: 'Valuation provider data is unavailable.',
+        sourceType: 'provider',
+        providerStatus: 'unavailable'
+      })
   ]
 
   const scoredQuestions = questions.filter((question) => question.status === 'scored' && question.score !== null)
-  const totalScore =
-    scoredQuestions.length > 0
-      ? Math.round(
-          scoredQuestions.reduce((sum, question) => sum + (question.score ?? 0), 0) / scoredQuestions.length
-        )
-      : 0
+  const totalScore = computeDeterministicTotalScore(questions)
+  const recommendation = mapRecommendationFromScore(totalScore, scoredQuestions.length)
 
   return {
     version: ADJUDICATION_RESULT_VERSION,
     generatedAt: new Date().toISOString(),
     totalScore,
-    recommendation: 'manual_review',
+    recommendation,
     completeness: resolveCompleteness(scoredQuestions.length, questions.length),
     summary: input.reviewSummaryText,
     questions
