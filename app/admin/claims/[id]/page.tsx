@@ -346,7 +346,18 @@ type ValuationViewModel = {
 
 function getAdjudicationResult(value: unknown): AdjudicationResult | null {
   const record = asRecord(value)
-  const adjudicationRecord = asRecord(record.adjudicationResult)
+  const directAdjudicationRecord = asRecord(record.adjudicationResult)
+  const reviewSummaryResultRecord = asRecord(record.reviewSummaryResult)
+  const reviewSummaryAdjudicationRecord = asRecord(reviewSummaryResultRecord.adjudicationResult)
+  const claimReviewSnapshotRecord = asRecord(record.claimReviewSnapshot)
+  const snapshotAdjudicationRecord = asRecord(claimReviewSnapshotRecord.adjudicationResult)
+
+  const adjudicationRecord =
+    Object.keys(directAdjudicationRecord).length > 0
+      ? directAdjudicationRecord
+      : Object.keys(reviewSummaryAdjudicationRecord).length > 0
+        ? reviewSummaryAdjudicationRecord
+        : snapshotAdjudicationRecord
 
   const version = getOptionalString(adjudicationRecord.version)
   const generatedAt = getOptionalString(adjudicationRecord.generatedAt)
@@ -1281,7 +1292,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         <h2 className="text-lg font-semibold text-slate-900">Adjudication Result</h2>
 
         {!adjudicationResult ? (
-          <p className="text-slate-600">No adjudication result scaffold generated yet.</p>
+          <p className="text-slate-600">No adjudication result available for this claim.</p>
         ) : (
           <div className="space-y-4">
             <div className="rounded-md border border-slate-200 bg-white p-4">

@@ -205,6 +205,13 @@ function buildPersistedVinDataResult(
   }
 }
 
+function hasPersistedAdjudicationResult(value: unknown): boolean {
+  const vinData = asRecord(value)
+  const adjudication = asRecord(vinData.adjudicationResult)
+
+  return Object.keys(adjudication).length > 0
+}
+
 async function callOpenAiChatCompletions(systemMessage: string, userMessage: string, maxTokens: number): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -719,6 +726,30 @@ export async function processReviewSummaryJob(
         status: 'skipped',
         reason: 'obsolete_claim_state'
       }
+    }
+
+    const persistedClaim = await prisma.claim.findUnique({
+      where: { id: claim.id },
+      select: {
+        vinDataResult: true
+      }
+    })
+
+    if (persistedClaim && !hasPersistedAdjudicationResult(persistedClaim.vinDataResult)) {
+      const backfilledVinDataResult = buildPersistedVinDataResult(
+        persistedClaim.vinDataResult,
+        adjudicationResult
+      )
+
+      await prisma.claim.updateMany({
+        where: {
+          id: claim.id,
+          reviewSummaryStatus: 'Generated'
+        },
+        data: {
+          vinDataResult: backfilledVinDataResult
+        }
+      })
     }
 
     console.info('[summary] job finished', {
