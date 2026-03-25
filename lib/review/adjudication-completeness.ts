@@ -21,12 +21,16 @@ export function calculateQuestionCompleteness(input: CompletenessInput): number 
 
   let completeness = denominator > 0 ? evidenceCount / denominator : 0
 
+  if (evidenceCount > 0 && completeness < 0.25) {
+    completeness = 0.25
+  }
+
   if (input.providerStatus === 'not_configured' || input.providerStatus === 'error') {
-    completeness = Math.min(completeness, 0.2)
+    completeness = Math.min(completeness, 0.35)
   }
 
   if (input.providerStatus === 'no_result') {
-    completeness = Math.min(completeness, 0.5)
+    completeness = Math.min(completeness, 0.65)
   }
 
   return round(clamp(completeness, 0, 1))

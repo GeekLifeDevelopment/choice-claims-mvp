@@ -33,6 +33,34 @@ function getStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
 }
 
+function getOptionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function isStubOrNotConfigured(input: Record<string, unknown>): boolean {
+  const source = getOptionalString(input.source)
+  const message = getOptionalString(input.message)
+
+  if (source && /stub/i.test(source)) {
+    return true
+  }
+
+  if (message && /(stub|unconfigured|not configured|disabled|missing config)/i.test(message)) {
+    return true
+  }
+
+  return false
+}
+
+function isProviderError(input: Record<string, unknown>): boolean {
+  const message = getOptionalString(input.message)
+  if (!message) {
+    return false
+  }
+
+  return /(error|failed|timeout|exception)/i.test(message)
+}
+
 function withEvidence(evidence: AdjudicationEvidenceEntry[]): AdjudicationEvidenceEntry[] {
   return evidence.filter((entry) => entry.label.trim().length > 0)
 }
@@ -75,6 +103,32 @@ function scoreMaintenanceHistory(vinDataResult: unknown): AdjudicationQuestionRe
       score: null,
       explanation: 'Service history provider data is unavailable.',
       evidence: [],
+      sourceType: 'provider',
+      providerStatus: 'unavailable'
+    }
+  }
+
+  if (isStubOrNotConfigured(serviceHistory)) {
+    return {
+      id: 'maintenance_history',
+      title: 'Maintenance history consistency',
+      status: 'provider_unavailable',
+      score: null,
+      explanation: 'Service history provider is not configured; deterministic scoring skipped.',
+      evidence: withEvidence([{ label: 'service_history_source', value: serviceHistory.source as string | null }]),
+      sourceType: 'provider',
+      providerStatus: 'unavailable'
+    }
+  }
+
+  if (isProviderError(serviceHistory)) {
+    return {
+      id: 'maintenance_history',
+      title: 'Maintenance history consistency',
+      status: 'provider_unavailable',
+      score: null,
+      explanation: 'Service history provider returned an error; deterministic scoring skipped.',
+      evidence: withEvidence([{ label: 'service_history_message', value: serviceHistory.message as string | null }]),
       sourceType: 'provider',
       providerStatus: 'unavailable'
     }
@@ -127,6 +181,32 @@ function scoreBrandedTitle(vinDataResult: unknown): AdjudicationQuestionResult {
       score: null,
       explanation: 'Title history provider data is unavailable.',
       evidence: [],
+      sourceType: 'provider',
+      providerStatus: 'unavailable'
+    }
+  }
+
+  if (isStubOrNotConfigured(titleHistory)) {
+    return {
+      id: 'branded_title',
+      title: 'Branded title risk',
+      status: 'provider_unavailable',
+      score: null,
+      explanation: 'Title history provider is not configured; deterministic scoring skipped.',
+      evidence: withEvidence([{ label: 'title_history_source', value: titleHistory.source as string | null }]),
+      sourceType: 'provider',
+      providerStatus: 'unavailable'
+    }
+  }
+
+  if (isProviderError(titleHistory)) {
+    return {
+      id: 'branded_title',
+      title: 'Branded title risk',
+      status: 'provider_unavailable',
+      score: null,
+      explanation: 'Title history provider returned an error; deterministic scoring skipped.',
+      evidence: withEvidence([{ label: 'title_history_message', value: titleHistory.message as string | null }]),
       sourceType: 'provider',
       providerStatus: 'unavailable'
     }
@@ -222,6 +302,32 @@ function scoreValuationContext(vinDataResult: unknown): AdjudicationQuestionResu
       score: null,
       explanation: 'Valuation provider data is unavailable.',
       evidence: [],
+      sourceType: 'provider',
+      providerStatus: 'unavailable'
+    }
+  }
+
+  if (isStubOrNotConfigured(valuation)) {
+    return {
+      id: 'valuation_context',
+      title: 'Valuation context',
+      status: 'provider_unavailable',
+      score: null,
+      explanation: 'Valuation provider is not configured; deterministic scoring skipped.',
+      evidence: withEvidence([{ label: 'valuation_source', value: valuation.source as string | null }]),
+      sourceType: 'provider',
+      providerStatus: 'unavailable'
+    }
+  }
+
+  if (isProviderError(valuation)) {
+    return {
+      id: 'valuation_context',
+      title: 'Valuation context',
+      status: 'provider_unavailable',
+      score: null,
+      explanation: 'Valuation provider returned an error; deterministic scoring skipped.',
+      evidence: withEvidence([{ label: 'valuation_message', value: valuation.message as string | null }]),
       sourceType: 'provider',
       providerStatus: 'unavailable'
     }

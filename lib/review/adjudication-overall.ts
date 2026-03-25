@@ -49,8 +49,13 @@ export function calculateOverallCompleteness(input: OverallInput): number {
     input.questions.length
 
   const unavailableRatio = getUnavailableProviderRatio(input.questions)
-  const providerPenalty = unavailableRatio * 0.3
-  const adjusted = averageCompleteness - providerPenalty
+  const providerPenalty = unavailableRatio * 0.18
+  let adjusted = averageCompleteness - providerPenalty
+
+  const scoredCount = input.questions.filter((question) => question.status === 'scored').length
+  if (scoredCount >= 3 && averageCompleteness >= 0.4) {
+    adjusted = Math.max(adjusted, 0.3)
+  }
 
   return round(clamp(adjusted, 0, 1))
 }
@@ -65,9 +70,14 @@ export function calculateOverallConfidence(input: OverallInput & { overallComple
     input.questions.length
 
   const unavailableRatio = getUnavailableProviderRatio(input.questions)
-  const completenessFactor = 0.5 + clamp(input.overallCompleteness, 0, 1) * 0.5
-  const providerFactor = 1 - unavailableRatio * 0.4
-  const adjusted = averageConfidence * completenessFactor * providerFactor
+  const completenessFactor = 0.7 + clamp(input.overallCompleteness, 0, 1) * 0.3
+  const providerFactor = 1 - unavailableRatio * 0.25
+  let adjusted = averageConfidence * completenessFactor * providerFactor
+
+  const scoredCount = input.questions.filter((question) => question.status === 'scored').length
+  if (scoredCount >= 3 && input.overallCompleteness >= 0.35) {
+    adjusted = Math.max(adjusted, 0.25)
+  }
 
   return round(clamp(adjusted, 0, 1))
 }
