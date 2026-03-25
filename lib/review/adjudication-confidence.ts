@@ -25,11 +25,11 @@ export function calculateQuestionConfidence(input: ConfidenceInput): number {
   let confidence = clamp(input.completeness, 0, 1)
 
   if (input.providerStatus === 'not_configured' || input.providerStatus === 'error') {
-    confidence *= 0.4
+    confidence *= 0.6
   }
 
   if (input.providerStatus === 'no_result') {
-    confidence *= 0.7
+    confidence *= 0.8
   }
 
   if (typeof input.aiConfidence === 'number' && Number.isFinite(input.aiConfidence)) {
@@ -37,11 +37,11 @@ export function calculateQuestionConfidence(input: ConfidenceInput): number {
   }
 
   if (input.status === 'insufficient_data' || input.status === 'provider_unavailable') {
-    confidence = Math.min(confidence, 0.4)
+    confidence = Math.min(confidence, 0.55)
   }
 
   if (input.status === 'not_applicable') {
-    confidence = Math.max(confidence, 0.9)
+    confidence = Math.max(confidence, 0.85)
   }
 
   return round(clamp(confidence, 0, 1))

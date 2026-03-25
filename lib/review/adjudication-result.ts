@@ -149,6 +149,43 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {}
 }
 
+function normalizeQuestionConsistency(
+  question: AdjudicationQuestionResult,
+  providerStatus: AdjudicationProviderStatus
+): Pick<AdjudicationQuestionResult, 'status' | 'score' | 'explanation'> {
+  let status = question.status
+  let score = question.score
+  let explanation = question.explanation
+
+  const providerUnavailable = providerStatus === 'not_configured' || providerStatus === 'error'
+
+  if (providerUnavailable && question.sourceType === 'provider') {
+    status = 'provider_unavailable'
+    score = null
+    if (!/not configured|error|unavailable/i.test(explanation)) {
+      explanation = `${explanation} Provider data is currently unavailable for trusted scoring.`
+    }
+  }
+
+  if (providerStatus === 'no_result' && status === 'provider_unavailable' && question.sourceType === 'provider') {
+    status = 'insufficient_data'
+  }
+
+  if (status !== 'scored') {
+    score = null
+  }
+
+  if (status === 'scored' && score === null) {
+    status = 'insufficient_data'
+  }
+
+  return {
+    status,
+    score,
+    explanation
+  }
+}
+
 function applyQuestionMetadata(
   questions: AdjudicationQuestionResult[],
   input: {
@@ -165,6 +202,7 @@ function applyQuestionMetadata(
 
   return questions.map((question) => {
     const providerStatus = resolveQuestionProviderStatus(question.id, vinDataResultRecord)
+    const normalized = normalizeQuestionConsistency(question, providerStatus)
     const evidenceAndMissing = buildQuestionEvidenceAndMissing({
       questionId: question.id,
       existingEvidence: question.evidence,
@@ -181,7 +219,7 @@ function applyQuestionMetadata(
     })
 
     const confidence = calculateQuestionConfidence({
-      status: question.status,
+      status: normalized.status,
       providerStatus,
       completeness,
       aiConfidence: question.confidence
@@ -189,6 +227,9 @@ function applyQuestionMetadata(
 
     return {
       ...question,
+      status: normalized.status,
+      score: normalized.score,
+      explanation: normalized.explanation,
       providerStatus,
       evidence: evidenceAndMissing.evidence,
       missing: evidenceAndMissing.missing,

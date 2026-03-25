@@ -19,6 +19,15 @@ function isErrorMessage(value: unknown): boolean {
   return /(error|failed|timeout|exception)/i.test(message)
 }
 
+function isNotConfiguredMessage(value: unknown): boolean {
+  const message = getOptionalString(value)
+  if (!message) {
+    return false
+  }
+
+  return /(stub|unconfigured|not configured|disabled|missing config)/i.test(message)
+}
+
 function isStubSource(value: unknown): boolean {
   const source = getOptionalString(value)
   if (!source) {
@@ -30,11 +39,25 @@ function isStubSource(value: unknown): boolean {
 
 function resolveTitleHistoryStatus(vinDataResult: Record<string, unknown>): ProviderStatus {
   const titleHistory = asRecord(vinDataResult.titleHistory)
+
   if (Object.keys(titleHistory).length === 0) {
+    const message = getOptionalString(vinDataResult.providerResultMessage)
+    if (message && isNotConfiguredMessage(message)) {
+      return 'not_configured'
+    }
+
+    if (message && isErrorMessage(message)) {
+      return 'error'
+    }
+
     return 'no_result'
   }
 
   if (isStubSource(titleHistory.source)) {
+    return 'not_configured'
+  }
+
+  if (isNotConfiguredMessage(titleHistory.message)) {
     return 'not_configured'
   }
 
@@ -45,8 +68,15 @@ function resolveTitleHistoryStatus(vinDataResult: Record<string, unknown>): Prov
   const brandFlags = Array.isArray(titleHistory.brandFlags) ? titleHistory.brandFlags.length : 0
   const odometerFlags = Array.isArray(titleHistory.odometerFlags) ? titleHistory.odometerFlags.length : 0
   const events = Array.isArray(titleHistory.events) ? titleHistory.events.length : 0
+  const hasTitleStatus = Boolean(getOptionalString(titleHistory.titleStatus))
+  const hasIndicator =
+    titleHistory.salvageIndicator === true ||
+    titleHistory.rebuiltIndicator === true ||
+    titleHistory.totalLossIndicator === true ||
+    titleHistory.theftIndicator === true ||
+    titleHistory.junkIndicator === true
 
-  if (brandFlags === 0 && odometerFlags === 0 && events === 0) {
+  if (brandFlags === 0 && odometerFlags === 0 && events === 0 && !hasTitleStatus && !hasIndicator) {
     return 'no_result'
   }
 
@@ -56,10 +86,23 @@ function resolveTitleHistoryStatus(vinDataResult: Record<string, unknown>): Prov
 function resolveServiceHistoryStatus(vinDataResult: Record<string, unknown>): ProviderStatus {
   const serviceHistory = asRecord(vinDataResult.serviceHistory)
   if (Object.keys(serviceHistory).length === 0) {
+    const message = getOptionalString(vinDataResult.providerResultMessage)
+    if (message && isNotConfiguredMessage(message)) {
+      return 'not_configured'
+    }
+
+    if (message && isErrorMessage(message)) {
+      return 'error'
+    }
+
     return 'no_result'
   }
 
   if (isStubSource(serviceHistory.source)) {
+    return 'not_configured'
+  }
+
+  if (isNotConfiguredMessage(serviceHistory.message)) {
     return 'not_configured'
   }
 
@@ -70,7 +113,7 @@ function resolveServiceHistoryStatus(vinDataResult: Record<string, unknown>): Pr
   const eventCount = typeof serviceHistory.eventCount === 'number' ? serviceHistory.eventCount : null
   const events = Array.isArray(serviceHistory.events) ? serviceHistory.events.length : 0
 
-  if ((eventCount !== null && eventCount <= 0) || (eventCount === null && events === 0)) {
+  if (eventCount === null && events === 0) {
     return 'no_result'
   }
 
@@ -88,7 +131,7 @@ function resolveRecallsStatus(vinDataResult: Record<string, unknown>): ProviderS
   }
 
   const count = typeof recalls.count === 'number' ? recalls.count : null
-  if (count === null || count <= 0) {
+  if (count === null) {
     return 'no_result'
   }
 
@@ -98,10 +141,23 @@ function resolveRecallsStatus(vinDataResult: Record<string, unknown>): ProviderS
 function resolveValuationStatus(vinDataResult: Record<string, unknown>): ProviderStatus {
   const valuation = asRecord(vinDataResult.valuation)
   if (Object.keys(valuation).length === 0) {
+    const message = getOptionalString(vinDataResult.providerResultMessage)
+    if (message && isNotConfiguredMessage(message)) {
+      return 'not_configured'
+    }
+
+    if (message && isErrorMessage(message)) {
+      return 'error'
+    }
+
     return 'no_result'
   }
 
   if (isStubSource(valuation.source)) {
+    return 'not_configured'
+  }
+
+  if (isNotConfiguredMessage(valuation.message)) {
     return 'not_configured'
   }
 
@@ -127,7 +183,7 @@ function resolveVinStatus(vinDataResult: Record<string, unknown>): ProviderStatu
   }
 
   const message = getOptionalString(vinDataResult.providerResultMessage)
-  if (message && /disabled|unconfigured|stub/i.test(message)) {
+  if (message && isNotConfiguredMessage(message)) {
     return 'not_configured'
   }
 
