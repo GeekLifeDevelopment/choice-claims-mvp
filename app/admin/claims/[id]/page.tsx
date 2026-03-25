@@ -182,54 +182,125 @@ function getAuditActionLabel(action: string): string {
     vin_lookup_requeued: 'VIN retry requested',
     vin_data_fetched: 'VIN data fetched',
     vin_data_fetch_failed: 'VIN data fetch failed',
-    review_summary_queued: 'Summary generation queued',
-    review_summary_generated: 'Summary generated',
+    review_summary_queued: 'Review summary queued',
+    review_summary_generated: 'Review summary generated',
     review_summary_failed: 'Summary generation failed',
-    review_summary_regenerate_queued: 'Summary regenerate requested',
-    review_decision_changed: 'Decision changed',
+    review_summary_regenerate_queued: 'Summary regeneration queued',
+    review_summary_regenerated: 'Summary regenerated',
+    review_decision_changed: 'Decision saved',
+    review_decision_saved: 'Decision saved',
     intake_validation_failed: 'Validation failed'
   }
 
   return labels[action] || action.replace(/_/g, ' ')
 }
 
-function getTimelineMetadataDetails(action: string, metadata: unknown): string | null {
+function getTimelineEventBadgeClassName(action: string): string {
+  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+
+  if (
+    action === 'claim_created' ||
+    action === 'vin_data_fetched' ||
+    action === 'review_summary_generated' ||
+    action === 'review_summary_regenerated'
+  ) {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (action === 'review_decision_changed' || action === 'review_decision_saved') {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (action.includes('failed') || action.includes('error')) {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  return `${base} border-slate-300 bg-slate-50 text-slate-700`
+}
+
+function getTimelineEventBadgeText(action: string): string {
+  if (
+    action === 'claim_created' ||
+    action === 'vin_data_fetched' ||
+    action === 'review_summary_generated' ||
+    action === 'review_summary_regenerated'
+  ) {
+    return 'Key event'
+  }
+
+  if (action === 'review_decision_changed' || action === 'review_decision_saved') {
+    return 'Decision'
+  }
+
+  if (action.includes('failed') || action.includes('error')) {
+    return 'Attention'
+  }
+
+  return 'Activity'
+}
+
+function formatDateParts(value: Date): { date: string; time: string } {
+  const formatted = formatDate(value)
+  const [date, time] = formatted.split(' ')
+
+  return {
+    date: date || '—',
+    time: time || '—'
+  }
+}
+
+function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ label: string; value: string }> {
   const record = asRecord(metadata)
   const source = getOptionalString(record.source)
   const reason = getOptionalString(record.reason)
   const reviewer = getOptionalString(record.reviewer)
   const provider = getOptionalString(record.provider)
   const queueName = getOptionalString(record.queueName)
+  const jobName = getOptionalString(record.jobName)
+  const jobId = getOptionalString(record.jobId)
+  const toDecision = getOptionalString(record.toDecision)
+  const fromDecision = getOptionalString(record.fromDecision)
+
+  const rows: Array<{ label: string; value: string }> = []
+
+  if (provider) {
+    rows.push({ label: 'Provider', value: provider })
+  }
+
+  if (queueName) {
+    rows.push({ label: 'Queue', value: queueName })
+  }
+
+  if (source) {
+    rows.push({ label: 'Source', value: source })
+  }
+
+  if (reviewer) {
+    rows.push({ label: 'Reviewer', value: reviewer })
+  }
+
+  if (jobName) {
+    rows.push({ label: 'Job', value: jobName })
+  }
+
+  if (jobId) {
+    rows.push({ label: 'Job ID', value: jobId })
+  }
 
   if (action === 'review_decision_changed') {
-    const toDecision = getOptionalString(record.toDecision)
-    const fromDecision = getOptionalString(record.fromDecision)
     if (toDecision) {
-      return `Decision changed${fromDecision ? ` from ${fromDecision}` : ''} to ${toDecision}`
+      rows.push({
+        label: 'Decision',
+        value: fromDecision ? `${fromDecision} -> ${toDecision}` : toDecision
+      })
     }
   }
 
   if (reason) {
-    return `Reason: ${reason}`
+    rows.push({ label: 'Reason', value: reason })
   }
 
-  if (reviewer) {
-    return `Reviewer: ${reviewer}`
-  }
-
-  if (provider) {
-    return `Provider: ${provider}`
-  }
-
-  if (queueName) {
-    return `Queue: ${queueName}`
-  }
-
-  if (source) {
-    return `Source: ${source}`
-  }
-
-  return null
+  return rows
 }
 
 function formatDebugJson(value: unknown): string {
@@ -2222,24 +2293,41 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             {timelineAuditLogs.map((auditLog) => {
               const label = getAuditActionLabel(auditLog.action)
               const message = getAuditMessage(auditLog.action, auditLog.metadata)
-              const metadataDetails = getTimelineMetadataDetails(auditLog.action, auditLog.metadata)
+              const metadataRows = getTimelineMetadataRows(auditLog.action, auditLog.metadata)
+              const timestamp = formatDateParts(auditLog.createdAt)
 
               return (
                 <li key={auditLog.id} className="rounded-md border border-slate-200 bg-slate-50 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="min-w-0 break-all text-sm font-medium text-slate-900">{label}</p>
-                    <p className="whitespace-nowrap text-xs text-slate-600">{formatDate(auditLog.createdAt)}</p>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <p className="min-w-0 break-all text-sm font-medium text-slate-900">{label}</p>
+                      <span className={getTimelineEventBadgeClassName(auditLog.action)}>
+                        {getTimelineEventBadgeText(auditLog.action)}
+                      </span>
+                    </div>
+                    <div className="text-right text-xs text-slate-600">
+                      <p>
+                        <span className="font-medium text-slate-700">Date:</span> {timestamp.date}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-700">Time:</span> {timestamp.time}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-700">
-                    <p>
-                      <span className="font-medium text-slate-900">Event:</span> {auditLog.action}
-                    </p>
-                  </div>
+                  <p className="mt-1 text-xs text-slate-600">Event key: {auditLog.action}</p>
 
                   {message ? <p className="mt-2 break-words text-sm text-slate-700">{message}</p> : null}
 
-                  {metadataDetails ? <p className="mt-1 break-words text-xs text-slate-600">{metadataDetails}</p> : null}
+                  {metadataRows.length > 0 ? (
+                    <div className="mt-2 grid gap-1 text-xs text-slate-700 sm:grid-cols-2">
+                      {metadataRows.map((entry, index) => (
+                        <p key={`${entry.label}-${entry.value}-${index}`}>
+                          <span className="font-medium text-slate-900">{entry.label}:</span> {entry.value}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                 </li>
               )
             })}
