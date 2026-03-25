@@ -400,7 +400,7 @@ function formatPercentFromFraction(value: unknown): string {
   return `${Math.round(value * 100)}%`
 }
 
-function getProviderStatusLabel(value: unknown, questionId?: string): string {
+function getProviderStatusLabel(value: unknown): string {
   if (value === 'ok' || value === 'available') {
     return 'OK'
   }
@@ -414,23 +414,7 @@ function getProviderStatusLabel(value: unknown, questionId?: string): string {
   }
 
   if (value === 'no_result' || value === 'unavailable') {
-    if (questionId === 'recall_relevance') {
-      return 'No matching recalls'
-    }
-
-    if (questionId === 'maintenance_history' || questionId === 'prior_repairs') {
-      return 'No service records'
-    }
-
-    if (questionId === 'branded_title') {
-      return 'No title records'
-    }
-
-    if (questionId === 'valuation_context') {
-      return 'No valuation data'
-    }
-
-    return 'No result'
+    return 'No records'
   }
 
   if (value === 'not_applicable') {
@@ -1442,7 +1426,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       <td className="py-2 pr-4 text-slate-700">{formatPercentFromFraction(question.confidence)}</td>
                       <td className="py-2 pr-4">
                         <span className={getProviderStatusBadgeClassName(question.providerStatus)}>
-                          {getProviderStatusLabel(question.providerStatus, question.id)}
+                          {getProviderStatusLabel(question.providerStatus)}
                         </span>
                       </td>
                       <td className="py-2 pr-4 text-slate-700">
