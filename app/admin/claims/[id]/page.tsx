@@ -8,6 +8,10 @@ import {
   type ProviderHealthStatus
 } from '../../../../lib/providers/provider-health-log'
 import { prisma } from '../../../../lib/prisma'
+import type {
+  AdjudicationQuestionStatus,
+  AdjudicationResult
+} from '../../../../lib/review/adjudication-result'
 import { isClaimLockedForProcessing } from '../../../../lib/review/claim-lock'
 
 export const dynamic = 'force-dynamic'
@@ -338,6 +342,43 @@ type ValuationViewModel = {
   confidence: number | null
   currency: string | null
   message: string | null
+}
+
+function getAdjudicationResult(value: unknown): AdjudicationResult | null {
+  const record = asRecord(value)
+  const adjudicationRecord = asRecord(record.adjudicationResult)
+
+  const version = getOptionalString(adjudicationRecord.version)
+  const generatedAt = getOptionalString(adjudicationRecord.generatedAt)
+  const totalScore = getOptionalNumber(adjudicationRecord.totalScore)
+  const recommendation = getOptionalString(adjudicationRecord.recommendation)
+  const completeness = getOptionalString(adjudicationRecord.completeness)
+  const summary = getOptionalString(adjudicationRecord.summary)
+  const questions = Array.isArray(adjudicationRecord.questions) ? adjudicationRecord.questions : null
+
+  if (!version || !generatedAt || totalScore === null || !recommendation || !completeness || !summary || !questions) {
+    return null
+  }
+
+  return adjudicationRecord as unknown as AdjudicationResult
+}
+
+function getAdjudicationStatusBadgeClassName(status: AdjudicationQuestionStatus): string {
+  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+
+  if (status === 'scored') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (status === 'insufficient_data') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (status === 'not_applicable') {
+    return `${base} border-slate-300 bg-slate-50 text-slate-700`
+  }
+
+  return `${base} border-red-300 bg-red-50 text-red-700`
 }
 
 type ProviderHealthRow = {
@@ -934,6 +975,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const titleHistory = getTitleHistory(vinDataResult)
   const serviceHistory = getServiceHistory(vinDataResult)
   const valuation = getValuation(vinDataResult)
+  const adjudicationResult = getAdjudicationResult(vinDataResult)
   const providerSourceHint = getProviderSourceHint(vinDataResult, resolvedRawProviderPayload)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const endpointAttempts = getEndpointAttempts(resolvedRawProviderPayload)
@@ -1137,6 +1179,74 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </div>
         ) : (
           <p className="text-slate-600">No review summary yet.</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Adjudication Result</h2>
+
+        {!adjudicationResult ? (
+          <p className="text-slate-600">No adjudication result scaffold generated yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Version:</span> {adjudicationResult.version}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Generated At:</span>{' '}
+                {formatIsoDate(adjudicationResult.generatedAt)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Total Score:</span>{' '}
+                {String(adjudicationResult.totalScore)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Recommendation:</span>{' '}
+                {adjudicationResult.recommendation}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Completeness:</span>{' '}
+                {adjudicationResult.completeness}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Question Count:</span>{' '}
+                {String(adjudicationResult.questions.length)}
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-slate-600">
+                    <th className="py-2 pr-4 font-medium">Question</th>
+                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">Score</th>
+                    <th className="py-2 pr-4 font-medium">Provider Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adjudicationResult.questions.map((question) => (
+                    <tr key={question.id} className="border-b last:border-0 align-top">
+                      <td className="py-2 pr-4 text-slate-900">
+                        <p className="font-medium">{question.title}</p>
+                        <p className="text-xs text-slate-600">{question.id}</p>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <span className={getAdjudicationStatusBadgeClassName(question.status)}>
+                          {question.status}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {question.score !== null ? String(question.score) : '—'}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">{question.providerStatus}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </div>
 
@@ -2038,6 +2148,15 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 <p className="mb-2 text-sm font-medium text-slate-900">Rule Flags JSON</p>
                 <pre className="max-h-[16rem] overflow-auto text-xs leading-5 text-slate-800">
                   {formatDebugJson(claim.reviewRuleFlags)}
+                </pre>
+              </div>
+            ) : null}
+
+            {adjudicationResult ? (
+              <div>
+                <p className="mb-2 text-sm font-medium text-slate-900">Adjudication Result JSON</p>
+                <pre className="max-h-[16rem] overflow-auto text-xs leading-5 text-slate-800">
+                  {formatDebugJson(adjudicationResult)}
                 </pre>
               </div>
             ) : null}
