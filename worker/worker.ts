@@ -22,6 +22,7 @@ import {
   isRateLimitedProviderFailure,
   resolveVinLookupBackoffStrategyDelay
 } from '../lib/queue/vin-lookup-job-options'
+import { isFeatureEnabled } from '../lib/config/feature-flags'
 import { getVinDataProvider } from '../lib/providers/get-vin-provider'
 import { NhtsaRecallsProvider } from '../lib/providers/nhtsa-recalls-provider'
 import { ServiceHistoryProvider } from '../lib/providers/service-history-provider'
@@ -186,6 +187,16 @@ async function lookupTitleHistoryBestEffort(
     claimNumber: string
   }
 ): Promise<TitleHistoryResult | null> {
+  if (!isFeatureEnabled('enrichment')) {
+    console.info('[feature] enrichment disabled')
+    return null
+  }
+
+  if (!isFeatureEnabled('title_history')) {
+    console.info('[feature] title history disabled')
+    return null
+  }
+
   try {
     const provider = new TitleHistoryProvider()
     const result = await provider.lookupTitleHistory(vin)
@@ -221,6 +232,16 @@ async function lookupServiceHistoryBestEffort(
     claimNumber: string
   }
 ): Promise<ServiceHistoryResult | null> {
+  if (!isFeatureEnabled('enrichment')) {
+    console.info('[feature] enrichment disabled')
+    return null
+  }
+
+  if (!isFeatureEnabled('service_history')) {
+    console.info('[feature] service history disabled')
+    return null
+  }
+
   try {
     const provider = new ServiceHistoryProvider()
     const result = await provider.lookupServiceHistory(vin)
@@ -254,6 +275,16 @@ async function lookupValuationBestEffort(
     claimNumber: string
   }
 ): Promise<ValuationResult | null> {
+  if (!isFeatureEnabled('enrichment')) {
+    console.info('[feature] enrichment disabled')
+    return null
+  }
+
+  if (!isFeatureEnabled('valuation')) {
+    console.info('[feature] valuation disabled')
+    return null
+  }
+
   try {
     const provider = new ValuationProvider()
     const result = await provider.lookupValuation(vin)
@@ -579,6 +610,96 @@ async function run() {
       let providerName: string | undefined
 
       try {
+        if (!isFeatureEnabled('enrichment')) {
+          console.info('[feature] enrichment disabled')
+
+          const persistedVinDataResult: Prisma.InputJsonObject = {
+            vin,
+            providerResultMessage: 'enrichment_disabled'
+          }
+
+          const transitioned = await prisma.claim.updateMany({
+            where: {
+              id: claim.id,
+              status: ClaimStatus.AwaitingVinData,
+              OR: [
+                { reviewDecision: null },
+                {
+                  reviewDecision: {
+                    notIn: FINAL_REVIEW_DECISIONS
+                  }
+                }
+              ]
+            },
+            data: {
+              vinDataResult: persistedVinDataResult,
+              vinDataRawPayload: Prisma.JsonNull,
+              vinDataProvider: null,
+              vinDataFetchedAt: new Date(),
+              vinDataProviderResultCode: null,
+              vinDataProviderResultMessage: 'enrichment_disabled',
+              status: ClaimStatus.ReadyForAI,
+              vinLookupLastError: null,
+              vinLookupLastFailedAt: null
+            }
+          })
+
+          if (transitioned.count === 0) {
+            log('vin enrichment-disabled persistence skipped due claim state change', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              status: claim.status
+            })
+
+            return {
+              ok: true,
+              skipped: true,
+              reason: 'obsolete_claim_state'
+            }
+          }
+
+          await evaluateClaimRulesBestEffort(claim.id, 'worker_enrichment_disabled_ready_for_ai')
+          await enqueueReviewSummaryBestEffort(claim.id, 'worker_enrichment_disabled_ready_for_ai')
+
+          const fetchedAuditResult = await logVinDataFetchedAudit({
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id?.toString(),
+            attemptsMade,
+            attemptsAllowed,
+            source: claim.source ?? payload.source,
+            vin,
+            provider: 'feature_disabled'
+          })
+
+          if (fetchedAuditResult.ok) {
+            log('audit log written', {
+              action: 'vin_data_fetched',
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              auditLogId: fetchedAuditResult.auditLogId
+            })
+          } else {
+            logError('audit log failed', {
+              action: 'vin_data_fetched',
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              error: fetchedAuditResult.error
+            })
+          }
+
+          return {
+            ok: true,
+            skipped: true,
+            reason: 'enrichment_disabled'
+          }
+        }
+
         const provider = getVinDataProvider()
         providerName = provider.name
 
@@ -613,29 +734,33 @@ async function run() {
         let serviceHistory: ServiceHistoryResult | null = null
         let valuation: ValuationResult | null = null
 
-        try {
-          const recallsProvider = new NhtsaRecallsProvider()
-          nhtsaRecalls = await recallsProvider.lookupRecalls(enrichedProviderResult.vin || vin)
+        if (!isFeatureEnabled('recalls')) {
+          console.info('[feature] recalls disabled')
+        } else {
+          try {
+            const recallsProvider = new NhtsaRecallsProvider()
+            nhtsaRecalls = await recallsProvider.lookupRecalls(enrichedProviderResult.vin || vin)
 
-          log('nhtsa recalls enrichment fetched', {
-            queueName: QUEUE_NAMES.VIN_DATA,
-            jobName: job.name,
-            jobId: job.id,
-            claimId: claim.id,
-            claimNumber: claim.claimNumber,
-            vin,
-            recallCount: nhtsaRecalls.count
-          })
-        } catch (nhtsaError) {
-          logError('nhtsa recalls enrichment failed; continuing vin processing', {
-            queueName: QUEUE_NAMES.VIN_DATA,
-            jobName: job.name,
-            jobId: job.id,
-            claimId: claim.id,
-            claimNumber: claim.claimNumber,
-            vin,
-            error: nhtsaError
-          })
+            log('nhtsa recalls enrichment fetched', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              vin,
+              recallCount: nhtsaRecalls.count
+            })
+          } catch (nhtsaError) {
+            logError('nhtsa recalls enrichment failed; continuing vin processing', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              vin,
+              error: nhtsaError
+            })
+          }
         }
 
         titleHistory = await lookupTitleHistoryBestEffort(vin, {
@@ -852,19 +977,23 @@ async function run() {
           let serviceHistoryFromFallback: ServiceHistoryResult | null = null
           let valuationFromFallback: ValuationResult | null = null
 
-          try {
-            const recallsProvider = new NhtsaRecallsProvider()
-            nhtsaRecallsFromFallback = await recallsProvider.lookupRecalls(vin)
-          } catch (nhtsaError) {
-            logError('nhtsa recalls enrichment failed during fallback recovery', {
-              queueName: QUEUE_NAMES.VIN_DATA,
-              jobName: job.name,
-              jobId: job.id,
-              claimId: claim.id,
-              claimNumber: claim.claimNumber,
-              vin,
-              error: nhtsaError
-            })
+          if (!isFeatureEnabled('recalls')) {
+            console.info('[feature] recalls disabled')
+          } else {
+            try {
+              const recallsProvider = new NhtsaRecallsProvider()
+              nhtsaRecallsFromFallback = await recallsProvider.lookupRecalls(vin)
+            } catch (nhtsaError) {
+              logError('nhtsa recalls enrichment failed during fallback recovery', {
+                queueName: QUEUE_NAMES.VIN_DATA,
+                jobName: job.name,
+                jobId: job.id,
+                claimId: claim.id,
+                claimNumber: claim.claimNumber,
+                vin,
+                error: nhtsaError
+              })
+            }
           }
 
           titleHistoryFromFallback = await lookupTitleHistoryBestEffort(vin, {

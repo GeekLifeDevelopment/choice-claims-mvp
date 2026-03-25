@@ -15,6 +15,10 @@ function buildClaimDetailUrl(requestUrl: string, claimId: string, summaryRegener
 }
 
 function mapIneligibleReasonToResult(reason: string | null): string {
+  if (reason === 'summary_disabled') {
+    return 'skipped-feature-disabled'
+  }
+
   if (reason === 'locked_final_decision') {
     return 'locked_final_decision'
   }
