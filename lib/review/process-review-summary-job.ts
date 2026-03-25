@@ -6,6 +6,7 @@ import { classifyExternalFailure, type ExternalFailureCategory } from '../provid
 import { getOpenAiTimeoutMs } from '../providers/config'
 import { logProviderHealth } from '../providers/provider-health-log'
 import { buildClaimEvaluationInput, type ClaimEvaluationInput } from './claim-evaluation-input'
+import { buildAdjudicationResult } from './adjudication-result'
 import { buildReviewSummaryPrompt } from './build-review-summary-prompt'
 import { isClaimLockedForProcessing } from './claim-lock'
 
@@ -188,6 +189,18 @@ function stringifySummaryInput(value: unknown): string {
   }
 
   return `${serialized.slice(0, MAX_SUMMARY_INPUT_JSON_CHARS)}...`
+}
+
+function buildPersistedVinDataResult(
+  existingVinDataResult: unknown,
+  adjudicationResult: ReturnType<typeof buildAdjudicationResult>
+): Prisma.InputJsonObject {
+  const vinData = asRecord(existingVinDataResult)
+
+  return {
+    ...vinData,
+    adjudicationResult
+  }
 }
 
 async function persistReviewSummaryFailure(claimId: string, message: string): Promise<void> {
@@ -573,6 +586,12 @@ export async function processReviewSummaryJob(
     })
 
     const reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage)
+    const adjudicationResult = buildAdjudicationResult({
+      evaluationInput,
+      vinDataResult: claim.vinDataResult,
+      reviewSummaryText
+    })
+    const persistedVinDataResult = buildPersistedVinDataResult(claim.vinDataResult, adjudicationResult)
 
     const persisted = await prisma.claim.updateMany({
       where: {
@@ -589,6 +608,7 @@ export async function processReviewSummaryJob(
         ]
       },
       data: {
+        vinDataResult: persistedVinDataResult,
         reviewSummaryStatus: 'Generated',
         reviewSummaryGeneratedAt: new Date(),
         reviewSummaryText,
