@@ -95,6 +95,81 @@ function asOptionalJsonField(
   }
 }
 
+function buildSafeProviderFailureVinDataResult(input: {
+  vin: string
+  providerName?: string
+  providerFailureReason: string
+  errorMessage: string
+}): Prisma.InputJsonObject {
+  return {
+    vin: input.vin,
+    provider: input.providerName ?? 'provider_failure_fallback',
+    providerResultCode: input.providerFailureReason,
+    providerResultMessage: input.errorMessage,
+    nhtsaRecalls: {
+      count: 0,
+      message: 'provider_failure_fallback'
+    },
+    titleHistory: {
+      source: 'provider_failure_fallback',
+      message: 'provider_failure_fallback'
+    },
+    serviceHistory: {
+      source: 'provider_failure_fallback',
+      eventCount: 0,
+      message: 'provider_failure_fallback'
+    },
+    valuation: {
+      source: 'provider_failure_fallback',
+      message: 'provider_failure_fallback'
+    }
+  }
+}
+
+function buildNhtsaRecallsFallbackResult(message: string): NhtsaRecallsResult {
+  return {
+    source: 'nhtsa',
+    fetchedAt: new Date().toISOString(),
+    count: 0,
+    message,
+    items: []
+  }
+}
+
+function buildTitleHistoryFallbackResult(message: string): TitleHistoryResult {
+  return {
+    source: 'nmvtis_stub',
+    fetchedAt: new Date().toISOString(),
+    brandFlags: [],
+    odometerFlags: [],
+    events: [],
+    message
+  }
+}
+
+function buildServiceHistoryFallbackResult(message: string): ServiceHistoryResult {
+  return {
+    source: 'service_history_stub',
+    fetchedAt: new Date().toISOString(),
+    eventCount: 0,
+    events: [],
+    message
+  }
+}
+
+function buildValuationFallbackResult(message: string): ValuationResult {
+  return {
+    source: 'valuation_stub',
+    fetchedAt: new Date().toISOString(),
+    estimatedValue: null,
+    retailValue: null,
+    tradeInValue: null,
+    confidence: null,
+    currency: 'USD',
+    message
+  }
+}
+
 function isRateLimitedProviderLookupError(error: unknown): boolean {
   return isProviderLookupError(error) && error.status === 429 && error.reason === 'http_429_rate_limited'
 }
@@ -186,15 +261,15 @@ async function lookupTitleHistoryBestEffort(
     claimId: string
     claimNumber: string
   }
-): Promise<TitleHistoryResult | null> {
+): Promise<TitleHistoryResult> {
   if (!isFeatureEnabled('enrichment')) {
     console.info('[feature] enrichment disabled')
-    return null
+    return buildTitleHistoryFallbackResult('enrichment_disabled')
   }
 
   if (!isFeatureEnabled('title_history')) {
     console.info('[feature] title history disabled')
-    return null
+    return buildTitleHistoryFallbackResult('title_history_feature_disabled')
   }
 
   try {
@@ -218,7 +293,7 @@ async function lookupTitleHistoryBestEffort(
       vin,
       error
     })
-    return null
+    return buildTitleHistoryFallbackResult('title_history_provider_failed')
   }
 }
 
@@ -231,15 +306,15 @@ async function lookupServiceHistoryBestEffort(
     claimId: string
     claimNumber: string
   }
-): Promise<ServiceHistoryResult | null> {
+): Promise<ServiceHistoryResult> {
   if (!isFeatureEnabled('enrichment')) {
     console.info('[feature] enrichment disabled')
-    return null
+    return buildServiceHistoryFallbackResult('enrichment_disabled')
   }
 
   if (!isFeatureEnabled('service_history')) {
     console.info('[feature] service history disabled')
-    return null
+    return buildServiceHistoryFallbackResult('service_history_feature_disabled')
   }
 
   try {
@@ -261,7 +336,7 @@ async function lookupServiceHistoryBestEffort(
       vin,
       error
     })
-    return null
+    return buildServiceHistoryFallbackResult('service_history_provider_failed')
   }
 }
 
@@ -274,15 +349,15 @@ async function lookupValuationBestEffort(
     claimId: string
     claimNumber: string
   }
-): Promise<ValuationResult | null> {
+): Promise<ValuationResult> {
   if (!isFeatureEnabled('enrichment')) {
     console.info('[feature] enrichment disabled')
-    return null
+    return buildValuationFallbackResult('enrichment_disabled')
   }
 
   if (!isFeatureEnabled('valuation')) {
     console.info('[feature] valuation disabled')
-    return null
+    return buildValuationFallbackResult('valuation_feature_disabled')
   }
 
   try {
@@ -306,7 +381,7 @@ async function lookupValuationBestEffort(
       vin,
       error
     })
-    return null
+    return buildValuationFallbackResult('valuation_provider_failed')
   }
 }
 
@@ -729,13 +804,14 @@ async function run() {
         }
 
         const enrichedProviderResult = mergePrimaryWithFallbackSpecs(providerResult, fallbackSpecs)
-        let nhtsaRecalls: NhtsaRecallsResult | null = null
-        let titleHistory: TitleHistoryResult | null = null
-        let serviceHistory: ServiceHistoryResult | null = null
-        let valuation: ValuationResult | null = null
+        let nhtsaRecalls: NhtsaRecallsResult = buildNhtsaRecallsFallbackResult('recalls_feature_disabled')
+        let titleHistory: TitleHistoryResult = buildTitleHistoryFallbackResult('title_history_not_attempted')
+        let serviceHistory: ServiceHistoryResult = buildServiceHistoryFallbackResult('service_history_not_attempted')
+        let valuation: ValuationResult = buildValuationFallbackResult('valuation_not_attempted')
 
         if (!isFeatureEnabled('recalls')) {
           console.info('[feature] recalls disabled')
+          nhtsaRecalls = buildNhtsaRecallsFallbackResult('recalls_feature_disabled')
         } else {
           try {
             const recallsProvider = new NhtsaRecallsProvider()
@@ -760,6 +836,8 @@ async function run() {
               vin,
               error: nhtsaError
             })
+
+            nhtsaRecalls = buildNhtsaRecallsFallbackResult('nhtsa_recalls_provider_failed')
           }
         }
 
@@ -972,13 +1050,20 @@ async function run() {
         })
 
         if (fallbackSpecs && hasMinimumVinSpecFields(fallbackSpecs)) {
-          let nhtsaRecallsFromFallback: NhtsaRecallsResult | null = null
-          let titleHistoryFromFallback: TitleHistoryResult | null = null
-          let serviceHistoryFromFallback: ServiceHistoryResult | null = null
-          let valuationFromFallback: ValuationResult | null = null
+          let nhtsaRecallsFromFallback: NhtsaRecallsResult = buildNhtsaRecallsFallbackResult(
+            'recalls_feature_disabled'
+          )
+          let titleHistoryFromFallback: TitleHistoryResult = buildTitleHistoryFallbackResult(
+            'title_history_not_attempted'
+          )
+          let serviceHistoryFromFallback: ServiceHistoryResult = buildServiceHistoryFallbackResult(
+            'service_history_not_attempted'
+          )
+          let valuationFromFallback: ValuationResult = buildValuationFallbackResult('valuation_not_attempted')
 
           if (!isFeatureEnabled('recalls')) {
             console.info('[feature] recalls disabled')
+            nhtsaRecallsFromFallback = buildNhtsaRecallsFallbackResult('recalls_feature_disabled')
           } else {
             try {
               const recallsProvider = new NhtsaRecallsProvider()
@@ -993,6 +1078,8 @@ async function run() {
                 vin,
                 error: nhtsaError
               })
+
+              nhtsaRecallsFromFallback = buildNhtsaRecallsFallbackResult('nhtsa_recalls_provider_failed')
             }
           }
 
@@ -1144,6 +1231,13 @@ async function run() {
         }
 
         try {
+          const safeFailureVinDataResult = buildSafeProviderFailureVinDataResult({
+            vin,
+            providerName,
+            providerFailureReason,
+            errorMessage
+          })
+
           const transitioned = await prisma.claim.updateMany({
             where: {
               id: claim.id,
@@ -1158,9 +1252,15 @@ async function run() {
               ]
             },
             data: {
-              status: failureStatus,
-              vinLookupLastError: errorMessage,
-              vinLookupLastFailedAt: new Date(),
+              vinDataResult: safeFailureVinDataResult,
+              vinDataRawPayload: Prisma.JsonNull,
+              vinDataProvider: providerName ?? null,
+              vinDataFetchedAt: new Date(),
+              vinDataProviderResultCode: null,
+              vinDataProviderResultMessage: errorMessage,
+              status: ClaimStatus.ReadyForAI,
+              vinLookupLastError: null,
+              vinLookupLastFailedAt: null,
               vinLookupAttemptCount: attemptsMade,
               vinLookupLastJobId: job.id?.toString(),
               vinLookupLastJobName: job.name,
@@ -1191,7 +1291,7 @@ async function run() {
             jobId: job.id,
             claimId: claim.id,
             claimNumber: claim.claimNumber,
-            status: failureStatus,
+            status: ClaimStatus.ReadyForAI,
             errorMessage,
             providerErrorCode: providerLookupError?.code,
             providerErrorStatus: providerLookupError?.status,
@@ -1199,7 +1299,8 @@ async function run() {
             attemptsAllowed
           })
 
-          await evaluateClaimRulesBestEffort(claim.id, 'worker_provider_lookup_failed')
+          await evaluateClaimRulesBestEffort(claim.id, 'worker_provider_lookup_failed_safe_fallback')
+          await enqueueReviewSummaryBestEffort(claim.id, 'worker_provider_lookup_failed_safe_fallback')
         } catch (updateError) {
           logError('failed to persist claim failure state', {
             queueName: QUEUE_NAMES.VIN_DATA,
@@ -1259,7 +1360,11 @@ async function run() {
           errorMessage
         })
 
-        throw error instanceof Error ? error : new Error(errorMessage)
+        return {
+          ok: true,
+          providerFailureFallback: true,
+          failureStatus
+        }
       }
 
       return {
