@@ -173,6 +173,7 @@ function getAuditMessage(action: string, metadata: unknown): string | null {
 }
 
 const AUDIT_TIMELINE_LIMIT = 100
+const BADGE_BASE_CLASSNAME = 'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold'
 
 function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -196,7 +197,7 @@ function getAuditActionLabel(action: string): string {
 }
 
 function getTimelineEventBadgeClassName(action: string): string {
-  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+  const base = BADGE_BASE_CLASSNAME
 
   if (
     action === 'claim_created' ||
@@ -446,7 +447,7 @@ function getAdjudicationResult(value: unknown): AdjudicationResult | null {
 }
 
 function getAdjudicationStatusBadgeClassName(status: AdjudicationQuestionStatus): string {
-  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+  const base = BADGE_BASE_CLASSNAME
 
   if (status === 'scored') {
     return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
@@ -496,7 +497,7 @@ function getProviderStatusLabel(value: unknown): string {
 }
 
 function getProviderStatusBadgeClassName(value: unknown): string {
-  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+  const base = BADGE_BASE_CLASSNAME
 
   if (value === 'ok' || value === 'available') {
     return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
@@ -522,7 +523,7 @@ function getProviderStatusBadgeClassName(value: unknown): string {
 }
 
 function getRecommendationBadgeClassName(value: unknown): string {
-  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold'
+  const base = BADGE_BASE_CLASSNAME
 
   if (value === 'approve') {
     return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
@@ -564,7 +565,7 @@ function formatReviewerDecisionLabel(value: string | null | undefined): string {
   }
 
   if (value === 'NeedsReview') {
-    return 'NeedsReview'
+    return 'Needs Review'
   }
 
   if (value === 'Approved' || value === 'Denied' || value === 'Partial') {
@@ -572,6 +573,28 @@ function formatReviewerDecisionLabel(value: string | null | undefined): string {
   }
 
   return value
+}
+
+function getReviewerDecisionBadgeClassName(value: string | null | undefined): string {
+  const base = BADGE_BASE_CLASSNAME
+
+  if (value === 'Approved') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (value === 'Partial') {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (value === 'Denied') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  if (value === 'NeedsReview') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  return `${base} border-slate-300 bg-slate-50 text-slate-700`
 }
 
 function normalizeDecisionForCompare(value: string | null | undefined): string {
@@ -614,7 +637,7 @@ function formatProviderHealthStatus(status: ProviderHealthStatus): string {
 }
 
 function getProviderHealthBadgeClassName(status: ProviderHealthStatus): string {
-  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+  const base = BADGE_BASE_CLASSNAME
 
   if (status === 'ok') {
     return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
@@ -904,7 +927,7 @@ const ASYNC_AUDIT_ACTIONS = new Set([
 ])
 
 function getStatusBadgeClassName(status: string): string {
-  const base = 'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium'
+  const base = BADGE_BASE_CLASSNAME
 
   if (status === ClaimStatus.ReadyForAI) {
     return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
@@ -1339,9 +1362,15 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     : currentOverrideUsed
       ? 'Override Decision'
       : 'Save Decision'
+  const hasEnrichmentData =
+    claim.vinDataFetchedAt !== null ||
+    Boolean(claim.vinDataProvider) ||
+    Boolean(claim.vinDataProviderResultCode) ||
+    Boolean(claim.vinDataProviderResultMessage) ||
+    Object.keys(vinDataResult).length > 0
 
   return (
-    <section className="card space-y-4">
+    <section className="card space-y-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl">Claim {claim.claimNumber}</h1>
         <Link href="/admin/claims" className="text-sm text-slate-600 underline underline-offset-2">
@@ -1349,7 +1378,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </Link>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Claim Info</h2>
       </div>
 
@@ -1408,7 +1437,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </p>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-900">Review Summary</h2>
           <form method="post" action={`/api/admin/claims/${claim.id}/regenerate-summary`}>
@@ -1437,7 +1466,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Adjudication Result</h2>
 
         {!adjudicationResult ? (
@@ -1455,13 +1484,13 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Confidence</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Confidence %</p>
                   <p className="mt-1 text-base font-semibold text-slate-900">
                     {formatPercentFromFraction(adjudicationResult.overallConfidence)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Completeness</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Completeness %</p>
                   <p className="mt-1 text-base font-semibold text-slate-900">
                     {formatPercentFromFraction(adjudicationResult.overallCompleteness)}
                   </p>
@@ -1491,7 +1520,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                   <span className="font-medium text-slate-700">Version:</span> {adjudicationResult.version}
                 </p>
                 <p>
-                  <span className="font-medium text-slate-700">Generated:</span>{' '}
+                  <span className="font-medium text-slate-700">Generated At:</span>{' '}
                   {formatIsoDate(adjudicationResult.generatedAt)}
                 </p>
                 <p>
@@ -1552,7 +1581,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     <th className="py-2 pr-4 font-medium">Question</th>
                     <th className="py-2 pr-4 font-medium">Status</th>
                     <th className="py-2 pr-4 font-medium">Score</th>
-                    <th className="py-2 pr-4 font-medium">Confidence</th>
+                    <th className="py-2 pr-4 font-medium">Confidence %</th>
                     <th className="py-2 pr-4 font-medium">Provider</th>
                     <th className="py-2 pr-4 font-medium">Missing</th>
                   </tr>
@@ -1592,7 +1621,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Rule Flags</h2>
 
         <p className="text-sm text-slate-600">
@@ -1635,7 +1664,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
                 <p className="mt-2 text-xs text-sky-800">See Adjudication Result for full recommendation details.</p>
               </div>
-            ) : null}
+            ) : (
+              <p className="text-sm text-slate-600">No adjudication signals are available for this claim.</p>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -1668,14 +1699,16 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <div className="grid gap-2 sm:grid-cols-3">
             <p>
               <span className="font-medium text-slate-900">System Recommendation:</span>{' '}
-              {systemRecommendationLabel}
+              <span className={getRecommendationBadgeClassName(adjudicationResult?.recommendation)}>
+                {systemRecommendationLabel}
+              </span>
             </p>
             <p>
-              <span className="font-medium text-slate-900">Confidence:</span>{' '}
+              <span className="font-medium text-slate-900">Confidence %:</span>{' '}
               {formatPercentFromFraction(adjudicationResult?.overallConfidence)}
             </p>
             <p>
-              <span className="font-medium text-slate-900">Completeness:</span>{' '}
+              <span className="font-medium text-slate-900">Completeness %:</span>{' '}
               {formatPercentFromFraction(adjudicationResult?.overallCompleteness)}
             </p>
           </div>
@@ -1683,7 +1716,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <div className="grid gap-2 sm:grid-cols-2">
             <p>
               <span className="font-medium text-slate-900">Current Decision:</span>{' '}
-              {formatReviewerDecisionLabel(claim.reviewDecision)}
+              <span className={getReviewerDecisionBadgeClassName(claim.reviewDecision)}>
+                {formatReviewerDecisionLabel(claim.reviewDecision)}
+              </span>
             </p>
             <p>
               <span className="font-medium text-slate-900">Locked:</span>{' '}
@@ -1713,7 +1748,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2 rounded-md border border-slate-200 bg-white p-3">
           <p>
             <span className="font-medium text-slate-900">Current Decision:</span>{' '}
-            {formatReviewerDecisionLabel(claim.reviewDecision)}
+            <span className={getReviewerDecisionBadgeClassName(claim.reviewDecision)}>
+              {formatReviewerDecisionLabel(claim.reviewDecision)}
+            </span>
           </p>
           <p>
             <span className="font-medium text-slate-900">Last Updated:</span>{' '}
@@ -1820,7 +1857,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </form>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Attachments</h2>
         <p className="text-sm text-slate-600">Preview image only. Use Open file for PDFs and other file types.</p>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
@@ -1834,7 +1871,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </div>
 
         {claim.attachments.length === 0 ? (
-          <p className="text-slate-600">No attachments linked to this claim.</p>
+          <p className="text-slate-600">No attachments available for this claim.</p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {claim.attachments.map((attachment) => {
@@ -1941,12 +1978,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Enrichment &amp; Processing</h2>
         <p className="text-sm text-slate-600">Provider and downstream enrichment outputs grouped for review.</p>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Provider Health</h2>
         <p className="text-sm text-slate-600">
           Runtime provider status summary based on current config and persisted enrichment outputs.
@@ -1980,8 +2017,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Provider Summary</h2>
+        {!hasEnrichmentData ? <p className="text-slate-600">No enrichment data is available for this claim yet.</p> : null}
         {(claim.status === ClaimStatus.Submitted ||
           claim.status === ClaimStatus.ProviderFailed ||
           claim.status === ClaimStatus.ProcessingError) &&
@@ -2060,7 +2098,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Recall Information</h2>
 
         {!nhtsaRecalls ? (
@@ -2115,7 +2153,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Title History</h2>
 
         {!titleHistory ? (
@@ -2202,7 +2240,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Service History</h2>
 
         {!serviceHistory ? (
@@ -2268,7 +2306,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Valuation</h2>
 
         {!valuation ? (
@@ -2314,7 +2352,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Pipeline Status</h2>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
           <p>
@@ -2326,7 +2364,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             {claim.reviewSummaryStatus || 'NotRequested'}
           </p>
           <p>
-            <span className="font-medium text-slate-900">Summary Generated At:</span>{' '}
+            <span className="font-medium text-slate-900">Generated At:</span>{' '}
             {claim.reviewSummaryGeneratedAt ? formatDate(claim.reviewSummaryGeneratedAt) : '—'}
           </p>
           <p>
@@ -2348,7 +2386,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Activity Timeline</h2>
         <p className="text-sm text-slate-600">Timeline uses the latest persisted claim audit events.</p>
 
@@ -2401,7 +2439,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Debug Data</h2>
 
         <details className="rounded-md border border-slate-200 bg-slate-50 p-3">
