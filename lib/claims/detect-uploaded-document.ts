@@ -1,4 +1,4 @@
-import { PDFParse } from 'pdf-parse'
+import { readPdfTextConservatively } from './read-pdf-text'
 
 export type DetectedDocumentType = 'carfax' | 'autocheck' | 'choice_contract' | 'unknown'
 export type DocumentMatchStatus = 'matched' | 'possible_match' | 'conflict' | 'no_match' | 'pending'
@@ -27,36 +27,12 @@ export type DocumentDetectionResult = {
   processingStatus: 'classified' | 'pending'
 }
 
-function normalizeText(input: string): string {
-  return input.replace(/\s+/g, ' ').trim()
-}
-
 function normalizeToken(input: string): string {
   return input.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
 }
 
 async function extractPdfText(pdfBytes: Buffer): Promise<{ text: string; parseFailed: boolean }> {
-  try {
-    const parser = new PDFParse({ data: new Uint8Array(pdfBytes) })
-    const parsed = await parser.getText()
-    await parser.destroy()
-    const text = normalizeText(parsed.text || '')
-
-    if (text.length > 0) {
-      return {
-        text,
-        parseFailed: false
-      }
-    }
-  } catch {
-    // Fall through to conservative string fallback.
-  }
-
-  const fallbackText = normalizeText(pdfBytes.toString('latin1'))
-  return {
-    text: fallbackText,
-    parseFailed: true
-  }
+  return readPdfTextConservatively(pdfBytes)
 }
 
 function detectType(text: string): DetectedDocumentType {
