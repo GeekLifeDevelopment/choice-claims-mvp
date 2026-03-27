@@ -1,3 +1,4 @@
+import '../config/ensure-database-url'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../prisma'
 import { buildClaimEvaluationInput } from './claim-evaluation-input'

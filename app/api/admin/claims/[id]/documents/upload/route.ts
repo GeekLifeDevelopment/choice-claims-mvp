@@ -1,3 +1,4 @@
+import '../../../../../../../lib/config/ensure-database-url'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import {

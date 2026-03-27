@@ -1,3 +1,4 @@
+import '../config/ensure-database-url'
 import { Prisma } from '@prisma/client'
 import { ClaimStatus, type CreateClaimFromIntakeInput } from '../domain/claims'
 import { prisma } from '../prisma'
