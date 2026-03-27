@@ -14,7 +14,7 @@ const REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES = new Set([
 ])
 
 function buildReviewSummaryJobId(payload: ReviewSummaryJobPayload): string {
-  return `${JOB_NAMES.GENERATE_REVIEW_SUMMARY}:${payload.claimId}`
+  return `${JOB_NAMES.GENERATE_REVIEW_SUMMARY}__${payload.claimId}`
 }
 
 export type EnqueueReviewSummaryJobResult = {
