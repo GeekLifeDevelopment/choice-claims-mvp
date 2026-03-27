@@ -221,15 +221,6 @@ Expected response:
 	 - raw top-level keys
 	 - normalization + validation status
 
-Optional debug mode (temporary)
-
-- Set `COGNITO_WEBHOOK_DEBUG=true` to include extra response fields on successful POST:
-	- `topLevelKeys`
-	- `payloadPreview`
-	- `normalizedPayload`
-	- `createClaimInput`
-- Keep `COGNITO_WEBHOOK_DEBUG=false` for minimal response shape in normal operation.
-
 Local POST verification example
 
 ```bash
@@ -646,16 +637,13 @@ Sprint 2 admin async visibility (Ticket 9)
 	- attempt count
 	- last error and failure time
 	- last queue/job metadata
-- Detail page now includes a focused "Latest Async Audit Events" view for:
-	- `vin_lookup_enqueued`
-	- `vin_data_fetched`
-	- `vin_data_fetch_failed`
+- Detail page includes an activity timeline view for claim lifecycle and reviewer events.
 - Admin claims list now makes async outcomes easier to scan:
 	- clear status badges for `AwaitingVinData`, `ReadyForAI`, `ProviderFailed`, `ProcessingError`
 	- compact provider/attempt/error visibility
 	- simple status filter for async statuses
 	- failure rows highlighted for quick triage
-- Developer raw JSON debug section remains available on claim detail pages.
+- Developer-facing raw JSON debug panels were removed from claim detail pages for pre-beta cleanup.
 
 Sprint 3 OAuth-ready provider abstraction (Ticket 2)
 

@@ -35,7 +35,7 @@ function logConfigWarn(message: string, details?: unknown): void {
   console.warn(`[config] ${message}`)
 }
 
-function validateUrl(value: string, key: string): void {
+function validateUrl(value: string, key: string, logSuccess = true): void {
   try {
     const parsed = new URL(value)
 
@@ -59,7 +59,9 @@ function validateUrl(value: string, key: string): void {
       }
     }
 
-    logConfigInfo(`${key} ok`)
+    if (logSuccess) {
+      logConfigInfo(`${key} ok`)
+    }
   } catch {
     logConfigWarn(`${key} invalid URL`)
   }
@@ -78,13 +80,8 @@ function warnOptionalMissing(key: string, note: string): void {
   const result = readEnvValue(key)
   if (!result.value) {
     logConfigWarn(`${key} missing (${note})`)
-    return
-  }
-
-  logConfigInfo(`${key} ok`)
-
-  if (key.endsWith('_URL')) {
-    validateUrl(result.value, key)
+  } else if (key.endsWith('_URL')) {
+    validateUrl(result.value, key, false)
   }
 }
 
@@ -95,7 +92,7 @@ function warnOptionalUrl(key: string, note: string): void {
     return
   }
 
-  validateUrl(result.value, key)
+  validateUrl(result.value, key, false)
 }
 
 export function validateEnvConfig(scope: ValidationScope = 'app'): void {
@@ -126,10 +123,12 @@ export function validateEnvConfig(scope: ValidationScope = 'app'): void {
   }
 
   warnOptionalMissing('OPENAI_API_KEY', 'summary disabled')
+  warnOptionalMissing('CARFAX_API_KEY', 'carfax provider may be unavailable')
+  warnOptionalMissing('AUTOCHECK_API_KEY', 'autocheck provider may be unavailable')
   warnOptionalMissing('MARKETCHECK_API_KEY', 'stub mode')
-  warnOptionalMissing('TITLE_PROVIDER_KEY', 'title provider fallback/stub may apply')
-  warnOptionalMissing('SERVICE_PROVIDER_KEY', 'service provider fallback/stub may apply')
+  warnOptionalMissing('SERVICE_HISTORY_API_KEY', 'service provider fallback/stub may apply')
   warnOptionalMissing('VALUATION_API_KEY', 'valuation provider fallback/stub may apply')
+  warnOptionalMissing('AUTOCHECK_PROVIDER_DEBUG', 'provider debug logs default to disabled')
   warnOptionalUrl('MARKETCHECK_API_URL', 'decode provider uses default URL when omitted')
   warnOptionalUrl('SERVICE_HISTORY_API_URL', 'service provider fallback/stub may apply')
   warnOptionalUrl('VALUATION_API_URL', 'valuation provider fallback/stub may apply')
