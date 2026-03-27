@@ -20,9 +20,21 @@ function hasRequiredProviderGap(questions: QuestionForDecision[]): boolean {
   })
 }
 
+function getNoResultProviderCount(questions: QuestionForDecision[]): number {
+  return questions.filter((question) => question.providerStatus === 'no_result').length
+}
+
 export function calculateRecommendation(input: RecommendationInput): DecisionRecommendation {
   const scoredCount = input.questions.filter((question) => question.status === 'scored').length
   if (scoredCount === 0) {
+    return 'manual_review'
+  }
+
+  if (scoredCount < 2) {
+    return 'manual_review'
+  }
+
+  if (scoredCount < 3 && (input.overallCompleteness < 0.55 || input.overallConfidence < 0.55)) {
     return 'manual_review'
   }
 
@@ -34,7 +46,18 @@ export function calculateRecommendation(input: RecommendationInput): DecisionRec
     return 'manual_review'
   }
 
-  if (hasRequiredProviderGap(input.questions) && input.totalScore >= 75) {
+  const requiredProviderGap = hasRequiredProviderGap(input.questions)
+  const noResultProviderCount = getNoResultProviderCount(input.questions)
+
+  if (requiredProviderGap && input.totalScore >= 75) {
+    return 'manual_review'
+  }
+
+  if (noResultProviderCount >= 2 && input.totalScore >= 75) {
+    return 'manual_review'
+  }
+
+  if (input.totalScore >= 75 && (input.overallCompleteness < 0.7 || input.overallConfidence < 0.65)) {
     return 'manual_review'
   }
 
