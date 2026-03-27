@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
+import { readRuntimeEnv } from '../../../../lib/config/runtime-env'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET() {
-  const databaseUrl = process.env.DATABASE_URL?.trim() || ''
-  const directUrl = process.env.DIRECT_URL?.trim() || ''
-  const nextPublicAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || ''
-  const redisUrl = process.env.REDIS_URL?.trim() || ''
+  const databaseUrl = readRuntimeEnv('DATABASE_URL') || ''
+  const directUrl = readRuntimeEnv('DIRECT_URL') || ''
+  const nextPublicAppUrl = readRuntimeEnv('NEXT_PUBLIC_APP_URL') || ''
+  const redisUrl = readRuntimeEnv('REDIS_URL') || ''
 
   return NextResponse.json(
     {
@@ -18,15 +19,15 @@ export async function GET() {
       hasRedisUrl: redisUrl.length > 0,
       databaseUrlLength: databaseUrl.length,
       directUrlLength: directUrl.length,
-      nodeEnv: process.env.NODE_ENV || null,
+      nodeEnv: readRuntimeEnv('NODE_ENV'),
       netlify: {
-        siteName: process.env.SITE_NAME || null,
-        context: process.env.CONTEXT || null,
-        branch: process.env.BRANCH || null,
-        deployId: process.env.DEPLOY_ID || null,
-        deployUrl: process.env.DEPLOY_URL || null,
-        url: process.env.URL || null,
-        netlifyFlag: process.env.NETLIFY || null
+        siteName: readRuntimeEnv('SITE_NAME'),
+        context: readRuntimeEnv('CONTEXT'),
+        branch: readRuntimeEnv('BRANCH'),
+        deployId: readRuntimeEnv('DEPLOY_ID'),
+        deployUrl: readRuntimeEnv('DEPLOY_URL'),
+        url: readRuntimeEnv('URL'),
+        netlifyFlag: readRuntimeEnv('NETLIFY')
       }
     },
     {

@@ -1,16 +1,17 @@
 import type { PrismaClient as PrismaClientType } from '@prisma/client'
+import { readRuntimeEnv } from './config/runtime-env'
 
 declare global {
   var __prismaEnvDiagnosticsLogged: boolean | undefined
 }
 
 function getResolvedDatabaseUrl(): string | null {
-  const databaseUrl = process.env.DATABASE_URL?.trim()
+  const databaseUrl = readRuntimeEnv('DATABASE_URL')
   if (databaseUrl) {
     return databaseUrl
   }
 
-  const directUrl = process.env.DIRECT_URL?.trim()
+  const directUrl = readRuntimeEnv('DIRECT_URL')
   if (directUrl) {
     return directUrl
   }
@@ -22,10 +23,10 @@ const resolvedDatabaseUrl = getResolvedDatabaseUrl()
 
 if (!globalThis.__prismaEnvDiagnosticsLogged) {
   console.info('[prisma] env diagnostics', {
-    hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
-    hasDirectUrl: Boolean(process.env.DIRECT_URL?.trim()),
+    hasDatabaseUrl: Boolean(readRuntimeEnv('DATABASE_URL')),
+    hasDirectUrl: Boolean(readRuntimeEnv('DIRECT_URL')),
     hasResolvedDatabaseUrl: Boolean(resolvedDatabaseUrl),
-    nodeEnv: process.env.NODE_ENV || null
+    nodeEnv: readRuntimeEnv('NODE_ENV')
   })
   globalThis.__prismaEnvDiagnosticsLogged = true
 }

@@ -1,10 +1,12 @@
+import { readRuntimeEnv } from './runtime-env'
+
 declare global {
   var __databaseUrlFallbackLogged: boolean | undefined
 }
 
-const databaseUrl = process.env.DATABASE_URL?.trim()
+const databaseUrl = readRuntimeEnv('DATABASE_URL')
 if (!databaseUrl) {
-  const directUrl = process.env.DIRECT_URL?.trim()
+  const directUrl = readRuntimeEnv('DIRECT_URL')
   if (directUrl) {
     process.env.DATABASE_URL = directUrl
 
