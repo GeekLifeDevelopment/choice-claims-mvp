@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "next dev",
+    "build": "next build",
     "prisma:generate": "prisma generate",
     "start": "next start",
     "lint": "next lint",
@@ -27,10 +27,10 @@
     "bullmq": "^5.58.5",
     "dotenv": "^17.3.1",
     "heic2any": "^0.0.4",
-    "next": "latest",
+    "next": "15.5.8",
     "pdf-parse": "^2.4.5",
-    "react": "latest",
-    "react-dom": "latest",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
