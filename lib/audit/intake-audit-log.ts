@@ -151,6 +151,34 @@ type LogClaimDocumentMatchEvaluatedInput = CommonAuditInput & {
   anchors?: Prisma.InputJsonValue
 }
 
+type LogClaimDocumentExtractionAttemptedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+}
+
+type LogClaimDocumentExtractionResultInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  extractionStatus: string
+  extractedAt?: Date | string | null
+  extractedData?: Prisma.InputJsonValue
+  extractionWarnings?: Prisma.InputJsonValue
+}
+
+function getExtractedFieldCount(extractedData?: Prisma.InputJsonValue): number | null {
+  if (!extractedData || typeof extractedData !== 'object' || Array.isArray(extractedData)) {
+    return null
+  }
+
+  return Object.keys(extractedData as Record<string, unknown>).length
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -389,6 +417,100 @@ export async function logClaimDocumentMatchEvaluatedAudit(input: LogClaimDocumen
       matchNotes: input.matchNotes ?? null,
       anchors: input.anchors ?? null,
       message: `Document match status: ${input.matchStatus}`
+    }
+  })
+}
+
+export async function logClaimDocumentExtractionAttemptedAudit(input: LogClaimDocumentExtractionAttemptedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_extraction_attempted',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      message: `Extraction attempted for ${input.documentType} document`
+    }
+  })
+}
+
+export async function logClaimDocumentExtractionSucceededAudit(input: LogClaimDocumentExtractionResultInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_extraction_succeeded',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      extractionStatus: input.extractionStatus,
+      extractedAt: input.extractedAt ?? null,
+      extractedFieldCount: getExtractedFieldCount(input.extractedData),
+      extractionWarnings: input.extractionWarnings ?? null,
+      message: `Document extraction succeeded (${input.extractionStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentExtractionPartialAudit(input: LogClaimDocumentExtractionResultInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_extraction_partial',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      extractionStatus: input.extractionStatus,
+      extractedAt: input.extractedAt ?? null,
+      extractedFieldCount: getExtractedFieldCount(input.extractedData),
+      extractionWarnings: input.extractionWarnings ?? null,
+      message: `Document extraction partial (${input.extractionStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentExtractionFailedAudit(input: LogClaimDocumentExtractionResultInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_extraction_failed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      extractionStatus: input.extractionStatus,
+      extractedAt: input.extractedAt ?? null,
+      extractionWarnings: input.extractionWarnings ?? null,
+      message: `Document extraction failed (${input.extractionStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentExtractionSkippedAudit(input: LogClaimDocumentExtractionResultInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_extraction_skipped',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      extractionStatus: input.extractionStatus,
+      extractedAt: input.extractedAt ?? null,
+      extractionWarnings: input.extractionWarnings ?? null,
+      message: `Document extraction skipped (${input.extractionStatus})`
     }
   })
 }

@@ -185,6 +185,11 @@ function getAuditActionLabel(action: string): string {
     claim_document_uploaded: 'Document uploaded',
     claim_document_classified: 'Document classified',
     claim_document_match_evaluated: 'Document match evaluated',
+    claim_document_extraction_attempted: 'Document extraction attempted',
+    claim_document_extraction_succeeded: 'Document extraction succeeded',
+    claim_document_extraction_partial: 'Document extraction partial',
+    claim_document_extraction_failed: 'Document extraction failed',
+    claim_document_extraction_skipped: 'Document extraction skipped',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -222,7 +227,11 @@ function getTimelineEventBadgeClassName(action: string): string {
   if (
     action === 'claim_document_uploaded' ||
     action === 'claim_document_classified' ||
-    action === 'claim_document_match_evaluated'
+    action === 'claim_document_match_evaluated' ||
+    action === 'claim_document_extraction_attempted' ||
+    action === 'claim_document_extraction_succeeded' ||
+    action === 'claim_document_extraction_partial' ||
+    action === 'claim_document_extraction_skipped'
   ) {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
@@ -258,6 +267,16 @@ function getTimelineEventBadgeText(action: string): string {
 
   if (action === 'claim_document_classified' || action === 'claim_document_match_evaluated') {
     return 'Document'
+  }
+
+  if (
+    action === 'claim_document_extraction_attempted' ||
+    action === 'claim_document_extraction_succeeded' ||
+    action === 'claim_document_extraction_partial' ||
+    action === 'claim_document_extraction_skipped' ||
+    action === 'claim_document_extraction_failed'
+  ) {
+    return 'Extraction'
   }
 
   if (action.includes('failed') || action.includes('error')) {
@@ -296,6 +315,10 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const documentType = getOptionalString(record.documentType)
   const matchStatus = getOptionalString(record.matchStatus)
   const matchNotes = getOptionalString(record.matchNotes)
+  const extractionStatus = getOptionalString(record.extractionStatus)
+  const extractedAt = getOptionalString(record.extractedAt)
+  const extractedFieldCount = getOptionalNumber(record.extractedFieldCount)
+  const extractionWarnings = getOptionalStringArray(record.extractionWarnings)
   const fileSize = getOptionalNumber(record.fileSize)
 
   const rows: Array<{ label: string; value: string }> = []
@@ -333,7 +356,14 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
     }
   }
 
-  if (action === 'claim_document_uploaded') {
+  if (
+    action === 'claim_document_uploaded' ||
+    action === 'claim_document_extraction_attempted' ||
+    action === 'claim_document_extraction_succeeded' ||
+    action === 'claim_document_extraction_partial' ||
+    action === 'claim_document_extraction_failed' ||
+    action === 'claim_document_extraction_skipped'
+  ) {
     if (fileName) {
       rows.push({ label: 'File', value: fileName })
     }
@@ -369,6 +399,22 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
     if (documentId) {
       rows.push({ label: 'Document ID', value: documentId })
     }
+
+    if (extractionStatus) {
+      rows.push({ label: 'Extraction Status', value: extractionStatus })
+    }
+
+    if (extractedAt) {
+      rows.push({ label: 'Extracted At', value: extractedAt })
+    }
+
+    if (extractedFieldCount !== null) {
+      rows.push({ label: 'Extracted Fields', value: String(extractedFieldCount) })
+    }
+
+    if (extractionWarnings.length > 0) {
+      rows.push({ label: 'Warnings', value: extractionWarnings.join(' | ') })
+    }
   }
 
   if (reason) {
@@ -394,6 +440,14 @@ function getOptionalNumber(value: unknown): number | null {
 
 function getOptionalBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
+}
+
+function getOptionalStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.map((entry) => getOptionalString(entry)).filter((entry): entry is string => Boolean(entry))
 }
 
 function formatDetectedDocumentType(value: string | null | undefined): string {
@@ -484,6 +538,114 @@ function getDocumentAnchorSummary(value: unknown): string {
   }
 
   return pieces.length > 0 ? pieces.join(' | ') : '—'
+}
+
+function formatDocumentExtractionStatus(value: string | null | undefined): string {
+  if (!value) {
+    return 'Pending'
+  }
+
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function getDocumentExtractionBadgeClassName(value: string | null | undefined): string {
+  const base = BADGE_BASE_CLASSNAME
+
+  if (value === 'extracted') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (value === 'partial') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (value === 'failed') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  if (value === 'skipped') {
+    return `${base} border-slate-300 bg-slate-50 text-slate-700`
+  }
+
+  return `${base} border-sky-300 bg-sky-50 text-sky-700`
+}
+
+function getDocumentExtractionSummary(documentType: string | null | undefined, extractedData: unknown): string {
+  const record = asRecord(extractedData)
+  if (Object.keys(record).length === 0) {
+    return '—'
+  }
+
+  const pieces: string[] = []
+  const vin = getOptionalString(record.vin)
+  if (vin) {
+    pieces.push(`VIN ${vin}`)
+  }
+
+  const mileage = getOptionalNumber(record.lastReportedMileage) ?? getOptionalNumber(record.mileageAtSale)
+  if (mileage !== null) {
+    pieces.push(`Mileage ${String(mileage)}`)
+  }
+
+  const ownerCount = getOptionalNumber(record.ownerCount)
+  if (ownerCount !== null) {
+    pieces.push(`Owners ${String(ownerCount)}`)
+  }
+
+  if (documentType === 'carfax') {
+    const recalls = getOptionalString(record.openRecallSummary)
+    const serviceCount = getOptionalNumber(record.serviceHistoryCount)
+    if (recalls) {
+      pieces.push(`Recalls ${recalls}`)
+    }
+    if (serviceCount !== null) {
+      pieces.push(`Service ${String(serviceCount)}`)
+    }
+  }
+
+  if (documentType === 'autocheck') {
+    const recalls = getOptionalString(record.openRecallSummary)
+    const serviceCount = getOptionalNumber(record.serviceRecordCount)
+    const odometer = getOptionalString(record.odometerCheckSummary)
+    if (recalls) {
+      pieces.push(`Recalls ${recalls}`)
+    }
+    if (serviceCount !== null) {
+      pieces.push(`Service ${String(serviceCount)}`)
+    }
+    if (odometer) {
+      pieces.push(`Odometer ${odometer}`)
+    }
+  }
+
+  if (documentType === 'choice_contract') {
+    const plan = getOptionalString(record.coverageLevel)
+    const termMonths = getOptionalNumber(record.termMonths)
+    const termMiles = getOptionalNumber(record.termMiles)
+    const deductible = getOptionalNumber(record.deductible)
+
+    if (plan) {
+      pieces.push(`Plan ${plan}`)
+    }
+    if (termMonths !== null || termMiles !== null) {
+      const months = termMonths !== null ? `${String(termMonths)}mo` : '—'
+      const miles = termMiles !== null ? `${String(termMiles)}mi` : '—'
+      pieces.push(`Term ${months}/${miles}`)
+    }
+    if (deductible !== null) {
+      pieces.push(`Deductible $${String(deductible)}`)
+    }
+  }
+
+  return pieces.length > 0 ? pieces.join(' | ') : '—'
+}
+
+function getDocumentExtractionWarnings(value: unknown): string {
+  const warnings = getOptionalStringArray(value)
+  return warnings.length > 0 ? warnings.join(' | ') : '—'
 }
 
 type NhtsaRecallItem = {
@@ -1308,6 +1470,19 @@ function isMissingClaimDocumentMetadataFieldError(error: unknown): boolean {
   )
 }
 
+function isMissingClaimDocumentExtractionFieldError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientValidationError)) {
+    return false
+  }
+
+  return (
+    error.message.includes('Unknown field `extractionStatus`') ||
+    error.message.includes('Unknown field `extractedAt`') ||
+    error.message.includes('Unknown field `extractedData`') ||
+    error.message.includes('Unknown field `extractionWarnings`')
+  )
+}
+
 function isMissingClaimDocumentsTableError(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
     return false
@@ -1407,8 +1582,32 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         processingStatus: true,
         documentType: true,
         matchStatus: true,
-          matchNotes: true,
-          parsedAnchors: true,
+        matchNotes: true,
+        parsedAnchors: true,
+        extractionStatus: true,
+        extractedAt: true,
+        extractedData: true,
+        extractionWarnings: true,
+        uploadedAt: true
+      }
+    }
+  } satisfies Prisma.ClaimSelect
+
+  const claimSelectWithDocumentsWithoutExtraction = {
+    ...claimSelectBase,
+    claimDocuments: {
+      orderBy: { uploadedAt: 'desc' },
+      select: {
+        id: true,
+        fileName: true,
+        mimeType: true,
+        fileSize: true,
+        uploadedBy: true,
+        processingStatus: true,
+        documentType: true,
+        matchStatus: true,
+        matchNotes: true,
+        parsedAnchors: true,
         uploadedAt: true
       }
     }
@@ -1443,12 +1642,60 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     const isMissingDocumentsField = isMissingClaimDocumentsFieldError(error)
     const isMissingDocumentsTable = isMissingClaimDocumentsTableError(error)
     const isMissingDocumentMetadataField = isMissingClaimDocumentMetadataFieldError(error)
+    const isMissingDocumentExtractionField = isMissingClaimDocumentExtractionFieldError(error)
 
-    if (!isMissingDocumentsField && !isMissingDocumentsTable && !isMissingDocumentMetadataField) {
+    if (
+      !isMissingDocumentsField &&
+      !isMissingDocumentsTable &&
+      !isMissingDocumentMetadataField &&
+      !isMissingDocumentExtractionField
+    ) {
       throw error
     }
 
-    if (isMissingDocumentMetadataField) {
+    if (isMissingDocumentExtractionField) {
+      console.warn('[claim_document] extraction fields unavailable; using metadata-only select', {
+        claimId: id,
+        reason: 'missing_extraction_field_in_client'
+      })
+
+      try {
+        claimRecord = (await prisma.claim.findUnique({
+          where: { id },
+          select: claimSelectWithDocumentsWithoutExtraction
+        })) as Record<string, unknown> | null
+      } catch (withoutExtractionError) {
+        const withoutExtractionMissingMetadata = isMissingClaimDocumentMetadataFieldError(withoutExtractionError)
+        const withoutExtractionMissingRelation = isMissingClaimDocumentsFieldError(withoutExtractionError)
+        const withoutExtractionMissingTable = isMissingClaimDocumentsTableError(withoutExtractionError)
+
+        if (!withoutExtractionMissingMetadata && !withoutExtractionMissingRelation && !withoutExtractionMissingTable) {
+          throw withoutExtractionError
+        }
+
+        if (withoutExtractionMissingMetadata) {
+          console.warn('[claim_document] metadata fields unavailable after extraction fallback; using legacy select', {
+            claimId: id,
+            reason: 'missing_document_metadata_field_in_client'
+          })
+
+          claimRecord = (await prisma.claim.findUnique({
+            where: { id },
+            select: claimSelectWithDocumentsLegacy
+          })) as Record<string, unknown> | null
+        } else {
+          console.warn('[claim_document] claimDocuments unavailable after extraction fallback; using base select', {
+            claimId: id,
+            reason: withoutExtractionMissingRelation ? 'missing_relation_in_client' : 'missing_table_in_database'
+          })
+
+          claimRecord = (await prisma.claim.findUnique({
+            where: { id },
+            select: claimSelectBase
+          })) as Record<string, unknown> | null
+        }
+      }
+    } else if (isMissingDocumentMetadataField) {
       console.warn('[claim_document] claimDocuments metadata fields unavailable; using legacy select', {
         claimId: id,
         reason: 'missing_document_metadata_field_in_client'
@@ -1499,7 +1746,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     claim.claimDocuments = claim.claimDocuments.map((document: any) => ({
       ...document,
       matchNotes: document.matchNotes ?? null,
-      parsedAnchors: document.parsedAnchors ?? null
+      parsedAnchors: document.parsedAnchors ?? null,
+      extractionStatus: document.extractionStatus ?? 'pending',
+      extractedAt: document.extractedAt ?? null,
+      extractedData: document.extractedData ?? null,
+      extractionWarnings: document.extractionWarnings ?? null
     }))
   }
 
@@ -2419,6 +2670,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                   <th className="py-2 pr-4 font-medium">Match</th>
                   <th className="py-2 pr-4 font-medium">Match Note</th>
                   <th className="py-2 pr-4 font-medium">Anchors</th>
+                  <th className="py-2 pr-4 font-medium">Extraction</th>
+                  <th className="py-2 pr-4 font-medium">Extracted Summary</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
                   <th className="py-2 pr-4 font-medium">Uploaded</th>
                   <th className="py-2 pr-4 font-medium">By</th>
@@ -2449,6 +2702,19 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     </td>
                     <td className="py-2 pr-4 text-slate-700">{document.matchNotes || '—'}</td>
                     <td className="py-2 pr-4 text-slate-700">{getDocumentAnchorSummary(document.parsedAnchors)}</td>
+                    <td className="py-2 pr-4">
+                      <span className={getDocumentExtractionBadgeClassName(document.extractionStatus)}>
+                        {formatDocumentExtractionStatus(document.extractionStatus)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4 text-slate-700">
+                      <div className="space-y-1">
+                        <p>{getDocumentExtractionSummary(document.documentType, document.extractedData)}</p>
+                        {document.extractionWarnings ? (
+                          <p className="text-xs text-amber-800">Warnings: {getDocumentExtractionWarnings(document.extractionWarnings)}</p>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="py-2 pr-4 text-slate-700">{document.processingStatus || 'uploaded'}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatDate(document.uploadedAt)}</td>
                     <td className="py-2 pr-4 text-slate-700">{document.uploadedBy || '—'}</td>
