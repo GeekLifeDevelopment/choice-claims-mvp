@@ -1,0 +1,3 @@
+ALTER TABLE "ClaimDocument"
+ADD COLUMN IF NOT EXISTS "matchNotes" TEXT,
+ADD COLUMN IF NOT EXISTS "parsedAnchors" JSONB;

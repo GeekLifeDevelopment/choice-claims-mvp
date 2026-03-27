@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
-import { logClaimDocumentUploadedAudit } from '../../../../../../../lib/audit/intake-audit-log'
+import { Prisma } from '@prisma/client'
+import {
+  logClaimDocumentClassifiedAudit,
+  logClaimDocumentMatchEvaluatedAudit,
+  logClaimDocumentUploadedAudit
+} from '../../../../../../../lib/audit/intake-audit-log'
 import { removeClaimDocumentFile, saveClaimDocumentFile } from '../../../../../../../lib/claims/claim-document-storage'
+import { detectAndMatchUploadedDocument } from '../../../../../../../lib/claims/detect-uploaded-document'
 import { prisma } from '../../../../../../../lib/prisma'
 
 type RouteContext = {
@@ -46,7 +52,9 @@ export async function POST(request: Request, context: RouteContext) {
     where: { id },
     select: {
       id: true,
-      claimNumber: true
+      claimNumber: true,
+      vin: true,
+      claimantName: true
     }
   })
 
@@ -114,7 +122,9 @@ export async function POST(request: Request, context: RouteContext) {
           uploadedBy,
           processingStatus: 'uploaded',
           documentType: null,
-          matchStatus: null
+          matchStatus: null,
+          matchNotes: null,
+          parsedAnchors: Prisma.JsonNull
         },
         select: {
           id: true,
@@ -127,17 +137,93 @@ export async function POST(request: Request, context: RouteContext) {
         }
       })
 
+      let detectionResult
+
+      try {
+        detectionResult = await detectAndMatchUploadedDocument({
+          fileName: file.fileName,
+          pdfBytes: file.bytes,
+          claimVin: claim.vin,
+          claimantName: claim.claimantName
+        })
+      } catch (error) {
+        console.warn('[claim_document] detection failed, marking pending', {
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: document.id,
+          fileName: file.fileName,
+          error: error instanceof Error ? error.message : 'unknown_error'
+        })
+
+        detectionResult = {
+          documentType: 'unknown',
+          matchStatus: 'pending',
+          matchNotes: 'Document parsing failed. Match verification is pending.',
+          anchors: {
+            vin: null,
+            claimantName: null,
+            mileage: null,
+            contractDate: null,
+            purchaseDate: null,
+            agreementDate: null
+          },
+          processingStatus: 'pending'
+        }
+      }
+
+      const updatedDocument = await prisma.claimDocument.update({
+        where: { id: document.id },
+        data: {
+          documentType: detectionResult.documentType,
+          matchStatus: detectionResult.matchStatus,
+          matchNotes: detectionResult.matchNotes,
+          parsedAnchors: detectionResult.anchors,
+          processingStatus: detectionResult.processingStatus
+        },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          fileSize: true,
+          uploadedBy: true,
+          processingStatus: true,
+          documentType: true,
+          matchStatus: true,
+          matchNotes: true,
+          parsedAnchors: true
+        }
+      })
+
       await logClaimDocumentUploadedAudit({
         claimId: claim.id,
         claimNumber: claim.claimNumber,
-        documentId: document.id,
-        fileName: document.fileName,
-        mimeType: document.mimeType,
-        fileSize: document.fileSize,
+        documentId: updatedDocument.id,
+        fileName: updatedDocument.fileName,
+        mimeType: updatedDocument.mimeType,
+        fileSize: updatedDocument.fileSize,
         uploadedBy,
-        processingStatus: document.processingStatus,
-        documentType: document.documentType,
-        matchStatus: document.matchStatus
+        processingStatus: updatedDocument.processingStatus,
+        documentType: updatedDocument.documentType,
+        matchStatus: updatedDocument.matchStatus
+      })
+
+      await logClaimDocumentClassifiedAudit({
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        documentId: updatedDocument.id,
+        fileName: updatedDocument.fileName,
+        documentType: updatedDocument.documentType || 'unknown',
+        processingStatus: updatedDocument.processingStatus
+      })
+
+      await logClaimDocumentMatchEvaluatedAudit({
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        documentId: updatedDocument.id,
+        fileName: updatedDocument.fileName,
+        matchStatus: updatedDocument.matchStatus || 'pending',
+        matchNotes: updatedDocument.matchNotes,
+        anchors: updatedDocument.parsedAnchors ?? undefined
       })
 
       uploadedCount += 1

@@ -183,6 +183,8 @@ function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
     claim_created: 'Claim created',
     claim_document_uploaded: 'Document uploaded',
+    claim_document_classified: 'Document classified',
+    claim_document_match_evaluated: 'Document match evaluated',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -217,7 +219,15 @@ function getTimelineEventBadgeClassName(action: string): string {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
 
-  if (action === 'claim_document_uploaded') {
+  if (
+    action === 'claim_document_uploaded' ||
+    action === 'claim_document_classified' ||
+    action === 'claim_document_match_evaluated'
+  ) {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (action === 'claim_document_classified' || action === 'claim_document_match_evaluated') {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
 
@@ -243,6 +253,10 @@ function getTimelineEventBadgeText(action: string): string {
   }
 
   if (action === 'claim_document_uploaded') {
+    return 'Document'
+  }
+
+  if (action === 'claim_document_classified' || action === 'claim_document_match_evaluated') {
     return 'Document'
   }
 
@@ -281,6 +295,7 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const processingStatus = getOptionalString(record.processingStatus)
   const documentType = getOptionalString(record.documentType)
   const matchStatus = getOptionalString(record.matchStatus)
+  const matchNotes = getOptionalString(record.matchNotes)
   const fileSize = getOptionalNumber(record.fileSize)
 
   const rows: Array<{ label: string; value: string }> = []
@@ -347,6 +362,10 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
       rows.push({ label: 'Match Status', value: matchStatus })
     }
 
+    if (matchNotes) {
+      rows.push({ label: 'Match Notes', value: matchNotes })
+    }
+
     if (documentId) {
       rows.push({ label: 'Document ID', value: documentId })
     }
@@ -375,6 +394,96 @@ function getOptionalNumber(value: unknown): number | null {
 
 function getOptionalBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
+}
+
+function formatDetectedDocumentType(value: string | null | undefined): string {
+  if (value === 'carfax') {
+    return 'CARFAX'
+  }
+
+  if (value === 'autocheck') {
+    return 'AutoCheck'
+  }
+
+  if (value === 'choice_contract') {
+    return 'Choice Contract'
+  }
+
+  return 'Unknown'
+}
+
+function formatDocumentMatchStatus(value: string | null | undefined): string {
+  if (!value) {
+    return 'Pending'
+  }
+
+  if (value === 'possible_match') {
+    return 'Possible match'
+  }
+
+  if (value === 'no_match') {
+    return 'No match'
+  }
+
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function getDocumentMatchBadgeClassName(value: string | null | undefined): string {
+  const base = BADGE_BASE_CLASSNAME
+
+  if (value === 'matched') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (value === 'possible_match') {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (value === 'conflict' || value === 'no_match') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  return `${base} border-amber-300 bg-amber-50 text-amber-900`
+}
+
+function getDocumentAnchorSummary(value: unknown): string {
+  const record = asRecord(value)
+  const pieces: string[] = []
+
+  const vin = getOptionalString(record.vin)
+  if (vin) {
+    pieces.push(`VIN ${vin}`)
+  }
+
+  const claimantName = getOptionalString(record.claimantName)
+  if (claimantName) {
+    pieces.push(`Name ${claimantName}`)
+  }
+
+  const mileage = getOptionalNumber(record.mileage)
+  if (mileage !== null) {
+    pieces.push(`Mileage ${String(mileage)}`)
+  }
+
+  const contractDate = getOptionalString(record.contractDate)
+  if (contractDate) {
+    pieces.push(`Contract date ${contractDate}`)
+  }
+
+  const purchaseDate = getOptionalString(record.purchaseDate)
+  if (purchaseDate) {
+    pieces.push(`Purchase date ${purchaseDate}`)
+  }
+
+  const agreementDate = getOptionalString(record.agreementDate)
+  if (agreementDate) {
+    pieces.push(`Agreement date ${agreementDate}`)
+  }
+
+  return pieces.length > 0 ? pieces.join(' | ') : '—'
 }
 
 type NhtsaRecallItem = {
@@ -1188,6 +1297,17 @@ function isMissingClaimDocumentsFieldError(error: unknown): boolean {
   return error.message.includes('Unknown field `claimDocuments`')
 }
 
+function isMissingClaimDocumentMetadataFieldError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientValidationError)) {
+    return false
+  }
+
+  return (
+    error.message.includes('Unknown field `matchNotes`') ||
+    error.message.includes('Unknown field `parsedAnchors`')
+  )
+}
+
 function isMissingClaimDocumentsTableError(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
     return false
@@ -1287,6 +1407,26 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         processingStatus: true,
         documentType: true,
         matchStatus: true,
+          matchNotes: true,
+          parsedAnchors: true,
+        uploadedAt: true
+      }
+    }
+  } satisfies Prisma.ClaimSelect
+
+  const claimSelectWithDocumentsLegacy = {
+    ...claimSelectBase,
+    claimDocuments: {
+      orderBy: { uploadedAt: 'desc' },
+      select: {
+        id: true,
+        fileName: true,
+        mimeType: true,
+        fileSize: true,
+        uploadedBy: true,
+        processingStatus: true,
+        documentType: true,
+        matchStatus: true,
         uploadedAt: true
       }
     }
@@ -1300,29 +1440,67 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       select: claimSelectWithDocuments
     })) as Record<string, unknown> | null
   } catch (error) {
-    if (!isMissingClaimDocumentsFieldError(error) && !isMissingClaimDocumentsTableError(error)) {
+    const isMissingDocumentsField = isMissingClaimDocumentsFieldError(error)
+    const isMissingDocumentsTable = isMissingClaimDocumentsTableError(error)
+    const isMissingDocumentMetadataField = isMissingClaimDocumentMetadataFieldError(error)
+
+    if (!isMissingDocumentsField && !isMissingDocumentsTable && !isMissingDocumentMetadataField) {
       throw error
     }
 
-    const reason = isMissingClaimDocumentsFieldError(error)
-      ? 'missing_relation_in_client'
-      : 'missing_table_in_database'
+    if (isMissingDocumentMetadataField) {
+      console.warn('[claim_document] claimDocuments metadata fields unavailable; using legacy select', {
+        claimId: id,
+        reason: 'missing_document_metadata_field_in_client'
+      })
 
-    console.warn('[claim_document] claimDocuments unavailable; falling back', {
-      claimId: id,
-      reason
-    })
+      try {
+        claimRecord = (await prisma.claim.findUnique({
+          where: { id },
+          select: claimSelectWithDocumentsLegacy
+        })) as Record<string, unknown> | null
+      } catch (legacyError) {
+        if (!isMissingClaimDocumentsFieldError(legacyError) && !isMissingClaimDocumentsTableError(legacyError)) {
+          throw legacyError
+        }
 
-    claimRecord = (await prisma.claim.findUnique({
-      where: { id },
-      select: claimSelectBase
-    })) as Record<string, unknown> | null
+        console.warn('[claim_document] claimDocuments relation unavailable after legacy fallback; using base select', {
+          claimId: id,
+          reason: isMissingClaimDocumentsFieldError(legacyError)
+            ? 'missing_relation_in_client'
+            : 'missing_table_in_database'
+        })
+
+        claimRecord = (await prisma.claim.findUnique({
+          where: { id },
+          select: claimSelectBase
+        })) as Record<string, unknown> | null
+      }
+    } else {
+      console.warn('[claim_document] claimDocuments unavailable; falling back', {
+        claimId: id,
+        reason: isMissingDocumentsField ? 'missing_relation_in_client' : 'missing_table_in_database'
+      })
+
+      claimRecord = (await prisma.claim.findUnique({
+        where: { id },
+        select: claimSelectBase
+      })) as Record<string, unknown> | null
+    }
   }
 
   const claim = claimRecord as any
 
   if (claim && !Array.isArray(claim.claimDocuments)) {
     claim.claimDocuments = []
+  }
+
+  if (claim && Array.isArray(claim.claimDocuments)) {
+    claim.claimDocuments = claim.claimDocuments.map((document: any) => ({
+      ...document,
+      matchNotes: document.matchNotes ?? null,
+      parsedAnchors: document.parsedAnchors ?? null
+    }))
   }
 
   if (!claim) {
@@ -2237,8 +2415,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <thead>
                 <tr className="border-b text-left text-slate-600">
                   <th className="py-2 pr-4 font-medium">File</th>
+                  <th className="py-2 pr-4 font-medium">Detected Type</th>
+                  <th className="py-2 pr-4 font-medium">Match</th>
+                  <th className="py-2 pr-4 font-medium">Match Note</th>
+                  <th className="py-2 pr-4 font-medium">Anchors</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
-                  <th className="py-2 pr-4 font-medium">Type</th>
                   <th className="py-2 pr-4 font-medium">Uploaded</th>
                   <th className="py-2 pr-4 font-medium">By</th>
                   <th className="py-2 pr-4 font-medium">Size</th>
@@ -2260,8 +2441,15 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         </a>
                       </div>
                     </td>
+                    <td className="py-2 pr-4 text-slate-700">{formatDetectedDocumentType(document.documentType)}</td>
+                    <td className="py-2 pr-4">
+                      <span className={getDocumentMatchBadgeClassName(document.matchStatus)}>
+                        {formatDocumentMatchStatus(document.matchStatus)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4 text-slate-700">{document.matchNotes || '—'}</td>
+                    <td className="py-2 pr-4 text-slate-700">{getDocumentAnchorSummary(document.parsedAnchors)}</td>
                     <td className="py-2 pr-4 text-slate-700">{document.processingStatus || 'uploaded'}</td>
-                    <td className="py-2 pr-4 text-slate-700">{document.documentType || document.matchStatus || '—'}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatDate(document.uploadedAt)}</td>
                     <td className="py-2 pr-4 text-slate-700">{document.uploadedBy || '—'}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatFileSize(document.fileSize)}</td>

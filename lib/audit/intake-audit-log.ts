@@ -132,6 +132,25 @@ type LogClaimDocumentUploadedInput = CommonAuditInput & {
   matchStatus?: string | null
 }
 
+type LogClaimDocumentClassifiedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  processingStatus: string
+}
+
+type LogClaimDocumentMatchEvaluatedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  matchStatus: string
+  matchNotes?: string | null
+  anchors?: Prisma.InputJsonValue
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -335,6 +354,41 @@ export async function logClaimDocumentUploadedAudit(input: LogClaimDocumentUploa
       documentType: input.documentType ?? null,
       matchStatus: input.matchStatus ?? null,
       message: `Uploaded supporting document: ${input.fileName}`
+    }
+  })
+}
+
+export async function logClaimDocumentClassifiedAudit(input: LogClaimDocumentClassifiedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_classified',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      processingStatus: input.processingStatus,
+      message: `Document classified as ${input.documentType}`
+    }
+  })
+}
+
+export async function logClaimDocumentMatchEvaluatedAudit(input: LogClaimDocumentMatchEvaluatedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_match_evaluated',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      matchStatus: input.matchStatus,
+      matchNotes: input.matchNotes ?? null,
+      anchors: input.anchors ?? null,
+      message: `Document match status: ${input.matchStatus}`
     }
   })
 }
