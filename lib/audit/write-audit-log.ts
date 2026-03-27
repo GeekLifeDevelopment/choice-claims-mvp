@@ -1,3 +1,4 @@
+import '../config/ensure-database-url'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { prisma } from '../prisma'
 import type { AuditAction } from '../domain/audit'

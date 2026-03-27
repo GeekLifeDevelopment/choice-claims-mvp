@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import type { PrismaClient as PrismaClientType } from '@prisma/client'
 
 function getResolvedDatabaseUrl(): string | null {
   const databaseUrl = process.env.DATABASE_URL?.trim()
@@ -25,8 +25,13 @@ if (!resolvedDatabaseUrl) {
   console.warn('[prisma] missing DATABASE_URL and DIRECT_URL; database queries will fail')
 }
 
+// Load Prisma client after env fallback is in place to avoid import-time schema env failures.
+const { PrismaClient } = require('@prisma/client') as {
+  PrismaClient: new (...args: any[]) => PrismaClientType
+}
+
 declare global {
-  var prisma: PrismaClient | undefined
+  var prisma: PrismaClientType | undefined
 }
 
 export const prisma =
