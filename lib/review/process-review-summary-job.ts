@@ -411,7 +411,8 @@ async function callOpenAiChatCompletions(systemMessage: string, userMessage: str
 
 async function callOpenAiForAdjudicationFindings(
   systemMessage: string,
-  userMessage: string
+  userMessage: string,
+  context: { claimId: string }
 ): Promise<AdjudicationAiExtractionOutcome> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -430,7 +431,11 @@ async function callOpenAiForAdjudicationFindings(
     const raw = await callOpenAiChatCompletions(systemMessage, userMessage, 700)
     const trimmed = raw.trim()
     if (!trimmed) {
-      console.warn('[adjudication_ai] empty extraction response; continuing without AI findings')
+      console.warn('[adjudication_ai] empty extraction response; continuing without AI findings', {
+        claimId: context.claimId,
+        stage: 'adjudication_extraction',
+        action: 'parse_response'
+      })
       return {
         findings: [],
         malformedJson: false,
@@ -448,17 +453,27 @@ async function callOpenAiForAdjudicationFindings(
 
     if (parsed.malformedJson) {
       console.warn('[adjudication_ai] malformed JSON detected; salvaged parse result used', {
+        claimId: context.claimId,
+        stage: 'adjudication_extraction',
+        action: 'parse_response',
         acceptedCount: parsed.findings.length,
         rejectedCount: parsed.rejectedCount
       })
     }
 
     if (parsed.findingsInputCount === 0) {
-      console.warn('[adjudication_ai] extraction returned empty findings payload')
+      console.warn('[adjudication_ai] extraction returned empty findings payload', {
+        claimId: context.claimId,
+        stage: 'adjudication_extraction',
+        action: 'validate_findings'
+      })
     }
 
     if (parsed.rejectedCount > 0) {
       console.warn('[adjudication_ai] rejected findings during validation', {
+        claimId: context.claimId,
+        stage: 'adjudication_extraction',
+        action: 'validate_findings',
         rejectedCount: parsed.rejectedCount,
         acceptedCount: parsed.findings.length
       })
@@ -466,6 +481,9 @@ async function callOpenAiForAdjudicationFindings(
 
     if (lowConfidenceCount > 0) {
       console.info('[adjudication_ai] low-confidence findings detected', {
+        claimId: context.claimId,
+        stage: 'adjudication_extraction',
+        action: 'validate_findings',
         lowConfidenceCount,
         acceptedCount: parsed.findings.length
       })
@@ -481,6 +499,9 @@ async function callOpenAiForAdjudicationFindings(
     }
   } catch (error) {
     console.warn('[adjudication_ai] extraction failed; continuing without AI findings', {
+      claimId: context.claimId,
+      stage: 'adjudication_extraction',
+      action: 'call_openai',
       error: error instanceof Error ? error.message : 'unknown_error'
     })
     return {
@@ -519,7 +540,11 @@ async function persistReviewSummaryFailure(
   })
 }
 
-async function callOpenAiForReviewSummary(systemMessage: string, userMessage: string): Promise<string> {
+async function callOpenAiForReviewSummary(
+  systemMessage: string,
+  userMessage: string,
+  context: { claimId: string }
+): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     logProviderHealth({
@@ -527,7 +552,10 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       capability: 'summary_generation',
       event: 'unconfigured',
       mode: 'unconfigured',
-      reason: 'missing_openai_api_key'
+      reason: 'missing_openai_api_key',
+      claimId: context.claimId,
+      stage: 'review_summary',
+      action: 'call_openai'
     })
 
     throw new Error('OPENAI_API_KEY is not configured.')
@@ -538,7 +566,10 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
     capability: 'summary_generation',
     event: 'configured',
     mode: 'live',
-    source: DEFAULT_OPENAI_MODEL
+    source: DEFAULT_OPENAI_MODEL,
+    claimId: context.claimId,
+    stage: 'review_summary',
+    action: 'call_openai'
   })
 
   const timeoutMs = getOpenAiTimeoutMs()
@@ -577,10 +608,14 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
         capability: 'summary_generation',
         event: 'live_failure',
         mode: 'failed',
-        reason: 'openai_timeout'
+        reason: 'openai_timeout',
+        claimId: context.claimId,
+        stage: 'review_summary',
+        action: 'call_openai'
       })
 
       console.warn('[summary] openai timeout', {
+        claimId: context.claimId,
         timeoutMs,
         model: DEFAULT_OPENAI_MODEL
       })
@@ -596,10 +631,14 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       event: 'live_failure',
       mode: 'failed',
       reason: 'openai_network_error',
-      details: error instanceof Error ? error.message : undefined
+      details: error instanceof Error ? error.message : undefined,
+      claimId: context.claimId,
+      stage: 'review_summary',
+      action: 'call_openai'
     })
 
     console.error('[summary] openai network_error', {
+      claimId: context.claimId,
       model: DEFAULT_OPENAI_MODEL,
       error: error instanceof Error ? error.message : 'Unknown OpenAI network error'
     })
@@ -627,10 +666,14 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       mode: 'failed',
       status: response.status,
       reason: 'openai_http_error',
-      details: errorBody.slice(0, 300)
+      details: errorBody.slice(0, 300),
+      claimId: context.claimId,
+      stage: 'review_summary',
+      action: 'call_openai'
     })
 
     console.warn(`[summary] openai ${failureCategory}`, {
+      claimId: context.claimId,
       status: response.status,
       model: DEFAULT_OPENAI_MODEL
     })
@@ -659,10 +702,14 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       capability: 'summary_generation',
       event: 'live_failure',
       mode: 'failed',
-      reason: 'openai_invalid_json'
+      reason: 'openai_invalid_json',
+      claimId: context.claimId,
+      stage: 'review_summary',
+      action: 'parse_response'
     })
 
     console.warn('[summary] openai bad_response', {
+      claimId: context.claimId,
       reason: 'openai_invalid_json',
       model: DEFAULT_OPENAI_MODEL
     })
@@ -681,10 +728,14 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
       capability: 'summary_generation',
       event: 'capability_unavailable',
       mode: 'failed',
-      reason: 'empty_summary_text'
+      reason: 'empty_summary_text',
+      claimId: context.claimId,
+      stage: 'review_summary',
+      action: 'parse_response'
     })
 
     console.warn('[summary] openai bad_response', {
+      claimId: context.claimId,
       reason: 'empty_summary_text',
       model: DEFAULT_OPENAI_MODEL
     })
@@ -699,7 +750,10 @@ async function callOpenAiForReviewSummary(systemMessage: string, userMessage: st
     capability: 'summary_generation',
     event: 'live_success',
     mode: 'live',
-    source: DEFAULT_OPENAI_MODEL
+    source: DEFAULT_OPENAI_MODEL,
+    claimId: context.claimId,
+    stage: 'review_summary',
+    action: 'parse_response'
   })
 
   return text
@@ -889,7 +943,9 @@ export async function processReviewSummaryJob(
     let usedFallbackSummary = false
 
     try {
-      reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage)
+      reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage, {
+        claimId: claim.id
+      })
     } catch (error) {
       usedFallbackSummary = true
       const reason = error instanceof Error ? error.message : 'unknown_error'
@@ -929,7 +985,9 @@ export async function processReviewSummaryJob(
         skipReason: extractionSkip.reason
       }
     } else {
-      aiExtractionOutcome = await callOpenAiForAdjudicationFindings(aiPrompt.systemMessage, aiPrompt.userMessage)
+      aiExtractionOutcome = await callOpenAiForAdjudicationFindings(aiPrompt.systemMessage, aiPrompt.userMessage, {
+        claimId: claim.id
+      })
     }
 
     const safeReviewSummaryText = ensureSummarySafetyLanguage(
