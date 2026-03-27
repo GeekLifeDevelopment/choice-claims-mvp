@@ -7,6 +7,7 @@ export const DEFAULT_MARKETCHECK_TITLE_HISTORY_ACCESS_PATH = '/v2/vindata/aamva/
 export const DEFAULT_MARKETCHECK_VALUATION_PATH = '/v2/predict/car/price'
 export const DEFAULT_NHTSA_RECALLS_BASE_URL = 'https://api.nhtsa.gov'
 export const DEFAULT_VIN_SPEC_FALLBACK_BASE_URL = 'https://vpic.nhtsa.dot.gov/api/vehicles'
+export const DEFAULT_PCMI_TOKEN_PATH = '/Pcmi.Web.Sts/token'
 
 export type ProviderCredentialConfig = {
   apiKey: string | null
@@ -17,6 +18,7 @@ export type ProviderConfigStatus = {
   carfaxConfigured: boolean
   autoCheckConfigured: boolean
   experianOAuthConfigured: boolean
+  pcmiOAuthConfigured: boolean
   marketCheckConfigured: boolean
   titleHistoryConfigured: boolean
   serviceHistoryConfigured: boolean
@@ -57,6 +59,15 @@ export type ValuationProviderConfig = {
 }
 
 export type ExperianOAuthConfig = {
+  baseUrl: string | null
+  tokenUrl: string | null
+  username: string | null
+  password: string | null
+  clientId: string | null
+  clientSecret: string | null
+}
+
+export type PcmiOAuthConfig = {
   baseUrl: string | null
   tokenUrl: string | null
   username: string | null
@@ -113,6 +124,18 @@ function getDerivedExperianTokenUrl(baseUrl: string | null): string | null {
 
   try {
     return new URL(DEFAULT_EXPERIAN_TOKEN_PATH, `${baseUrl}/`).toString()
+  } catch {
+    return null
+  }
+}
+
+function getDerivedPcmiTokenUrl(baseUrl: string | null): string | null {
+  if (!baseUrl) {
+    return null
+  }
+
+  try {
+    return new URL(DEFAULT_PCMI_TOKEN_PATH, `${baseUrl}/`).toString()
   } catch {
     return null
   }
@@ -229,6 +252,20 @@ export function getExperianOAuthConfig(): ExperianOAuthConfig {
   }
 }
 
+export function getPcmiOAuthConfig(): PcmiOAuthConfig {
+  const baseUrl = normalizeBaseUrl(readOptionalEnv('PCMI_BASE_URL'))
+  const explicitTokenUrl = readOptionalEnv('PCMI_TOKEN_URL')
+
+  return {
+    baseUrl,
+    tokenUrl: explicitTokenUrl ?? getDerivedPcmiTokenUrl(baseUrl),
+    username: readOptionalEnv('PCMI_USERNAME'),
+    password: readOptionalEnv('PCMI_PASSWORD'),
+    clientId: readOptionalEnv('PCMI_CLIENT_ID'),
+    clientSecret: readOptionalEnv('PCMI_CLIENT_SECRET')
+  }
+}
+
 export function getExperianVinSpecsConfig(): ExperianVinSpecsConfig {
   return {
     targetPath: normalizeTargetPath(readOptionalEnv('EXPERIAN_VINSPECS_TARGET_PATH')),
@@ -264,6 +301,19 @@ export function hasExperianOAuthConfig(): boolean {
   )
 }
 
+export function hasPcmiOAuthConfig(): boolean {
+  const config = getPcmiOAuthConfig()
+
+  return Boolean(
+    config.baseUrl &&
+      config.tokenUrl &&
+      config.username &&
+      config.password &&
+      config.clientId &&
+      config.clientSecret
+  )
+}
+
 export function hasTitleHistoryProviderConfig(): boolean {
   const config = getTitleHistoryProviderConfig()
   return Boolean(config.apiKey)
@@ -285,6 +335,7 @@ export function getProviderConfigStatus(): ProviderConfigStatus {
     carfaxConfigured: hasCarfaxProviderConfig(),
     autoCheckConfigured: hasAutoCheckProviderConfig(),
     experianOAuthConfigured: hasExperianOAuthConfig(),
+    pcmiOAuthConfigured: hasPcmiOAuthConfig(),
     marketCheckConfigured: hasMarketCheckProviderConfig(),
     titleHistoryConfigured: hasTitleHistoryProviderConfig(),
     serviceHistoryConfigured: hasServiceHistoryProviderConfig(),
