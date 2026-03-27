@@ -73,6 +73,8 @@ export type AdjudicationResult = {
 
 const ADJUDICATION_RESULT_VERSION = 's8_5_ticket5_v1'
 const AI_INTERPRETATION_QUESTION_ID_SET = new Set<string>(ADJUDICATION_AI_SUPPORTED_QUESTION_IDS)
+const MIN_AI_CONFIDENCE_FOR_SCORED = 0.55
+const MIN_AI_EXPLANATION_CHARS_FOR_SCORED = 24
 
 function buildQuestion(
   input: Pick<AdjudicationQuestionResult, 'id' | 'title' | 'sourceType' | 'status' | 'score' | 'explanation' | 'providerStatus'> & {
@@ -110,7 +112,8 @@ function resolveCompleteness(scoredCount: number, totalCount: number): Adjudicat
 
 function mergeAiFindingsIntoQuestions(
   questions: AdjudicationQuestionResult[],
-  aiFindings: AdjudicationAiFinding[]
+  aiFindings: AdjudicationAiFinding[],
+  hasAttachments: boolean
 ): AdjudicationQuestionResult[] {
   if (aiFindings.length === 0) {
     return questions
@@ -129,6 +132,36 @@ function mergeAiFindingsIntoQuestions(
     const aiFinding = findingsByQuestion.get(question.id)
     if (!aiFinding) {
       return question
+    }
+
+    const aiConfidence = typeof aiFinding.confidence === 'number' ? aiFinding.confidence : undefined
+    const explanationLength = aiFinding.explanation.trim().length
+    const hasEvidence = aiFinding.evidence.length > 0
+    const hasScore = typeof aiFinding.scoreSuggestion === 'number'
+
+    const weakScoredFinding =
+      aiFinding.status === 'scored' &&
+      (!hasScore ||
+        !hasEvidence ||
+        explanationLength < MIN_AI_EXPLANATION_CHARS_FOR_SCORED ||
+        aiConfidence === undefined ||
+        aiConfidence < MIN_AI_CONFIDENCE_FOR_SCORED)
+
+    const unsupportedDocumentFinding =
+      aiFinding.sourceType === 'documents' &&
+      !hasAttachments &&
+      (aiFinding.questionId === 'document_match' || aiFinding.questionId === 'image_modifications')
+
+    if (weakScoredFinding || unsupportedDocumentFinding) {
+      return {
+        ...question,
+        status: 'insufficient_data',
+        score: null,
+        explanation: `${question.explanation} AI extraction was available but considered low-confidence for this question.`,
+        evidence: question.evidence,
+        confidence: Math.min(question.confidence ?? 0, 0.35),
+        sourceType: question.sourceType
+      }
     }
 
     return {
@@ -196,8 +229,25 @@ function applyQuestionMetadata(
 ): AdjudicationQuestionResult[] {
   const vinDataResultRecord = asRecord(input.vinDataResult)
   const claimSnapshotRecord = asRecord(input.evaluationInput.snapshot)
+  const attachmentsRecord = asRecord(claimSnapshotRecord.attachments)
+  const hasAttachments =
+    typeof attachmentsRecord.count === 'number' && Number.isFinite(attachmentsRecord.count)
+      ? attachmentsRecord.count > 0
+      : false
   const aiFindingsByQuestion = new Map<string, AdjudicationAiFinding>(
-    (input.aiFindings ?? []).map((finding) => [finding.questionId, finding])
+    (input.aiFindings ?? [])
+      .filter((finding) => {
+        if (finding.sourceType !== 'documents') {
+          return true
+        }
+
+        if (finding.status !== 'scored') {
+          return true
+        }
+
+        return hasAttachments
+      })
+      .map((finding) => [finding.questionId, finding])
   )
 
   return questions.map((question) => {
@@ -372,7 +422,7 @@ export function buildAdjudicationResult(input: {
       })
   ]
 
-  const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
+  const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [], hasAttachments)
   const questions = applyQuestionMetadata(mergedQuestions, input)
   const scoredQuestions = questions.filter((question) => question.status === 'scored' && question.score !== null)
   const totalScore = computeDeterministicTotalScore(questions)
