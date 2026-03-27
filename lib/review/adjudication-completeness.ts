@@ -30,7 +30,7 @@ export function calculateQuestionCompleteness(input: CompletenessInput): number 
   }
 
   if (input.providerStatus === 'no_result') {
-    completeness = Math.min(completeness, 0.65)
+    completeness = Math.min(completeness, 0.55)
   }
 
   return round(clamp(completeness, 0, 1))

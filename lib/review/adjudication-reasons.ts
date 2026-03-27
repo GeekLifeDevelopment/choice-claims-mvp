@@ -20,6 +20,7 @@ function unique(values: string[]): string[] {
 
 export function buildDecisionReasons(input: ReasonInput): string[] {
   const reasons: string[] = []
+  const scoredQuestions = input.questions.filter((question) => question.status === 'scored' && question.score !== null)
 
   for (const question of input.questions) {
     if (question.id === 'branded_title' && question.score !== null && question.score <= 40) {
@@ -76,6 +77,38 @@ export function buildDecisionReasons(input: ReasonInput): string[] {
       providerStatus === 'no_result'
     )
   }).length
+
+  const noResultProviderCount = input.questions.filter((question) => {
+    const providerStatus = question.providerStatus ?? ''
+    return providerStatus === 'no_result'
+  }).length
+
+  const hardProviderGapCount = input.questions.filter((question) => {
+    const providerStatus = question.providerStatus ?? ''
+    return (
+      question.status === 'provider_unavailable' ||
+      providerStatus === 'not_configured' ||
+      providerStatus === 'error'
+    )
+  }).length
+
+  if (scoredQuestions.length < 2) {
+    reasons.push('Too few reliable scored questions')
+  }
+
+  const hasHighScoreSignal = scoredQuestions.some((question) => (question.score ?? 0) >= 75)
+  const hasLowScoreSignal = scoredQuestions.some((question) => (question.score ?? 100) <= 40)
+  if (hasHighScoreSignal && hasLowScoreSignal) {
+    reasons.push('Conflicting scored signals require manual review')
+  }
+
+  if (noResultProviderCount >= 2) {
+    reasons.push('Multiple providers returned no-result data')
+  }
+
+  if (hardProviderGapCount >= 2) {
+    reasons.push('Critical provider gaps limit adjudication trust')
+  }
 
   if (missingProviderCount >= 2 || input.overallConfidence < 0.4) {
     reasons.push('Low confidence due to missing providers')

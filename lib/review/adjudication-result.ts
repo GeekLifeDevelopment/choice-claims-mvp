@@ -73,8 +73,20 @@ export type AdjudicationResult = {
 
 const ADJUDICATION_RESULT_VERSION = 's8_5_ticket5_v1'
 const AI_INTERPRETATION_QUESTION_ID_SET = new Set<string>(ADJUDICATION_AI_SUPPORTED_QUESTION_IDS)
-const MIN_AI_CONFIDENCE_FOR_SCORED = 0.55
-const MIN_AI_EXPLANATION_CHARS_FOR_SCORED = 24
+const MIN_TRUSTED_AI_CONFIDENCE = 0.45
+
+function normalizeAiConfidence(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+
+  const normalized = value > 1 ? value / 100 : value
+  if (!Number.isFinite(normalized)) {
+    return null
+  }
+
+  return Math.min(1, Math.max(0, normalized))
+}
 
 function buildQuestion(
   input: Pick<AdjudicationQuestionResult, 'id' | 'title' | 'sourceType' | 'status' | 'score' | 'explanation' | 'providerStatus'> & {
@@ -134,33 +146,11 @@ function mergeAiFindingsIntoQuestions(
       return question
     }
 
-    const aiConfidence = typeof aiFinding.confidence === 'number' ? aiFinding.confidence : undefined
-    const explanationLength = aiFinding.explanation.trim().length
-    const hasEvidence = aiFinding.evidence.length > 0
-    const hasScore = typeof aiFinding.scoreSuggestion === 'number'
-
-    const weakScoredFinding =
-      aiFinding.status === 'scored' &&
-      (!hasScore ||
-        !hasEvidence ||
-        explanationLength < MIN_AI_EXPLANATION_CHARS_FOR_SCORED ||
-        aiConfidence === undefined ||
-        aiConfidence < MIN_AI_CONFIDENCE_FOR_SCORED)
-
-    const unsupportedDocumentFinding =
-      aiFinding.sourceType === 'documents' &&
-      !hasAttachments &&
-      (aiFinding.questionId === 'document_match' || aiFinding.questionId === 'image_modifications')
-
-    if (weakScoredFinding || unsupportedDocumentFinding) {
+    const aiConfidence = normalizeAiConfidence(aiFinding.confidence)
+    if (aiConfidence !== null && aiConfidence < MIN_TRUSTED_AI_CONFIDENCE) {
       return {
         ...question,
-        status: 'insufficient_data',
-        score: null,
-        explanation: `${question.explanation} AI extraction was available but considered low-confidence for this question.`,
-        evidence: question.evidence,
-        confidence: Math.min(question.confidence ?? 0, 0.35),
-        sourceType: question.sourceType
+        explanation: `${question.explanation} Low-confidence AI finding ignored for scoring.`
       }
     }
 
@@ -170,7 +160,7 @@ function mergeAiFindingsIntoQuestions(
       score: aiFinding.status === 'scored' ? aiFinding.scoreSuggestion ?? null : null,
       explanation: aiFinding.explanation,
       evidence: aiFinding.evidence,
-      confidence: aiFinding.confidence ?? question.confidence,
+      confidence: aiConfidence ?? question.confidence,
       sourceType: aiFinding.sourceType
     }
   })
@@ -202,6 +192,14 @@ function normalizeQuestionConsistency(
 
   if (providerStatus === 'no_result' && status === 'provider_unavailable' && question.sourceType === 'provider') {
     status = 'insufficient_data'
+  }
+
+  if (providerStatus === 'no_result' && status === 'scored' && question.sourceType === 'provider') {
+    status = 'insufficient_data'
+    score = null
+    if (!/no[- ]result|no records|no_result/i.test(explanation)) {
+      explanation = `${explanation} Provider returned no-result data; score suppressed.`
+    }
   }
 
   if (status !== 'scored') {

@@ -117,6 +117,10 @@ function resolveServiceHistoryStatus(vinDataResult: Record<string, unknown>): Pr
     return 'no_result'
   }
 
+  if (eventCount === 0 && events === 0) {
+    return 'no_result'
+  }
+
   return 'ok'
 }
 
@@ -132,6 +136,10 @@ function resolveRecallsStatus(vinDataResult: Record<string, unknown>): ProviderS
 
   const count = typeof recalls.count === 'number' ? recalls.count : null
   if (count === null) {
+    return 'no_result'
+  }
+
+  if (count === 0) {
     return 'no_result'
   }
 

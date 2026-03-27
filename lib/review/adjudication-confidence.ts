@@ -29,7 +29,7 @@ export function calculateQuestionConfidence(input: ConfidenceInput): number {
   }
 
   if (input.providerStatus === 'no_result') {
-    confidence *= 0.8
+    confidence *= 0.72
   }
 
   if (typeof input.aiConfidence === 'number' && Number.isFinite(input.aiConfidence)) {
@@ -41,7 +41,7 @@ export function calculateQuestionConfidence(input: ConfidenceInput): number {
   }
 
   if (input.status === 'not_applicable') {
-    confidence = Math.max(confidence, 0.85)
+    confidence = Math.min(Math.max(confidence, 0.3), 0.45)
   }
 
   return round(clamp(confidence, 0, 1))
