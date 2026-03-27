@@ -28,6 +28,7 @@
     "dotenv": "^17.3.1",
     "heic2any": "^0.0.4",
     "next": "latest",
+    "pdf-parse": "^2.4.5",
     "react": "latest",
     "react-dom": "latest",
     "zod": "^3.24.1"

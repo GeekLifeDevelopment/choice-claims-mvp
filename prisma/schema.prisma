@@ -72,6 +72,8 @@ model ClaimDocument {
   processingStatus String   @default("uploaded")
   documentType     String?
   matchStatus      String?
+  matchNotes       String?
+  parsedAnchors    Json?
   uploadedAt       DateTime @default(now())
 
   claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)

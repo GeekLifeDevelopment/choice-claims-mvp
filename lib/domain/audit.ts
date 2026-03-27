@@ -3,6 +3,8 @@ export type AuditAction =
   | 'duplicate_blocked'
   | 'duplicate_replay_ignored'
   | 'claim_document_uploaded'
+  | 'claim_document_classified'
+  | 'claim_document_match_evaluated'
   | 'vin_lookup_enqueued'
   | 'vin_lookup_requeued'
   | 'review_summary_regenerate_queued'
