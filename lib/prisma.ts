@@ -1,5 +1,9 @@
 import type { PrismaClient as PrismaClientType } from '@prisma/client'
 
+declare global {
+  var __prismaEnvDiagnosticsLogged: boolean | undefined
+}
+
 function getResolvedDatabaseUrl(): string | null {
   const databaseUrl = process.env.DATABASE_URL?.trim()
   if (databaseUrl) {
@@ -15,6 +19,16 @@ function getResolvedDatabaseUrl(): string | null {
 }
 
 const resolvedDatabaseUrl = getResolvedDatabaseUrl()
+
+if (!globalThis.__prismaEnvDiagnosticsLogged) {
+  console.info('[prisma] env diagnostics', {
+    hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
+    hasDirectUrl: Boolean(process.env.DIRECT_URL?.trim()),
+    hasResolvedDatabaseUrl: Boolean(resolvedDatabaseUrl),
+    nodeEnv: process.env.NODE_ENV || null
+  })
+  globalThis.__prismaEnvDiagnosticsLogged = true
+}
 
 // Prisma schema uses DATABASE_URL; keep it populated for Prisma internals and logs.
 if (!process.env.DATABASE_URL && resolvedDatabaseUrl) {
