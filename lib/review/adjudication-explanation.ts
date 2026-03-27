@@ -33,8 +33,19 @@ export function buildDecisionExplanation(input: {
 }): string {
   const keyReasons = input.reasons.slice(0, 3)
   const reasonsText = joinReasons(keyReasons)
+  const hasSparseSignalsReason = input.reasons.some((reason) => /too few reliable scored questions/i.test(reason))
+  const hasNoResultReason = input.reasons.some((reason) => /no-result/i.test(reason))
+  const hasProviderGapReason = input.reasons.some((reason) => /provider gap|missing providers/i.test(reason))
 
   if (input.recommendation === 'manual_review') {
+    if (hasSparseSignalsReason || input.overallCompleteness < 0.45) {
+      return 'Manual review recommended because adjudication evidence is too sparse for a trustworthy automated decision.'
+    }
+
+    if (hasProviderGapReason || hasNoResultReason) {
+      return 'Manual review recommended because provider coverage is incomplete and available evidence is not sufficient for a confident decision.'
+    }
+
     if (reasonsText) {
       return `Manual review recommended due to ${reasonsText}.`
     }
@@ -51,6 +62,10 @@ export function buildDecisionExplanation(input: {
   }
 
   if (input.recommendation === 'partial') {
+    if (hasProviderGapReason || hasNoResultReason) {
+      return 'Partial approval recommended with caution because only part of the expected provider evidence is available.'
+    }
+
     if (reasonsText) {
       return `Partial approval recommended due to mixed evidence: ${reasonsText}.`
     }
