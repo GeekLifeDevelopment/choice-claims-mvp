@@ -2,6 +2,7 @@ export type AuditAction =
   | 'claim_created'
   | 'duplicate_blocked'
   | 'duplicate_replay_ignored'
+  | 'claim_document_uploaded'
   | 'vin_lookup_enqueued'
   | 'vin_lookup_requeued'
   | 'review_summary_regenerate_queued'
