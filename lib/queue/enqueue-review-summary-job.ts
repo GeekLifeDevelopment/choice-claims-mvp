@@ -31,7 +31,9 @@ export async function enqueueReviewSummaryJob(
   const queue = getQueue(queueName)
   const jobId = buildReviewSummaryJobId(payload)
 
-  console.info('[summary] enqueue start', {
+  console.info('[queue_enqueue] start', {
+    stage: 'enqueue',
+    action: 'start',
     queueName,
     jobName,
     jobId,
@@ -45,7 +47,9 @@ export async function enqueueReviewSummaryJob(
       const existingState = await existingJob.getState()
 
       if (REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES.has(existingState)) {
-        console.info('[summary] enqueue skipped duplicate in-flight job', {
+        console.info('[queue_enqueue] duplicate_in_flight', {
+          stage: 'enqueue',
+          action: 'skip',
           queueName,
           jobName,
           jobId,
@@ -71,7 +75,9 @@ export async function enqueueReviewSummaryJob(
       }
     })
 
-    console.info('[summary] enqueue success', {
+    console.info('[queue_enqueue] success', {
+      stage: 'enqueue',
+      action: 'add_job',
       queueName,
       jobName,
       jobId: job.id?.toString(),
@@ -85,9 +91,12 @@ export async function enqueueReviewSummaryJob(
       jobId: job.id?.toString()
     }
   } catch (error) {
-    console.error('[summary] enqueue failed', {
+    console.error('[queue_enqueue] failed', {
+      stage: 'enqueue',
+      action: 'add_job',
       queueName,
       jobName,
+      jobId,
       claimId: payload.claimId,
       claimNumber: payload.claimNumber,
       error

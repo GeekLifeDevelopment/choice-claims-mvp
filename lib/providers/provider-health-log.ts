@@ -15,6 +15,10 @@ export type ProviderHealthLogInput = {
   capability: string
   event: ProviderHealthEvent
   mode: ProviderMode
+  claimId?: string
+  jobId?: string
+  stage?: string
+  action?: string
   vin?: string
   source?: string
   reason?: string
@@ -115,6 +119,22 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
     payload.vin = input.vin
   }
 
+  if (input.claimId) {
+    payload.claimId = input.claimId
+  }
+
+  if (input.jobId) {
+    payload.jobId = input.jobId
+  }
+
+  if (input.stage) {
+    payload.stage = input.stage
+  }
+
+  if (input.action) {
+    payload.action = input.action
+  }
+
   if (input.source) {
     payload.source = input.source
   }
@@ -145,6 +165,22 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
     compactPayload.status = input.status
   }
 
+  if (input.claimId) {
+    compactPayload.claimId = input.claimId
+  }
+
+  if (input.jobId) {
+    compactPayload.jobId = input.jobId
+  }
+
+  if (input.stage) {
+    compactPayload.stage = input.stage
+  }
+
+  if (input.action) {
+    compactPayload.action = input.action
+  }
+
   if (input.vin) {
     compactPayload.vin = input.vin
   }
@@ -164,8 +200,8 @@ export function logProviderHealth(input: ProviderHealthLogInput): void {
   }
 
   const compactMessage = failureCategory
-    ? `[provider] ${input.provider} ${failureCategory}`
-    : `[provider] ${input.provider} ${status}`
+    ? `[provider_health] ${input.provider} ${failureCategory}`
+    : `[provider_health] ${input.provider} ${status}`
 
   if (shouldWarn) {
     console.warn(compactMessage, compactPayload)

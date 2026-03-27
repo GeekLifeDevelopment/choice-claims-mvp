@@ -330,12 +330,18 @@ async function lookupTitleHistoryBestEffort(
   }
 ): Promise<TitleHistoryResult> {
   if (!isFeatureEnabled('enrichment')) {
-    console.info('[feature] enrichment disabled')
+    log('feature disabled', {
+      ...context,
+      feature: 'enrichment'
+    })
     return buildTitleHistoryFallbackResult('enrichment_disabled')
   }
 
   if (!isFeatureEnabled('title_history')) {
-    console.info('[feature] title history disabled')
+    log('feature disabled', {
+      ...context,
+      feature: 'title_history'
+    })
     return buildTitleHistoryFallbackResult('title_history_feature_disabled')
   }
 
@@ -375,12 +381,18 @@ async function lookupServiceHistoryBestEffort(
   }
 ): Promise<ServiceHistoryResult> {
   if (!isFeatureEnabled('enrichment')) {
-    console.info('[feature] enrichment disabled')
+    log('feature disabled', {
+      ...context,
+      feature: 'enrichment'
+    })
     return buildServiceHistoryFallbackResult('enrichment_disabled')
   }
 
   if (!isFeatureEnabled('service_history')) {
-    console.info('[feature] service history disabled')
+    log('feature disabled', {
+      ...context,
+      feature: 'service_history'
+    })
     return buildServiceHistoryFallbackResult('service_history_feature_disabled')
   }
 
@@ -418,12 +430,18 @@ async function lookupValuationBestEffort(
   }
 ): Promise<ValuationResult> {
   if (!isFeatureEnabled('enrichment')) {
-    console.info('[feature] enrichment disabled')
+    log('feature disabled', {
+      ...context,
+      feature: 'enrichment'
+    })
     return buildValuationFallbackResult('enrichment_disabled')
   }
 
   if (!isFeatureEnabled('valuation')) {
-    console.info('[feature] valuation disabled')
+    log('feature disabled', {
+      ...context,
+      feature: 'valuation'
+    })
     return buildValuationFallbackResult('valuation_feature_disabled')
   }
 
@@ -753,7 +771,14 @@ async function run() {
 
       try {
         if (!isFeatureEnabled('enrichment')) {
-          console.info('[feature] enrichment disabled')
+          log('feature disabled', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            feature: 'enrichment'
+          })
 
           const persistedVinDataResult: Prisma.InputJsonObject = {
             vin,
@@ -877,7 +902,14 @@ async function run() {
         let valuation: ValuationResult = buildValuationFallbackResult('valuation_not_attempted')
 
         if (!isFeatureEnabled('recalls')) {
-          console.info('[feature] recalls disabled')
+          log('feature disabled', {
+            queueName: QUEUE_NAMES.VIN_DATA,
+            jobName: job.name,
+            jobId: job.id,
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            feature: 'recalls'
+          })
           nhtsaRecalls = buildNhtsaRecallsFallbackResult('recalls_feature_disabled')
         } else {
           try {
@@ -1129,7 +1161,14 @@ async function run() {
           let valuationFromFallback: ValuationResult = buildValuationFallbackResult('valuation_not_attempted')
 
           if (!isFeatureEnabled('recalls')) {
-            console.info('[feature] recalls disabled')
+            log('feature disabled', {
+              queueName: QUEUE_NAMES.VIN_DATA,
+              jobName: job.name,
+              jobId: job.id,
+              claimId: claim.id,
+              claimNumber: claim.claimNumber,
+              feature: 'recalls'
+            })
             nhtsaRecallsFromFallback = buildNhtsaRecallsFallbackResult('recalls_feature_disabled')
           } else {
             try {
