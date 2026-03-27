@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import {
+  logClaimDocumentExtractionAttemptedAudit,
+  logClaimDocumentExtractionFailedAudit,
+  logClaimDocumentExtractionPartialAudit,
+  logClaimDocumentExtractionSkippedAudit,
+  logClaimDocumentExtractionSucceededAudit,
   logClaimDocumentClassifiedAudit,
   logClaimDocumentMatchEvaluatedAudit,
   logClaimDocumentUploadedAudit
 } from '../../../../../../../lib/audit/intake-audit-log'
 import { removeClaimDocumentFile, saveClaimDocumentFile } from '../../../../../../../lib/claims/claim-document-storage'
-import { detectAndMatchUploadedDocument } from '../../../../../../../lib/claims/detect-uploaded-document'
+import {
+  detectAndMatchUploadedDocument,
+  type DocumentDetectionResult
+} from '../../../../../../../lib/claims/detect-uploaded-document'
+import { extractUploadedDocumentData } from '../../../../../../../lib/claims/extract-uploaded-document'
 import { prisma } from '../../../../../../../lib/prisma'
 
 type RouteContext = {
@@ -111,8 +120,25 @@ export async function POST(request: Request, context: RouteContext) {
       content: file.bytes
     })
 
+    let createdDocument: {
+      id: string
+      fileName: string
+      mimeType: string
+      fileSize: number
+      uploadedBy: string | null
+      processingStatus: string
+      documentType: string | null
+      matchStatus: string | null
+      matchNotes: string | null
+      parsedAnchors: Prisma.JsonValue | null
+      extractionStatus: string
+      extractedAt: Date | null
+      extractedData: Prisma.JsonValue | null
+      extractionWarnings: Prisma.JsonValue | null
+    } | null = null
+
     try {
-      const document = await prisma.claimDocument.create({
+      createdDocument = await prisma.claimDocument.create({
         data: {
           claimId: claim.id,
           fileName: file.fileName,
@@ -124,20 +150,50 @@ export async function POST(request: Request, context: RouteContext) {
           documentType: null,
           matchStatus: null,
           matchNotes: null,
-          parsedAnchors: Prisma.JsonNull
+          parsedAnchors: Prisma.JsonNull,
+          extractionStatus: 'pending',
+          extractedAt: null,
+          extractedData: Prisma.JsonNull,
+          extractionWarnings: Prisma.JsonNull
         },
         select: {
           id: true,
           fileName: true,
           mimeType: true,
           fileSize: true,
+          uploadedBy: true,
           processingStatus: true,
           documentType: true,
-          matchStatus: true
+          matchStatus: true,
+          matchNotes: true,
+          parsedAnchors: true,
+          extractionStatus: true,
+          extractedAt: true,
+          extractedData: true,
+          extractionWarnings: true
         }
       })
+    } catch (error) {
+      await removeClaimDocumentFile(savedFile.storageKey)
 
-      let detectionResult
+      console.error('[claim_document] upload failed before document create', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        fileName: file.fileName,
+        error: error instanceof Error ? error.message : 'unknown_error'
+      })
+
+      return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'upload-failed'), {
+        status: 303
+      })
+    }
+
+    let updatedDocument = createdDocument
+
+    try {
+      const document = createdDocument
+
+      let detectionResult: DocumentDetectionResult
 
       try {
         detectionResult = await detectAndMatchUploadedDocument({
@@ -171,14 +227,29 @@ export async function POST(request: Request, context: RouteContext) {
         }
       }
 
-      const updatedDocument = await prisma.claimDocument.update({
+      const extractionResult = await extractUploadedDocumentData({
+        documentType: detectionResult.documentType,
+        pdfBytes: file.bytes
+      })
+
+      updatedDocument = await prisma.claimDocument.update({
         where: { id: document.id },
         data: {
           documentType: detectionResult.documentType,
           matchStatus: detectionResult.matchStatus,
           matchNotes: detectionResult.matchNotes,
           parsedAnchors: detectionResult.anchors,
-          processingStatus: detectionResult.processingStatus
+          processingStatus: detectionResult.processingStatus,
+          extractionStatus: extractionResult.status,
+          extractedAt: new Date(extractionResult.extractedAt),
+          extractedData:
+            extractionResult.extractedData === null
+              ? Prisma.JsonNull
+              : (extractionResult.extractedData as Prisma.InputJsonValue),
+          extractionWarnings:
+            extractionResult.warnings.length > 0
+              ? (extractionResult.warnings as Prisma.InputJsonValue)
+              : Prisma.JsonNull
         },
         select: {
           id: true,
@@ -190,57 +261,165 @@ export async function POST(request: Request, context: RouteContext) {
           documentType: true,
           matchStatus: true,
           matchNotes: true,
-          parsedAnchors: true
+          parsedAnchors: true,
+          extractionStatus: true,
+          extractedAt: true,
+          extractedData: true,
+          extractionWarnings: true
         }
       })
+    } catch (error) {
+      const extractionWarning = error instanceof Error ? error.message : 'Extraction pipeline error.'
+
+      console.error('[claim_document] processing failed after upload; preserving document', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        documentId: createdDocument.id,
+        fileName: file.fileName,
+        error: extractionWarning
+      })
+
+      try {
+        updatedDocument = await prisma.claimDocument.update({
+          where: { id: createdDocument.id },
+          data: {
+            documentType: createdDocument.documentType ?? 'unknown',
+            matchStatus: createdDocument.matchStatus ?? 'pending',
+            matchNotes: createdDocument.matchNotes ?? 'Document processing failed after upload.',
+            parsedAnchors: createdDocument.parsedAnchors ?? Prisma.JsonNull,
+            processingStatus: createdDocument.processingStatus || 'pending',
+            extractionStatus: 'failed',
+            extractedAt: new Date(),
+            extractionWarnings: [extractionWarning] as Prisma.InputJsonValue
+          },
+          select: {
+            id: true,
+            fileName: true,
+            mimeType: true,
+            fileSize: true,
+            uploadedBy: true,
+            processingStatus: true,
+            documentType: true,
+            matchStatus: true,
+            matchNotes: true,
+            parsedAnchors: true,
+            extractionStatus: true,
+            extractedAt: true,
+            extractedData: true,
+            extractionWarnings: true
+          }
+        })
+      } catch (fallbackUpdateError) {
+        console.error('[claim_document] failed to persist processing failure status', {
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: createdDocument.id,
+          error: fallbackUpdateError instanceof Error ? fallbackUpdateError.message : 'unknown_error'
+        })
+      }
+    }
+
+    try {
+      const documentForAudit = updatedDocument || createdDocument
 
       await logClaimDocumentUploadedAudit({
         claimId: claim.id,
         claimNumber: claim.claimNumber,
-        documentId: updatedDocument.id,
-        fileName: updatedDocument.fileName,
-        mimeType: updatedDocument.mimeType,
-        fileSize: updatedDocument.fileSize,
+        documentId: documentForAudit.id,
+        fileName: documentForAudit.fileName,
+        mimeType: documentForAudit.mimeType,
+        fileSize: documentForAudit.fileSize,
         uploadedBy,
-        processingStatus: updatedDocument.processingStatus,
-        documentType: updatedDocument.documentType,
-        matchStatus: updatedDocument.matchStatus
+        processingStatus: documentForAudit.processingStatus,
+        documentType: documentForAudit.documentType,
+        matchStatus: documentForAudit.matchStatus
       })
 
       await logClaimDocumentClassifiedAudit({
         claimId: claim.id,
         claimNumber: claim.claimNumber,
-        documentId: updatedDocument.id,
-        fileName: updatedDocument.fileName,
-        documentType: updatedDocument.documentType || 'unknown',
-        processingStatus: updatedDocument.processingStatus
+        documentId: documentForAudit.id,
+        fileName: documentForAudit.fileName,
+        documentType: documentForAudit.documentType || 'unknown',
+        processingStatus: documentForAudit.processingStatus
       })
 
       await logClaimDocumentMatchEvaluatedAudit({
         claimId: claim.id,
         claimNumber: claim.claimNumber,
-        documentId: updatedDocument.id,
-        fileName: updatedDocument.fileName,
-        matchStatus: updatedDocument.matchStatus || 'pending',
-        matchNotes: updatedDocument.matchNotes,
-        anchors: updatedDocument.parsedAnchors ?? undefined
+        documentId: documentForAudit.id,
+        fileName: documentForAudit.fileName,
+        matchStatus: documentForAudit.matchStatus || 'pending',
+        matchNotes: documentForAudit.matchNotes,
+        anchors: documentForAudit.parsedAnchors ?? undefined
       })
 
-      uploadedCount += 1
-    } catch (error) {
-      await removeClaimDocumentFile(savedFile.storageKey)
-
-      console.error('[claim_document] upload failed', {
+      await logClaimDocumentExtractionAttemptedAudit({
         claimId: claim.id,
         claimNumber: claim.claimNumber,
+        documentId: documentForAudit.id,
+        fileName: documentForAudit.fileName,
+        documentType: documentForAudit.documentType || 'unknown'
+      })
+
+      if (documentForAudit.extractionStatus === 'extracted') {
+        await logClaimDocumentExtractionSucceededAudit({
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: documentForAudit.id,
+          fileName: documentForAudit.fileName,
+          documentType: documentForAudit.documentType || 'unknown',
+          extractionStatus: documentForAudit.extractionStatus,
+          extractedAt: documentForAudit.extractedAt,
+          extractedData: documentForAudit.extractedData ?? undefined,
+          extractionWarnings: documentForAudit.extractionWarnings ?? undefined
+        })
+      } else if (documentForAudit.extractionStatus === 'partial') {
+        await logClaimDocumentExtractionPartialAudit({
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: documentForAudit.id,
+          fileName: documentForAudit.fileName,
+          documentType: documentForAudit.documentType || 'unknown',
+          extractionStatus: documentForAudit.extractionStatus,
+          extractedAt: documentForAudit.extractedAt,
+          extractedData: documentForAudit.extractedData ?? undefined,
+          extractionWarnings: documentForAudit.extractionWarnings ?? undefined
+        })
+      } else if (documentForAudit.extractionStatus === 'failed') {
+        await logClaimDocumentExtractionFailedAudit({
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: documentForAudit.id,
+          fileName: documentForAudit.fileName,
+          documentType: documentForAudit.documentType || 'unknown',
+          extractionStatus: documentForAudit.extractionStatus,
+          extractedAt: documentForAudit.extractedAt,
+          extractionWarnings: documentForAudit.extractionWarnings ?? undefined
+        })
+      } else if (documentForAudit.extractionStatus === 'skipped') {
+        await logClaimDocumentExtractionSkippedAudit({
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: documentForAudit.id,
+          fileName: documentForAudit.fileName,
+          documentType: documentForAudit.documentType || 'unknown',
+          extractionStatus: documentForAudit.extractionStatus,
+          extractedAt: documentForAudit.extractedAt,
+          extractionWarnings: documentForAudit.extractionWarnings ?? undefined
+        })
+      }
+    } catch (error) {
+      console.warn('[claim_document] audit logging failed after upload', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        documentId: createdDocument.id,
         fileName: file.fileName,
         error: error instanceof Error ? error.message : 'unknown_error'
       })
-
-      return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'upload-failed'), {
-        status: 303
-      })
     }
+
+    uploadedCount += 1
   }
 
   console.info('[claim_document] upload success', {

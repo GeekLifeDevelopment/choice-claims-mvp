@@ -74,12 +74,17 @@ model ClaimDocument {
   matchStatus      String?
   matchNotes       String?
   parsedAnchors    Json?
+  extractionStatus String   @default("pending")
+  extractedAt      DateTime?
+  extractedData    Json?
+  extractionWarnings Json?
   uploadedAt       DateTime @default(now())
 
   claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   @@index([claimId])
   @@index([processingStatus])
+  @@index([extractionStatus])
 }
 
 model ClaimAttachment {
