@@ -174,6 +174,9 @@ function getAuditMessage(action: string, metadata: unknown): string | null {
 
 const AUDIT_TIMELINE_LIMIT = 100
 const BADGE_BASE_CLASSNAME = 'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold'
+const REVIEWER_LOW_CONFIDENCE_THRESHOLD = 0.4
+const REVIEWER_LOW_COMPLETENESS_THRESHOLD = 0.4
+const CRITICAL_MISSING_DATA_KEYWORDS = ['mileage', 'purchase date', 'valuation', 'warranty']
 
 function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -1362,6 +1365,24 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     : currentOverrideUsed
       ? 'Override Decision'
       : 'Save Decision'
+  const isLowConfidenceDecision =
+    typeof adjudicationResult?.overallConfidence === 'number' &&
+    adjudicationResult.overallConfidence < REVIEWER_LOW_CONFIDENCE_THRESHOLD
+  const isLowCompletenessDecision =
+    typeof adjudicationResult?.overallCompleteness === 'number' &&
+    adjudicationResult.overallCompleteness < REVIEWER_LOW_COMPLETENESS_THRESHOLD
+  const criticalMissingData = adjudicationMissingData.filter((entry) =>
+    CRITICAL_MISSING_DATA_KEYWORDS.some((keyword) => entry.toLowerCase().includes(keyword))
+  )
+  const shouldHighlightImportantMissingData = criticalMissingData.length > 0
+  const shouldShowLowQualityDecisionWarning = isLowConfidenceDecision || isLowCompletenessDecision
+  const isOverrideActiveForForm = recommendationDiffersFromReviewer || currentOverrideUsed
+  const shouldWarnNotesAreEmpty = !claim.reviewDecisionNotes || claim.reviewDecisionNotes.trim().length === 0
+  const overrideReasonValidationMessage = overrideValidationError
+    ? 'Override reason is required when override is enabled.'
+    : isOverrideActiveForForm && !currentOverrideReason.trim()
+      ? 'Override reason is required before submitting this override.'
+      : null
   const hasEnrichmentData =
     claim.vinDataFetchedAt !== null ||
     Boolean(claim.vinDataProvider) ||
@@ -1731,6 +1752,19 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               Reviewer decision differs from system recommendation.
             </p>
           ) : null}
+
+          {shouldShowLowQualityDecisionWarning ? (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Low confidence decision - limited data available.
+            </p>
+          ) : null}
+
+          {shouldHighlightImportantMissingData ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="font-medium">Important data missing for this claim.</p>
+              <p className="mt-1">{criticalMissingData.join(', ')}</p>
+            </div>
+          ) : null}
         </div>
 
         {claimLockedForProcessing ? (
@@ -1805,12 +1839,18 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             />
           </label>
 
+          {shouldWarnNotesAreEmpty ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Notes are currently empty. Add reviewer context to improve audit clarity.
+            </p>
+          ) : null}
+
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
               name="override"
               value="true"
-              defaultChecked={currentOverrideUsed}
+              defaultChecked={isOverrideActiveForForm}
               disabled={claimLockedForProcessing}
               className="h-4 w-4 rounded border-slate-300"
             />
@@ -1821,9 +1861,15 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             Use override only when reviewer judgment should supersede system recommendation.
           </p>
 
-          {currentOverrideUsed ? (
+          {isOverrideActiveForForm ? (
             <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               You are overriding the system recommendation.
+            </p>
+          ) : null}
+
+          {recommendationDiffersFromReviewer ? (
+            <p className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+              Reviewer decision differs from system recommendation.
             </p>
           ) : null}
 
@@ -1833,15 +1879,41 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               name="overrideReason"
               defaultValue={currentOverrideReason}
               rows={3}
+              required={isOverrideActiveForForm}
+              minLength={isOverrideActiveForForm ? 8 : undefined}
               disabled={claimLockedForProcessing}
-              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+              className={`w-full rounded-md border bg-white px-2 py-1.5 text-sm text-slate-900 ${
+                overrideReasonValidationMessage ? 'border-red-400' : 'border-slate-300'
+              }`}
               placeholder="Explain why reviewer is overriding the guidance"
             />
           </label>
 
-          {overrideValidationError ? (
-            <p className="text-sm text-red-700">Override reason is required when override is enabled.</p>
+          {overrideReasonValidationMessage ? (
+            <p className="text-sm text-red-700">{overrideReasonValidationMessage}</p>
           ) : null}
+
+          <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+            <p className="font-medium text-slate-900">Decision Confirmation</p>
+            <div className="mt-1 grid gap-1 sm:grid-cols-2">
+              <p>
+                <span className="font-medium text-slate-900">Selected decision:</span>{' '}
+                {formatReviewerDecisionLabel(claim.reviewDecision || 'NeedsReview')}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Override active:</span>{' '}
+                {isOverrideActiveForForm ? 'Yes' : 'No'}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="font-medium text-slate-900">System recommendation:</span>{' '}
+                {systemRecommendationLabel}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="font-medium text-slate-900">Override reason:</span>{' '}
+                {currentOverrideReason.trim() || 'None entered'}
+              </p>
+            </div>
+          </div>
 
           {claimLockedForProcessing ? (
             <p className="text-sm text-amber-900">Reviewer decision is read-only because this claim is locked.</p>
