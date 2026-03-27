@@ -1,5 +1,5 @@
-import { PDFParse } from 'pdf-parse'
 import type { DetectedDocumentType } from './detect-uploaded-document'
+import { readPdfTextConservatively } from './read-pdf-text'
 
 export type DocumentExtractionStatus = 'pending' | 'extracted' | 'partial' | 'failed' | 'skipped'
 
@@ -17,23 +17,9 @@ type ExtractionInput = {
 
 const MAX_HISTORY_ENTRIES = 5
 
-function normalizeText(input: string): string {
-  return input.replace(/\r/g, '\n').replace(/\t/g, ' ').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
 async function extractPdfText(pdfBytes: Buffer): Promise<string> {
-  const parser = new PDFParse({ data: new Uint8Array(pdfBytes) })
-  try {
-    const parsed = await parser.getText()
-    const text = normalizeText(parsed.text || '')
-    if (text.length > 0) {
-      return text
-    }
-  } finally {
-    await parser.destroy()
-  }
-
-  return normalizeText(pdfBytes.toString('latin1'))
+  const parsed = await readPdfTextConservatively(pdfBytes)
+  return parsed.text
 }
 
 function extractFirstMatch(text: string, expressions: RegExp[]): string | null {

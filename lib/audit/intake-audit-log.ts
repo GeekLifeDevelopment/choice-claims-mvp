@@ -132,6 +132,21 @@ type LogClaimDocumentUploadedInput = CommonAuditInput & {
   matchStatus?: string | null
 }
 
+type LogClaimDocumentRemovedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  removedBy?: string | null
+  uploadedBy?: string | null
+  processingStatus?: string | null
+  documentType?: string | null
+  matchStatus?: string | null
+  extractionStatus?: string | null
+}
+
 type LogClaimDocumentClassifiedInput = CommonAuditInput & {
   claimId: string
   claimNumber: string
@@ -169,6 +184,19 @@ type LogClaimDocumentExtractionResultInput = CommonAuditInput & {
   extractedAt?: Date | string | null
   extractedData?: Prisma.InputJsonValue
   extractionWarnings?: Prisma.InputJsonValue
+}
+
+type LogClaimDocumentEvidenceApplyInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  applyStatus: string
+  appliedAt?: Date | string | null
+  appliedFields?: Prisma.InputJsonValue
+  skippedFields?: Prisma.InputJsonValue
+  conflictFields?: Prisma.InputJsonValue
 }
 
 function getExtractedFieldCount(extractedData?: Prisma.InputJsonValue): number | null {
@@ -386,6 +414,51 @@ export async function logClaimDocumentUploadedAudit(input: LogClaimDocumentUploa
   })
 }
 
+export async function logClaimDocumentRemovedAudit(input: LogClaimDocumentRemovedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_removed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      fileSize: input.fileSize,
+      removedBy: input.removedBy ?? null,
+      uploadedBy: input.uploadedBy ?? null,
+      processingStatus: input.processingStatus ?? null,
+      documentType: input.documentType ?? null,
+      matchStatus: input.matchStatus ?? null,
+      extractionStatus: input.extractionStatus ?? null,
+      removedAt: new Date().toISOString(),
+      message: 'Document removed from claim for retest'
+    }
+  })
+}
+
+export async function logClaimDocumentReuploadedAudit(input: LogClaimDocumentUploadedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_reuploaded',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      fileSize: input.fileSize,
+      uploadedBy: input.uploadedBy ?? null,
+      processingStatus: input.processingStatus,
+      documentType: input.documentType ?? null,
+      matchStatus: input.matchStatus ?? null,
+      message: 'Document reuploaded after previous removal'
+    }
+  })
+}
+
 export async function logClaimDocumentClassifiedAudit(input: LogClaimDocumentClassifiedInput) {
   return writeAuditLog({
     client: input.client,
@@ -511,6 +584,90 @@ export async function logClaimDocumentExtractionSkippedAudit(input: LogClaimDocu
       extractedAt: input.extractedAt ?? null,
       extractionWarnings: input.extractionWarnings ?? null,
       message: `Document extraction skipped (${input.extractionStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentEvidenceAppliedAudit(input: LogClaimDocumentEvidenceApplyInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_evidence_applied',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      applyStatus: input.applyStatus,
+      appliedAt: input.appliedAt ?? null,
+      appliedFields: input.appliedFields ?? [],
+      skippedFields: input.skippedFields ?? [],
+      conflictFields: input.conflictFields ?? [],
+      message: `Document evidence applied (${input.applyStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentEvidencePartiallyAppliedAudit(input: LogClaimDocumentEvidenceApplyInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_evidence_partially_applied',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      applyStatus: input.applyStatus,
+      appliedAt: input.appliedAt ?? null,
+      appliedFields: input.appliedFields ?? [],
+      skippedFields: input.skippedFields ?? [],
+      conflictFields: input.conflictFields ?? [],
+      message: `Document evidence partially applied (${input.applyStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentEvidenceConflictDetectedAudit(input: LogClaimDocumentEvidenceApplyInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_evidence_conflict_detected',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      applyStatus: input.applyStatus,
+      appliedAt: input.appliedAt ?? null,
+      appliedFields: input.appliedFields ?? [],
+      skippedFields: input.skippedFields ?? [],
+      conflictFields: input.conflictFields ?? [],
+      message: `Document evidence conflict detected (${input.applyStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentEvidenceSkippedAudit(input: LogClaimDocumentEvidenceApplyInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_evidence_skipped',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      applyStatus: input.applyStatus,
+      appliedAt: input.appliedAt ?? null,
+      appliedFields: input.appliedFields ?? [],
+      skippedFields: input.skippedFields ?? [],
+      conflictFields: input.conflictFields ?? [],
+      message: `Document evidence skipped (${input.applyStatus})`
     }
   })
 }

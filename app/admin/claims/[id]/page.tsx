@@ -183,6 +183,8 @@ function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
     claim_created: 'Claim created',
     claim_document_uploaded: 'Document uploaded',
+    claim_document_removed: 'Document removed',
+    claim_document_reuploaded: 'Document reuploaded',
     claim_document_classified: 'Document classified',
     claim_document_match_evaluated: 'Document match evaluated',
     claim_document_extraction_attempted: 'Document extraction attempted',
@@ -190,6 +192,10 @@ function getAuditActionLabel(action: string): string {
     claim_document_extraction_partial: 'Document extraction partial',
     claim_document_extraction_failed: 'Document extraction failed',
     claim_document_extraction_skipped: 'Document extraction skipped',
+    claim_document_evidence_applied: 'Document evidence applied',
+    claim_document_evidence_partially_applied: 'Document evidence partially applied',
+    claim_document_evidence_conflict_detected: 'Document evidence conflict detected',
+    claim_document_evidence_skipped: 'Document evidence skipped',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -226,18 +232,27 @@ function getTimelineEventBadgeClassName(action: string): string {
 
   if (
     action === 'claim_document_uploaded' ||
+    action === 'claim_document_removed' ||
+    action === 'claim_document_reuploaded' ||
     action === 'claim_document_classified' ||
     action === 'claim_document_match_evaluated' ||
     action === 'claim_document_extraction_attempted' ||
     action === 'claim_document_extraction_succeeded' ||
     action === 'claim_document_extraction_partial' ||
-    action === 'claim_document_extraction_skipped'
+    action === 'claim_document_extraction_skipped' ||
+    action === 'claim_document_evidence_applied' ||
+    action === 'claim_document_evidence_partially_applied' ||
+    action === 'claim_document_evidence_skipped'
   ) {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
 
   if (action === 'claim_document_classified' || action === 'claim_document_match_evaluated') {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (action === 'claim_document_evidence_conflict_detected') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
   }
 
   if (action.includes('failed') || action.includes('error')) {
@@ -265,6 +280,10 @@ function getTimelineEventBadgeText(action: string): string {
     return 'Document'
   }
 
+  if (action === 'claim_document_removed' || action === 'claim_document_reuploaded') {
+    return 'Document'
+  }
+
   if (action === 'claim_document_classified' || action === 'claim_document_match_evaluated') {
     return 'Document'
   }
@@ -274,7 +293,11 @@ function getTimelineEventBadgeText(action: string): string {
     action === 'claim_document_extraction_succeeded' ||
     action === 'claim_document_extraction_partial' ||
     action === 'claim_document_extraction_skipped' ||
-    action === 'claim_document_extraction_failed'
+    action === 'claim_document_extraction_failed' ||
+    action === 'claim_document_evidence_applied' ||
+    action === 'claim_document_evidence_partially_applied' ||
+    action === 'claim_document_evidence_conflict_detected' ||
+    action === 'claim_document_evidence_skipped'
   ) {
     return 'Extraction'
   }
@@ -311,6 +334,8 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const mimeType = getOptionalString(record.mimeType)
   const documentId = getOptionalString(record.documentId)
   const uploadedBy = getOptionalString(record.uploadedBy)
+  const removedBy = getOptionalString(record.removedBy)
+  const removedAt = getOptionalString(record.removedAt)
   const processingStatus = getOptionalString(record.processingStatus)
   const documentType = getOptionalString(record.documentType)
   const matchStatus = getOptionalString(record.matchStatus)
@@ -319,6 +344,10 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const extractedAt = getOptionalString(record.extractedAt)
   const extractedFieldCount = getOptionalNumber(record.extractedFieldCount)
   const extractionWarnings = getOptionalStringArray(record.extractionWarnings)
+  const applyStatus = getOptionalString(record.applyStatus)
+  const appliedFields = getOptionalStringArray(record.appliedFields)
+  const skippedFields = getOptionalStringArray(record.skippedFields)
+  const conflictFields = getOptionalStringArray(record.conflictFields)
   const fileSize = getOptionalNumber(record.fileSize)
 
   const rows: Array<{ label: string; value: string }> = []
@@ -362,7 +391,11 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
     action === 'claim_document_extraction_succeeded' ||
     action === 'claim_document_extraction_partial' ||
     action === 'claim_document_extraction_failed' ||
-    action === 'claim_document_extraction_skipped'
+    action === 'claim_document_extraction_skipped' ||
+    action === 'claim_document_evidence_applied' ||
+    action === 'claim_document_evidence_partially_applied' ||
+    action === 'claim_document_evidence_conflict_detected' ||
+    action === 'claim_document_evidence_skipped'
   ) {
     if (fileName) {
       rows.push({ label: 'File', value: fileName })
@@ -378,6 +411,14 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
     if (uploadedBy) {
       rows.push({ label: 'Uploaded By', value: uploadedBy })
+    }
+
+    if (removedBy) {
+      rows.push({ label: 'Removed By', value: removedBy })
+    }
+
+    if (removedAt) {
+      rows.push({ label: 'Removed At', value: removedAt })
     }
 
     if (processingStatus) {
@@ -414,6 +455,22 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
     if (extractionWarnings.length > 0) {
       rows.push({ label: 'Warnings', value: extractionWarnings.join(' | ') })
+    }
+
+    if (applyStatus) {
+      rows.push({ label: 'Apply Status', value: applyStatus })
+    }
+
+    if (appliedFields.length > 0) {
+      rows.push({ label: 'Applied Fields', value: appliedFields.join(' | ') })
+    }
+
+    if (skippedFields.length > 0) {
+      rows.push({ label: 'Skipped Fields', value: skippedFields.join(' | ') })
+    }
+
+    if (conflictFields.length > 0) {
+      rows.push({ label: 'Conflicts', value: conflictFields.join(' | ') })
     }
   }
 
@@ -646,6 +703,143 @@ function getDocumentExtractionSummary(documentType: string | null | undefined, e
 function getDocumentExtractionWarnings(value: unknown): string {
   const warnings = getOptionalStringArray(value)
   return warnings.length > 0 ? warnings.join(' | ') : '—'
+}
+
+function formatDocumentProcessingStatus(value: string | null | undefined): string {
+  if (!value) {
+    return 'Uploaded'
+  }
+
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function getDocumentEvidenceApplyRecord(value: unknown): Record<string, unknown> {
+  const extracted = asRecord(value)
+  return asRecord(extracted.__evidenceApply)
+}
+
+function formatDocumentEvidenceApplyStatus(value: unknown): string {
+  const record = getDocumentEvidenceApplyRecord(value)
+  const status = getOptionalString(record.applyStatus)
+
+  if (!status) {
+    return 'Pending'
+  }
+
+  return status
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function getDocumentEvidenceApplyBadgeClassName(value: unknown): string {
+  const record = getDocumentEvidenceApplyRecord(value)
+  const status = getOptionalString(record.applyStatus)
+  const base = BADGE_BASE_CLASSNAME
+
+  if (status === 'applied') {
+    return `${base} border-emerald-300 bg-emerald-50 text-emerald-700`
+  }
+
+  if (status === 'partial') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (status === 'conflict') {
+    return `${base} border-red-300 bg-red-50 text-red-700`
+  }
+
+  if (status === 'skipped') {
+    return `${base} border-slate-300 bg-slate-50 text-slate-700`
+  }
+
+  return `${base} border-sky-300 bg-sky-50 text-sky-700`
+}
+
+function getDocumentEvidenceApplySummary(value: unknown): string {
+  const record = getDocumentEvidenceApplyRecord(value)
+  const appliedFields = getOptionalStringArray(record.appliedFields)
+  const skippedFields = getOptionalStringArray(record.skippedFields)
+  const conflicts = Array.isArray(record.conflictFields) ? record.conflictFields.length : 0
+
+  const parts: string[] = []
+  parts.push(`Applied ${String(appliedFields.length)}`)
+  parts.push(`Skipped ${String(skippedFields.length)}`)
+  parts.push(`Conflicts ${String(conflicts)}`)
+
+  return parts.join(' | ')
+}
+
+function getDocumentEvidenceConflictSummary(value: unknown): string {
+  const record = getDocumentEvidenceApplyRecord(value)
+  const conflictFields = Array.isArray(record.conflictFields) ? record.conflictFields : []
+  if (conflictFields.length === 0) {
+    return '—'
+  }
+
+  const labels = conflictFields
+    .map((entry) => {
+      const conflict = asRecord(entry)
+      const field = getOptionalString(conflict.field)
+      return field || null
+    })
+    .filter((entry): entry is string => Boolean(entry))
+
+  return labels.length > 0 ? labels.join(' | ') : `${String(conflictFields.length)} conflict(s)`
+}
+
+function getDocumentAppliedAt(value: unknown): string {
+  const record = getDocumentEvidenceApplyRecord(value)
+  return formatIsoDate(getOptionalString(record.appliedAt))
+}
+
+function getDocumentOutcomeSummary(input: {
+  matchStatus: string | null | undefined
+  matchNotes: string | null | undefined
+  extractionStatus: string | null | undefined
+  extractionWarnings: unknown
+  extractedData: unknown
+}): string {
+  const parts: string[] = []
+  const matchStatusLabel = formatDocumentMatchStatus(input.matchStatus)
+  if (matchStatusLabel !== 'Pending') {
+    parts.push(`Match ${matchStatusLabel}`)
+  }
+
+  if (input.matchStatus === 'conflict' && input.matchNotes) {
+    parts.push(`Match conflict: ${input.matchNotes}`)
+  }
+
+  const extractionLabel = formatDocumentExtractionStatus(input.extractionStatus)
+  if (extractionLabel !== 'Pending') {
+    parts.push(`Extraction ${extractionLabel}`)
+  }
+
+  const warningCount = getOptionalStringArray(input.extractionWarnings).length
+  if (warningCount > 0) {
+    parts.push(`${String(warningCount)} warning${warningCount === 1 ? '' : 's'}`)
+  }
+
+  const applyRecord = getDocumentEvidenceApplyRecord(input.extractedData)
+  const applyStatus = getOptionalString(applyRecord.applyStatus)
+  if (applyStatus) {
+    parts.push(`Apply ${formatDocumentEvidenceApplyStatus(input.extractedData)}`)
+  }
+
+  const appliedCount = getOptionalStringArray(applyRecord.appliedFields).length
+  if (appliedCount > 0) {
+    parts.push(`Applied ${String(appliedCount)} fields`)
+  }
+
+  const conflictCount = Array.isArray(applyRecord.conflictFields) ? applyRecord.conflictFields.length : 0
+  if (conflictCount > 0) {
+    parts.push(`${String(conflictCount)} conflicts detected`)
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : 'Uploaded; processing pending'
 }
 
 type NhtsaRecallItem = {
@@ -1214,6 +1408,7 @@ type PageProps = {
     summaryRegenerate?: string
     documentUpload?: string
     documentUploadCount?: string
+    documentRemove?: string
   }>
 }
 
@@ -1426,6 +1621,34 @@ function getDocumentUploadBannerClassName(value: string | undefined): string {
   return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
+function getDocumentRemoveBannerMessage(value: string | undefined): string | null {
+  if (value === 'removed') {
+    return 'Document removed. You can now re-upload and retest this claim.'
+  }
+
+  if (value === 'missing-document') {
+    return 'Remove failed: document was not found for this claim.'
+  }
+
+  if (value === 'remove-failed') {
+    return 'Remove failed: unable to delete this document.'
+  }
+
+  if (value === 'not-found') {
+    return 'Remove failed: claim was not found.'
+  }
+
+  return null
+}
+
+function getDocumentRemoveBannerClassName(value: string | undefined): string {
+  if (value === 'removed') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
+}
+
 function getSummaryRegenerateDisabledReason(input: {
   claimLockedForProcessing: boolean
   status: string
@@ -1504,6 +1727,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     resolvedSearchParams.documentUpload,
     documentUploadCount
   )
+  const documentRemoveBannerMessage = getDocumentRemoveBannerMessage(resolvedSearchParams.documentRemove)
 
   const claimSelectBase = {
     id: true,
@@ -1969,6 +2193,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       {documentUploadBannerMessage ? (
         <p className={getDocumentUploadBannerClassName(resolvedSearchParams.documentUpload)}>
           {documentUploadBannerMessage}
+        </p>
+      ) : null}
+
+      {documentRemoveBannerMessage ? (
+        <p className={getDocumentRemoveBannerClassName(resolvedSearchParams.documentRemove)}>
+          {documentRemoveBannerMessage}
         </p>
       ) : null}
 
@@ -2666,16 +2896,24 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <thead>
                 <tr className="border-b text-left text-slate-600">
                   <th className="py-2 pr-4 font-medium">File</th>
+                  <th className="py-2 pr-4 font-medium">Stage Progress</th>
                   <th className="py-2 pr-4 font-medium">Detected Type</th>
                   <th className="py-2 pr-4 font-medium">Match</th>
                   <th className="py-2 pr-4 font-medium">Match Note</th>
                   <th className="py-2 pr-4 font-medium">Anchors</th>
                   <th className="py-2 pr-4 font-medium">Extraction</th>
+                  <th className="py-2 pr-4 font-medium">Extracted At</th>
                   <th className="py-2 pr-4 font-medium">Extracted Summary</th>
+                  <th className="py-2 pr-4 font-medium">Evidence Apply</th>
+                  <th className="py-2 pr-4 font-medium">Applied At</th>
+                  <th className="py-2 pr-4 font-medium">Apply Summary</th>
+                  <th className="py-2 pr-4 font-medium">Conflicts</th>
+                  <th className="py-2 pr-4 font-medium">Outcome</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
                   <th className="py-2 pr-4 font-medium">Uploaded</th>
                   <th className="py-2 pr-4 font-medium">By</th>
                   <th className="py-2 pr-4 font-medium">Size</th>
+                  <th className="py-2 pr-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -2694,6 +2932,15 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         </a>
                       </div>
                     </td>
+                    <td className="py-2 pr-4 text-slate-700">
+                      <div className="space-y-1">
+                        <p>Uploaded</p>
+                        <p>Classified: {formatDetectedDocumentType(document.documentType)}</p>
+                        <p>Match: {formatDocumentMatchStatus(document.matchStatus)}</p>
+                        <p>Extraction: {formatDocumentExtractionStatus(document.extractionStatus)}</p>
+                        <p>Evidence: {formatDocumentEvidenceApplyStatus(document.extractedData)}</p>
+                      </div>
+                    </td>
                     <td className="py-2 pr-4 text-slate-700">{formatDetectedDocumentType(document.documentType)}</td>
                     <td className="py-2 pr-4">
                       <span className={getDocumentMatchBadgeClassName(document.matchStatus)}>
@@ -2707,6 +2954,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         {formatDocumentExtractionStatus(document.extractionStatus)}
                       </span>
                     </td>
+                    <td className="py-2 pr-4 text-slate-700">{formatIsoDate(document.extractedAt)}</td>
                     <td className="py-2 pr-4 text-slate-700">
                       <div className="space-y-1">
                         <p>{getDocumentExtractionSummary(document.documentType, document.extractedData)}</p>
@@ -2715,10 +2963,37 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         ) : null}
                       </div>
                     </td>
-                    <td className="py-2 pr-4 text-slate-700">{document.processingStatus || 'uploaded'}</td>
+                    <td className="py-2 pr-4">
+                      <span className={getDocumentEvidenceApplyBadgeClassName(document.extractedData)}>
+                        {formatDocumentEvidenceApplyStatus(document.extractedData)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4 text-slate-700">{getDocumentAppliedAt(document.extractedData)}</td>
+                    <td className="py-2 pr-4 text-slate-700">{getDocumentEvidenceApplySummary(document.extractedData)}</td>
+                    <td className="py-2 pr-4 text-slate-700">{getDocumentEvidenceConflictSummary(document.extractedData)}</td>
+                    <td className="py-2 pr-4 text-slate-700">
+                      {getDocumentOutcomeSummary({
+                        matchStatus: document.matchStatus,
+                        matchNotes: document.matchNotes,
+                        extractionStatus: document.extractionStatus,
+                        extractionWarnings: document.extractionWarnings,
+                        extractedData: document.extractedData
+                      })}
+                    </td>
+                    <td className="py-2 pr-4 text-slate-700">{formatDocumentProcessingStatus(document.processingStatus)}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatDate(document.uploadedAt)}</td>
                     <td className="py-2 pr-4 text-slate-700">{document.uploadedBy || '—'}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatFileSize(document.fileSize)}</td>
+                    <td className="py-2 pr-4 text-slate-700">
+                      <form method="post" action={`/api/admin/claims/${claim.id}/documents/${document.id}/remove`}>
+                        <button
+                          type="submit"
+                          className="inline-flex items-center rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                        >
+                          Remove
+                        </button>
+                      </form>
+                    </td>
                   </tr>
                 ))}
               </tbody>
