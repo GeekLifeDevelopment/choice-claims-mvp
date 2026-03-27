@@ -11,6 +11,8 @@ import { buildDedupeKeyDetails } from '../../../../lib/claims/build-dedupe-key'
 import { createClaimFromSubmission } from '../../../../lib/claims/create-claim-from-submission'
 import { logIntakeValidationFailedAudit } from '../../../../lib/audit/intake-audit-log'
 
+export const runtime = 'nodejs'
+
 function getRequestId() {
   return randomUUID().slice(0, 8)
 }

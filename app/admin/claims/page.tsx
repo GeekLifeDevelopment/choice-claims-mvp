@@ -7,6 +7,7 @@ import { prisma } from '../../../lib/prisma'
 import { isFinalReviewDecision } from '../../../lib/review/claim-lock'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 function formatDate(value: Date): string {
   return value.toISOString().replace('T', ' ').slice(0, 16)
