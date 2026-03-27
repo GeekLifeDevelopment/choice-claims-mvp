@@ -129,11 +129,17 @@ export function validateEnvConfig(scope: ValidationScope = 'app'): void {
   warnOptionalMissing('SERVICE_HISTORY_API_KEY', 'service provider fallback/stub may apply')
   warnOptionalMissing('VALUATION_API_KEY', 'valuation provider fallback/stub may apply')
   warnOptionalMissing('AUTOCHECK_PROVIDER_DEBUG', 'provider debug logs default to disabled')
+  warnOptionalMissing('PCMI_CLIENT_ID', 'pcmi provider integration will be unavailable')
+  warnOptionalMissing('PCMI_CLIENT_SECRET', 'pcmi provider integration will be unavailable')
+  warnOptionalMissing('PCMI_USERNAME', 'pcmi provider integration will be unavailable')
+  warnOptionalMissing('PCMI_PASSWORD', 'pcmi provider integration will be unavailable')
   warnOptionalUrl('MARKETCHECK_API_URL', 'decode provider uses default URL when omitted')
   warnOptionalUrl('SERVICE_HISTORY_API_URL', 'service provider fallback/stub may apply')
   warnOptionalUrl('VALUATION_API_URL', 'valuation provider fallback/stub may apply')
   warnOptionalUrl('NHTSA_RECALLS_API_URL', 'recalls provider uses default URL when omitted')
   warnOptionalUrl('EXPERIAN_BASE_URL', 'autocheck live provider may be unavailable')
+  warnOptionalUrl('PCMI_BASE_URL', 'pcmi provider integration will be unavailable')
+  warnOptionalUrl('PCMI_TOKEN_URL', 'pcmi token URL defaults to PCMI_BASE_URL/Pcmi.Web.Sts/token')
 
   logConfigInfo(`startup validation complete (${scope})`)
 }
