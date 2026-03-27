@@ -1,3 +1,4 @@
+import '../config/ensure-database-url'
 import { Prisma } from '@prisma/client'
 import { isFeatureEnabled } from '../config/feature-flags'
 import { ClaimStatus } from '../domain/claims'

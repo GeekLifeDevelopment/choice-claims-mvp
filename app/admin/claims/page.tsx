@@ -1,3 +1,4 @@
+import '../../../lib/config/ensure-database-url'
 import Link from 'next/link'
 import { Prisma } from '@prisma/client'
 import { BulkReviewDecisionForm } from '../../../components/admin/BulkReviewDecisionForm'
