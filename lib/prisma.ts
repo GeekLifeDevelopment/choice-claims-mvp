@@ -1,9 +1,28 @@
 import { PrismaClient } from '@prisma/client'
 
-// Prisma datasource URL is DATABASE_URL. In some deploys only DIRECT_URL is configured,
-// so map it as a runtime fallback before client initialization.
-if (!process.env.DATABASE_URL && process.env.DIRECT_URL) {
-  process.env.DATABASE_URL = process.env.DIRECT_URL
+function getResolvedDatabaseUrl(): string | null {
+  const databaseUrl = process.env.DATABASE_URL?.trim()
+  if (databaseUrl) {
+    return databaseUrl
+  }
+
+  const directUrl = process.env.DIRECT_URL?.trim()
+  if (directUrl) {
+    return directUrl
+  }
+
+  return null
+}
+
+const resolvedDatabaseUrl = getResolvedDatabaseUrl()
+
+// Prisma schema uses DATABASE_URL; keep it populated for Prisma internals and logs.
+if (!process.env.DATABASE_URL && resolvedDatabaseUrl) {
+  process.env.DATABASE_URL = resolvedDatabaseUrl
+}
+
+if (!resolvedDatabaseUrl) {
+  console.warn('[prisma] missing DATABASE_URL and DIRECT_URL; database queries will fail')
 }
 
 declare global {
@@ -13,6 +32,7 @@ declare global {
 export const prisma =
   globalThis.prisma ??
   new PrismaClient({
+    ...(resolvedDatabaseUrl ? { datasources: { db: { url: resolvedDatabaseUrl } } } : {}),
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error']
   })
 
