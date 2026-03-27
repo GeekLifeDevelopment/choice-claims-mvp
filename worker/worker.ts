@@ -82,6 +82,73 @@ function logError(message: string, details?: unknown) {
   console.error(`[WORKER] ${message}`)
 }
 
+function attachRedisLifecycleLogging(input: {
+  worker: Worker
+  queueName: string
+  prefix: string
+  label: string
+}) {
+  void input.worker.client
+    .then((client) => {
+      client.on('connect', () => {
+        log('redis connect', {
+          label: input.label,
+          queueName: input.queueName,
+          prefix: input.prefix
+        })
+      })
+
+      client.on('ready', () => {
+        log('redis ready', {
+          label: input.label,
+          queueName: input.queueName,
+          prefix: input.prefix
+        })
+      })
+
+      client.on('reconnecting', () => {
+        log('redis reconnecting', {
+          label: input.label,
+          queueName: input.queueName,
+          prefix: input.prefix
+        })
+      })
+
+      client.on('close', () => {
+        log('redis close', {
+          label: input.label,
+          queueName: input.queueName,
+          prefix: input.prefix
+        })
+      })
+
+      client.on('end', () => {
+        log('redis end', {
+          label: input.label,
+          queueName: input.queueName,
+          prefix: input.prefix
+        })
+      })
+
+      client.on('error', (error) => {
+        logError('redis connection error', {
+          label: input.label,
+          queueName: input.queueName,
+          prefix: input.prefix,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+    })
+    .catch((error) => {
+      logError('failed to bind redis lifecycle logging', {
+        label: input.label,
+        queueName: input.queueName,
+        prefix: input.prefix,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    })
+}
+
 function asOptionalJsonField(
   key: string,
   value: Prisma.InputJsonValue | null | undefined
@@ -1382,15 +1449,48 @@ async function run() {
     }
   )
 
+  attachRedisLifecycleLogging({
+    worker,
+    label: 'vin-data-worker',
+    queueName: QUEUE_NAMES.VIN_DATA,
+    prefix
+  })
+
   worker.on('ready', () => {
-    log('connected to redis', {
+    log('worker ready', {
       queueName: QUEUE_NAMES.VIN_DATA,
       prefix
     })
   })
 
+  worker.on('active', (job) => {
+    log('job active', {
+      queueName: QUEUE_NAMES.VIN_DATA,
+      jobName: job.name,
+      jobId: job.id,
+      attemptsMade: job.attemptsMade + 1,
+      attemptsAllowed: job.opts.attempts
+    })
+  })
+
+  worker.on('stalled', (jobId, previous) => {
+    logError('job stalled', {
+      queueName: QUEUE_NAMES.VIN_DATA,
+      jobId,
+      previous
+    })
+  })
+
+  worker.on('error', (error) => {
+    logError('worker error', {
+      queueName: QUEUE_NAMES.VIN_DATA,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  })
+
   worker.on('completed', (job) => {
     log('job completed', {
+      queueName: QUEUE_NAMES.VIN_DATA,
       jobName: job.name,
       jobId: job.id
     })
@@ -1595,13 +1695,21 @@ async function run() {
   const reviewSummaryWorker = new Worker(
     QUEUE_NAMES.REVIEW_SUMMARY,
     async (job: Job) => {
+      const attemptsAllowed =
+        typeof job.opts.attempts === 'number' && Number.isFinite(job.opts.attempts) && job.opts.attempts > 0
+          ? job.opts.attempts
+          : 1
+      const attemptsMade = job.attemptsMade + 1
+      const isFinalAttempt = attemptsMade >= attemptsAllowed
+
       log('review summary job start', {
         queueName: QUEUE_NAMES.REVIEW_SUMMARY,
         jobName: job.name,
         jobId: job.id,
         payload: job.data,
-        attemptsMade: job.attemptsMade + 1,
-        attemptsAllowed: job.opts.attempts
+        attemptsMade,
+        attemptsAllowed,
+        isFinalAttempt
       })
 
       if (job.name !== JOB_NAMES.GENERATE_REVIEW_SUMMARY) {
@@ -1614,28 +1722,31 @@ async function run() {
           error: message
         })
 
-        return {
-          ok: false,
-          error: message
-        }
+        throw new Error(message)
       }
 
       try {
         const payload = job.data as ReviewSummaryJobPayload
         const result = await processReviewSummaryJob(payload.claimId, {
-          requestedAt: payload.requestedAt
+          requestedAt: payload.requestedAt,
+          persistFailureStatus: isFinalAttempt
         })
 
         if (!result.ok) {
+          const message = result.reason ?? 'Review summary processing failed.'
+
           logError('review summary job failed', {
             queueName: QUEUE_NAMES.REVIEW_SUMMARY,
             jobName: job.name,
             jobId: job.id,
             claimId: payload.claimId,
-            reason: result.reason
+            reason: message,
+            attemptsMade,
+            attemptsAllowed,
+            isFinalAttempt
           })
 
-          return result
+          throw new Error(message)
         }
 
         if (result.status === 'skipped') {
@@ -1655,7 +1766,9 @@ async function run() {
           jobName: job.name,
           jobId: job.id,
           claimId: payload.claimId,
-          status: result.status
+          status: result.status,
+          attemptsMade,
+          attemptsAllowed
         })
 
         return result
@@ -1663,13 +1776,24 @@ async function run() {
         const payload = job.data as Partial<ReviewSummaryJobPayload>
         const claimId = typeof payload.claimId === 'string' ? payload.claimId : null
         const errorMessage = error instanceof Error ? error.message : 'Unknown review summary worker error.'
+        const willRetry = attemptsMade < attemptsAllowed
 
         if (claimId) {
           try {
-            await prisma.claim.update({
-              where: { id: claimId },
+            await prisma.claim.updateMany({
+              where: {
+                id: claimId,
+                OR: [
+                  { reviewDecision: null },
+                  {
+                    reviewDecision: {
+                      notIn: FINAL_REVIEW_DECISIONS
+                    }
+                  }
+                ]
+              },
               data: {
-                reviewSummaryStatus: 'Failed',
+                ...(isFinalAttempt ? { reviewSummaryStatus: 'Failed' } : {}),
                 reviewSummaryLastError: errorMessage
               }
             })
@@ -1679,6 +1803,7 @@ async function run() {
               jobName: job.name,
               jobId: job.id,
               claimId,
+              isFinalAttempt,
               error: persistError
             })
           }
@@ -1689,13 +1814,14 @@ async function run() {
           jobName: job.name,
           jobId: job.id,
           claimId,
+          attemptsMade,
+          attemptsAllowed,
+          isFinalAttempt,
+          willRetry,
           error: errorMessage
         })
 
-        return {
-          ok: false,
-          error: errorMessage
-        }
+        throw new Error(errorMessage)
       }
     },
     {
@@ -1704,10 +1830,42 @@ async function run() {
     }
   )
 
+  attachRedisLifecycleLogging({
+    worker: reviewSummaryWorker,
+    label: 'review-summary-worker',
+    queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+    prefix
+  })
+
   reviewSummaryWorker.on('ready', () => {
-    log('connected to redis', {
+    log('worker ready', {
       queueName: QUEUE_NAMES.REVIEW_SUMMARY,
       prefix
+    })
+  })
+
+  reviewSummaryWorker.on('active', (job) => {
+    log('job active', {
+      queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+      jobName: job.name,
+      jobId: job.id,
+      attemptsMade: job.attemptsMade + 1,
+      attemptsAllowed: job.opts.attempts
+    })
+  })
+
+  reviewSummaryWorker.on('stalled', (jobId, previous) => {
+    logError('job stalled', {
+      queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+      jobId,
+      previous
+    })
+  })
+
+  reviewSummaryWorker.on('error', (error) => {
+    logError('worker error', {
+      queueName: QUEUE_NAMES.REVIEW_SUMMARY,
+      error: error instanceof Error ? error.message : String(error)
     })
   })
 
