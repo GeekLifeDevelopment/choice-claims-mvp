@@ -17,7 +17,7 @@ const VIN_LOOKUP_IN_FLIGHT_JOB_STATES = new Set([
 ])
 
 function buildVinLookupJobId(payload: VinLookupJobPayload): string {
-  return `${JOB_NAMES.LOOKUP_VIN_DATA}:${payload.claimId}`
+  return `${JOB_NAMES.LOOKUP_VIN_DATA}__${payload.claimId}`
 }
 
 export type EnqueueVinLookupJobResult = {
