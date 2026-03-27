@@ -16,6 +16,7 @@ export type AuditAction =
   | 'claim_document_evidence_partially_applied'
   | 'claim_document_evidence_conflict_detected'
   | 'claim_document_evidence_skipped'
+  | 'claim_document_evidence_triggered_refresh'
   | 'vin_lookup_enqueued'
   | 'vin_lookup_requeued'
   | 'review_summary_regenerate_queued'

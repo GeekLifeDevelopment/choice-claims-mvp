@@ -196,6 +196,7 @@ function getAuditActionLabel(action: string): string {
     claim_document_evidence_partially_applied: 'Document evidence partially applied',
     claim_document_evidence_conflict_detected: 'Document evidence conflict detected',
     claim_document_evidence_skipped: 'Document evidence skipped',
+    claim_document_evidence_triggered_refresh: 'Document evidence triggered refresh',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -242,7 +243,8 @@ function getTimelineEventBadgeClassName(action: string): string {
     action === 'claim_document_extraction_skipped' ||
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
-    action === 'claim_document_evidence_skipped'
+    action === 'claim_document_evidence_skipped' ||
+    action === 'claim_document_evidence_triggered_refresh'
   ) {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
@@ -300,6 +302,10 @@ function getTimelineEventBadgeText(action: string): string {
     action === 'claim_document_evidence_skipped'
   ) {
     return 'Extraction'
+  }
+
+  if (action === 'claim_document_evidence_triggered_refresh') {
+    return 'Refresh'
   }
 
   if (action.includes('failed') || action.includes('error')) {
