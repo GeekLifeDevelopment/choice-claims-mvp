@@ -82,6 +82,25 @@ function requireEnv(key: string): string {
   return result.value
 }
 
+function readDatabaseUrl(required: boolean): string | null {
+  const primary = readEnvValue('DATABASE_URL').value
+  if (primary) {
+    return primary
+  }
+
+  const direct = readEnvValue('DIRECT_URL').value
+  if (direct) {
+    logConfigWarn('DATABASE_URL missing (using DIRECT_URL fallback)')
+    return direct
+  }
+
+  if (required) {
+    throw new Error('[config] DATABASE_URL missing (required); set DATABASE_URL or DIRECT_URL')
+  }
+
+  return null
+}
+
 function warnOptionalMissing(key: string, note: string): void {
   const result = readEnvValue(key)
   if (!result.value) {
@@ -108,9 +127,7 @@ export function validateEnvConfig(scope: ValidationScope = 'app'): void {
   const redisUrl = requiredKeys.includes('REDIS_URL')
     ? requireEnv('REDIS_URL')
     : readEnvValue('REDIS_URL').value
-  const databaseUrl = requiredKeys.includes('DATABASE_URL')
-    ? requireEnv('DATABASE_URL')
-    : readEnvValue('DATABASE_URL').value
+  const databaseUrl = readDatabaseUrl(requiredKeys.includes('DATABASE_URL'))
   const queuePrefix = readEnvValue('QUEUE_PREFIX').value
 
   if (redisUrl) {
