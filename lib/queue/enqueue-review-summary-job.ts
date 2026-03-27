@@ -5,6 +5,17 @@ import { getQueue } from './get-queue'
 
 const REVIEW_SUMMARY_JOB_ATTEMPTS = 3
 const REVIEW_SUMMARY_JOB_BACKOFF_MS = 5_000
+const REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES = new Set([
+  'waiting',
+  'active',
+  'delayed',
+  'prioritized',
+  'waiting-children'
+])
+
+function buildReviewSummaryJobId(payload: ReviewSummaryJobPayload): string {
+  return `${JOB_NAMES.GENERATE_REVIEW_SUMMARY}:${payload.claimId}`
+}
 
 export type EnqueueReviewSummaryJobResult = {
   queueName: string
@@ -18,16 +29,41 @@ export async function enqueueReviewSummaryJob(
   const jobName = JOB_NAMES.GENERATE_REVIEW_SUMMARY
   const queueName = getQueueNameForJob(jobName)
   const queue = getQueue(queueName)
+  const jobId = buildReviewSummaryJobId(payload)
 
   console.info('[summary] enqueue start', {
     queueName,
     jobName,
+    jobId,
     claimId: payload.claimId,
     claimNumber: payload.claimNumber
   })
 
   try {
+    const existingJob = await queue.getJob(jobId)
+    if (existingJob) {
+      const existingState = await existingJob.getState()
+
+      if (REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES.has(existingState)) {
+        console.info('[summary] enqueue skipped duplicate in-flight job', {
+          queueName,
+          jobName,
+          jobId,
+          existingState,
+          claimId: payload.claimId,
+          claimNumber: payload.claimNumber
+        })
+
+        return {
+          queueName,
+          jobName,
+          jobId: existingJob.id?.toString()
+        }
+      }
+    }
+
     const job = await queue.add(jobName, payload, {
+      jobId,
       attempts: REVIEW_SUMMARY_JOB_ATTEMPTS,
       backoff: {
         type: 'exponential',

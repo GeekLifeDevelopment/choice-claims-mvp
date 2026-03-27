@@ -58,6 +58,7 @@ export type ProcessReviewSummaryJobResult = {
 
 type ProcessReviewSummaryJobOptions = {
   requestedAt?: string | null
+  persistFailureStatus?: boolean
 }
 
 type AdjudicationAiExtractionOutcome = {
@@ -493,7 +494,11 @@ async function callOpenAiForAdjudicationFindings(
   }
 }
 
-async function persistReviewSummaryFailure(claimId: string, message: string): Promise<void> {
+async function persistReviewSummaryFailure(
+  claimId: string,
+  message: string,
+  persistFailureStatus: boolean
+): Promise<void> {
   await prisma.claim.updateMany({
     where: {
       id: claimId,
@@ -508,7 +513,7 @@ async function persistReviewSummaryFailure(claimId: string, message: string): Pr
       ]
     },
     data: {
-      reviewSummaryStatus: 'Failed',
+      ...(persistFailureStatus ? { reviewSummaryStatus: 'Failed' } : {}),
       reviewSummaryLastError: message
     }
   })
@@ -721,6 +726,8 @@ export async function processReviewSummaryJob(
   claimId: string,
   options: ProcessReviewSummaryJobOptions = {}
 ): Promise<ProcessReviewSummaryJobResult> {
+  const persistFailureStatus = options.persistFailureStatus ?? true
+
   if (!isFeatureEnabled('summary_generation') || !isFeatureEnabled('openai')) {
     console.info('[feature] openai disabled', {
       claimId
@@ -817,7 +824,7 @@ export async function processReviewSummaryJob(
     const evaluationInput = buildClaimEvaluationInput(claim)
     if (!evaluationInput) {
       const message = 'ClaimEvaluationInput is missing and summary generation cannot proceed.'
-      await persistReviewSummaryFailure(claim.id, message)
+      await persistReviewSummaryFailure(claim.id, message, persistFailureStatus)
 
       return {
         ok: false,
@@ -830,7 +837,7 @@ export async function processReviewSummaryJob(
     const snapshot = evaluationInput.snapshot
     if (!snapshot) {
       const message = 'ClaimReviewSnapshot is missing and summary generation cannot proceed.'
-      await persistReviewSummaryFailure(claim.id, message)
+      await persistReviewSummaryFailure(claim.id, message, persistFailureStatus)
 
       return {
         ok: false,
@@ -842,7 +849,7 @@ export async function processReviewSummaryJob(
 
     if (!claim.reviewRuleEvaluatedAt) {
       const message = 'Missing persisted rule evaluation timestamp.'
-      await persistReviewSummaryFailure(claim.id, message)
+      await persistReviewSummaryFailure(claim.id, message, persistFailureStatus)
 
       return {
         ok: false,
@@ -854,7 +861,7 @@ export async function processReviewSummaryJob(
 
     if (!hasPersistedRuleFlags(claim.reviewRuleFlags)) {
       const message = 'Missing persisted rule flags for review summary generation.'
-      await persistReviewSummaryFailure(claim.id, message)
+      await persistReviewSummaryFailure(claim.id, message, persistFailureStatus)
 
       return {
         ok: false,
@@ -1046,11 +1053,12 @@ export async function processReviewSummaryJob(
     console.error('[summary] job failed', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
+      persistFailureStatus,
       failureCategory,
       error: message
     })
 
-    await persistReviewSummaryFailure(claim.id, message)
+    await persistReviewSummaryFailure(claim.id, message, persistFailureStatus)
 
     return {
       ok: false,
