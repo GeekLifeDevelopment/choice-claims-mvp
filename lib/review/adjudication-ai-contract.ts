@@ -28,6 +28,11 @@ type AdjudicationAiEnvelope = {
   findings: AdjudicationAiFinding[]
 }
 
+type ParsedAiJson = {
+  value: unknown
+  malformedJson: boolean
+}
+
 const ALLOWED_STATUSES = new Set<AdjudicationQuestionStatus>([
   'scored',
   'insufficient_data',
@@ -129,21 +134,33 @@ function parseFinding(input: unknown): AdjudicationAiFinding | null {
   }
 }
 
-function tryParseJsonObject(raw: string): unknown {
+function tryParseJsonObject(raw: string): ParsedAiJson {
   try {
-    return JSON.parse(raw)
+    return {
+      value: JSON.parse(raw),
+      malformedJson: false
+    }
   } catch {
     const firstBrace = raw.indexOf('{')
     const lastBrace = raw.lastIndexOf('}')
 
     if (firstBrace === -1 || lastBrace <= firstBrace) {
-      return null
+      return {
+        value: null,
+        malformedJson: true
+      }
     }
 
     try {
-      return JSON.parse(raw.slice(firstBrace, lastBrace + 1))
+      return {
+        value: JSON.parse(raw.slice(firstBrace, lastBrace + 1)),
+        malformedJson: true
+      }
     } catch {
-      return null
+      return {
+        value: null,
+        malformedJson: true
+      }
     }
   }
 }
@@ -151,9 +168,11 @@ function tryParseJsonObject(raw: string): unknown {
 export function parseAdjudicationAiEnvelope(raw: string): {
   findings: AdjudicationAiFinding[]
   rejectedCount: number
+  findingsInputCount: number
+  malformedJson: boolean
 } {
   const parsed = tryParseJsonObject(raw)
-  const record = asRecord(parsed)
+  const record = asRecord(parsed.value)
   const findingsInput = Array.isArray(record.findings) ? record.findings : []
 
   const findings = findingsInput
@@ -166,6 +185,8 @@ export function parseAdjudicationAiEnvelope(raw: string): {
 
   return {
     findings: result.findings,
-    rejectedCount: Math.max(0, findingsInput.length - result.findings.length)
+    rejectedCount: Math.max(0, findingsInput.length - result.findings.length),
+    findingsInputCount: findingsInput.length,
+    malformedJson: parsed.malformedJson
   }
 }

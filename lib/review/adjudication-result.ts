@@ -124,7 +124,8 @@ function resolveCompleteness(scoredCount: number, totalCount: number): Adjudicat
 
 function mergeAiFindingsIntoQuestions(
   questions: AdjudicationQuestionResult[],
-  aiFindings: AdjudicationAiFinding[]
+  aiFindings: AdjudicationAiFinding[],
+  hasAttachments: boolean
 ): AdjudicationQuestionResult[] {
   if (aiFindings.length === 0) {
     return questions
@@ -226,8 +227,25 @@ function applyQuestionMetadata(
 ): AdjudicationQuestionResult[] {
   const vinDataResultRecord = asRecord(input.vinDataResult)
   const claimSnapshotRecord = asRecord(input.evaluationInput.snapshot)
+  const attachmentsRecord = asRecord(claimSnapshotRecord.attachments)
+  const hasAttachments =
+    typeof attachmentsRecord.count === 'number' && Number.isFinite(attachmentsRecord.count)
+      ? attachmentsRecord.count > 0
+      : false
   const aiFindingsByQuestion = new Map<string, AdjudicationAiFinding>(
-    (input.aiFindings ?? []).map((finding) => [finding.questionId, finding])
+    (input.aiFindings ?? [])
+      .filter((finding) => {
+        if (finding.sourceType !== 'documents') {
+          return true
+        }
+
+        if (finding.status !== 'scored') {
+          return true
+        }
+
+        return hasAttachments
+      })
+      .map((finding) => [finding.questionId, finding])
   )
 
   return questions.map((question) => {
@@ -402,7 +420,7 @@ export function buildAdjudicationResult(input: {
       })
   ]
 
-  const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [])
+  const mergedQuestions = mergeAiFindingsIntoQuestions(baseQuestions, input.aiFindings ?? [], hasAttachments)
   const questions = applyQuestionMetadata(mergedQuestions, input)
   const scoredQuestions = questions.filter((question) => question.status === 'scored' && question.score !== null)
   const totalScore = computeDeterministicTotalScore(questions)

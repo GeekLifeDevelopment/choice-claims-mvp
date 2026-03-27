@@ -60,6 +60,16 @@ type ProcessReviewSummaryJobOptions = {
   requestedAt?: string | null
 }
 
+type AdjudicationAiExtractionOutcome = {
+  findings: AdjudicationAiFinding[]
+  malformedJson: boolean
+  emptyResponse: boolean
+  rejectedCount: number
+  lowConfidenceCount: number
+  skipped: boolean
+  skipReason?: string
+}
+
 class OpenAiSummaryError extends Error {
   readonly category: ExternalFailureCategory
   readonly status?: number
@@ -193,6 +203,137 @@ function stringifySummaryInput(value: unknown): string {
   return `${serialized.slice(0, MAX_SUMMARY_INPUT_JSON_CHARS)}...`
 }
 
+function hasProviderData(claim: ReviewSummaryClaim): boolean {
+  const providerResult = asRecord(claim.vinDataResult)
+  const provider = getOptionalString(providerResult.provider)
+  return Boolean(provider)
+}
+
+function buildSummaryLimitationNotes(claim: ReviewSummaryClaim, evaluationInput: ClaimEvaluationInput): string[] {
+  const notes: string[] = []
+  const snapshot = evaluationInput.snapshot
+  const attachmentsCount = snapshot.attachments?.count ?? 0
+
+  if (!hasProviderData(claim)) {
+    notes.push('provider unavailable')
+  }
+
+  if (attachmentsCount === 0) {
+    notes.push('no attachments')
+  }
+
+  if (!snapshot.attachments?.hasDocuments) {
+    notes.push('no supporting documents detected')
+  }
+
+  if (!snapshot.attachments?.hasPhotos) {
+    notes.push('no photos detected')
+  }
+
+  if (!snapshot.vin) {
+    notes.push('VIN missing from snapshot')
+  }
+
+  if (Array.isArray(snapshot.flags) && snapshot.flags.includes('provider_failed')) {
+    notes.push('provider reported failure in prior attempts')
+  }
+
+  return Array.from(new Set(notes))
+}
+
+function shouldSkipAdjudicationExtraction(evaluationInput: ClaimEvaluationInput, claim: ReviewSummaryClaim): {
+  skip: boolean
+  reason?: string
+} {
+  const snapshot = evaluationInput.snapshot
+  const attachmentsCount = snapshot.attachments?.count ?? 0
+  const providerAvailable = hasProviderData(claim)
+  const hasCoreClaimContext = Boolean(snapshot.vin || claim.vin)
+
+  if (!providerAvailable && attachmentsCount === 0 && !hasCoreClaimContext) {
+    return {
+      skip: true,
+      reason: 'missing_provider_attachments_and_core_claim_context'
+    }
+  }
+
+  return {
+    skip: false
+  }
+}
+
+function buildFallbackReviewSummary(
+  claim: ReviewSummaryClaim,
+  evaluationInput: ClaimEvaluationInput,
+  limitationNotes: string[]
+): string {
+  const snapshot = evaluationInput.snapshot
+  const attachmentsCount = snapshot.attachments?.count ?? 0
+  const providerAvailable = hasProviderData(claim)
+  const retryCount = snapshot.asyncStatus?.attemptCount
+  const retryText =
+    typeof retryCount === 'number' && retryCount > 1
+      ? `Provider enrichment required ${retryCount} attempts.`
+      : null
+
+  const lines = [
+    `Claim ${claim.claimNumber} summary generated with limited data available.`,
+    providerAvailable
+      ? 'Provider enrichment data exists but should be verified during review.'
+      : 'Provider unavailable or incomplete at summary time.',
+    attachmentsCount > 0
+      ? `Attachments present (${attachmentsCount}), but document-level interpretation may be incomplete.`
+      : 'No attachments were available for document or image analysis.',
+    retryText,
+    limitationNotes.length > 0
+      ? `Insufficient evidence areas: ${limitationNotes.join('; ')}.`
+      : 'Evidence coverage is partial; manual review recommended.',
+    'This summary is informational only and does not make a decision. Manual review recommended.'
+  ].filter((value): value is string => Boolean(value))
+
+  return lines.join(' ')
+}
+
+function ensureSummarySafetyLanguage(
+  summaryText: string,
+  limitationNotes: string[],
+  extractionOutcome: AdjudicationAiExtractionOutcome,
+  usedFallbackSummary: boolean
+): string {
+  const additions: string[] = []
+  const normalized = summaryText.trim()
+  const lower = normalized.toLowerCase()
+
+  if (limitationNotes.length > 0 && !/limited data available|insufficient evidence/.test(lower)) {
+    additions.push('Limited data available and insufficient evidence for a fully confident automated interpretation.')
+  }
+
+  if (limitationNotes.some((note) => /provider/.test(note)) && !/provider unavailable|provider data/.test(lower)) {
+    additions.push('Provider unavailable or partially available during this summary run.')
+  }
+
+  if (extractionOutcome.skipped && !/manual review recommended/.test(lower)) {
+    additions.push('Manual review recommended because structured AI extraction was skipped due to missing context.')
+  }
+
+  if (
+    (extractionOutcome.malformedJson || extractionOutcome.emptyResponse || extractionOutcome.lowConfidenceCount > 0) &&
+    !/manual review recommended/.test(lower)
+  ) {
+    additions.push('Manual review recommended due to degraded AI extraction quality in this run.')
+  }
+
+  if (usedFallbackSummary && !/informational/.test(lower)) {
+    additions.push('This fallback summary is informational and should not be treated as a decision.')
+  }
+
+  if (additions.length === 0) {
+    return normalized
+  }
+
+  return `${normalized} ${additions.join(' ')}`.trim()
+}
+
 function buildPersistedVinDataResult(
   existingVinDataResult: unknown,
   adjudicationResult: ReturnType<typeof buildAdjudicationResult>
@@ -267,15 +408,53 @@ async function callOpenAiChatCompletions(systemMessage: string, userMessage: str
   return text
 }
 
-async function callOpenAiForAdjudicationFindings(systemMessage: string, userMessage: string): Promise<AdjudicationAiFinding[]> {
+async function callOpenAiForAdjudicationFindings(
+  systemMessage: string,
+  userMessage: string
+): Promise<AdjudicationAiExtractionOutcome> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    return []
+    return {
+      findings: [],
+      malformedJson: false,
+      emptyResponse: true,
+      rejectedCount: 0,
+      lowConfidenceCount: 0,
+      skipped: true,
+      skipReason: 'missing_openai_api_key'
+    }
   }
 
   try {
     const raw = await callOpenAiChatCompletions(systemMessage, userMessage, 700)
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      console.warn('[adjudication_ai] empty extraction response; continuing without AI findings')
+      return {
+        findings: [],
+        malformedJson: false,
+        emptyResponse: true,
+        rejectedCount: 0,
+        lowConfidenceCount: 0,
+        skipped: false
+      }
+    }
+
     const parsed = parseAdjudicationAiEnvelope(raw)
+    const lowConfidenceCount = parsed.findings.filter(
+      (finding) => typeof finding.confidence === 'number' && finding.confidence < 0.55
+    ).length
+
+    if (parsed.malformedJson) {
+      console.warn('[adjudication_ai] malformed JSON detected; salvaged parse result used', {
+        acceptedCount: parsed.findings.length,
+        rejectedCount: parsed.rejectedCount
+      })
+    }
+
+    if (parsed.findingsInputCount === 0) {
+      console.warn('[adjudication_ai] extraction returned empty findings payload')
+    }
 
     if (parsed.rejectedCount > 0) {
       console.warn('[adjudication_ai] rejected findings during validation', {
@@ -284,12 +463,33 @@ async function callOpenAiForAdjudicationFindings(systemMessage: string, userMess
       })
     }
 
-    return parsed.findings
+    if (lowConfidenceCount > 0) {
+      console.info('[adjudication_ai] low-confidence findings detected', {
+        lowConfidenceCount,
+        acceptedCount: parsed.findings.length
+      })
+    }
+
+    return {
+      findings: parsed.findings,
+      malformedJson: parsed.malformedJson,
+      emptyResponse: parsed.findingsInputCount === 0,
+      rejectedCount: parsed.rejectedCount,
+      lowConfidenceCount,
+      skipped: false
+    }
   } catch (error) {
     console.warn('[adjudication_ai] extraction failed; continuing without AI findings', {
       error: error instanceof Error ? error.message : 'unknown_error'
     })
-    return []
+    return {
+      findings: [],
+      malformedJson: true,
+      emptyResponse: true,
+      rejectedCount: 0,
+      lowConfidenceCount: 0,
+      skipped: false
+    }
   }
 }
 
@@ -669,24 +869,94 @@ export async function processReviewSummaryJob(
     const summaryInput = buildSummaryInput(claim, evaluationInput, ruleFlags)
     const summaryInputJson = stringifySummaryInput(summaryInput)
 
+    const limitationNotes = buildSummaryLimitationNotes(claim, evaluationInput)
+
     const prompt = buildReviewSummaryPrompt({
       claimNumber: claim.claimNumber,
       status: claim.status,
-      summaryInputJson
+      summaryInputJson,
+      limitationNotes
     })
 
-    const reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage)
+    let reviewSummaryText: string
+    let usedFallbackSummary = false
+
+    try {
+      reviewSummaryText = await callOpenAiForReviewSummary(prompt.systemMessage, prompt.userMessage)
+    } catch (error) {
+      usedFallbackSummary = true
+      const reason = error instanceof Error ? error.message : 'unknown_error'
+      console.warn('[summary] ai summary failed; using fallback summary', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        reason
+      })
+
+      reviewSummaryText = buildFallbackReviewSummary(claim, evaluationInput, limitationNotes)
+    }
+
     const aiPrompt = buildAdjudicationAiPrompt({
       claimNumber: claim.claimNumber,
       status: claim.status,
-      summaryInputJson
+      summaryInputJson,
+      limitationNotes
     })
-    const aiFindings = await callOpenAiForAdjudicationFindings(aiPrompt.systemMessage, aiPrompt.userMessage)
+
+    const extractionSkip = shouldSkipAdjudicationExtraction(evaluationInput, claim)
+    let aiExtractionOutcome: AdjudicationAiExtractionOutcome
+
+    if (extractionSkip.skip) {
+      console.info('[adjudication_ai] extraction skipped due to missing context', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        reason: extractionSkip.reason
+      })
+
+      aiExtractionOutcome = {
+        findings: [],
+        malformedJson: false,
+        emptyResponse: true,
+        rejectedCount: 0,
+        lowConfidenceCount: 0,
+        skipped: true,
+        skipReason: extractionSkip.reason
+      }
+    } else {
+      aiExtractionOutcome = await callOpenAiForAdjudicationFindings(aiPrompt.systemMessage, aiPrompt.userMessage)
+    }
+
+    const safeReviewSummaryText = ensureSummarySafetyLanguage(
+      reviewSummaryText,
+      limitationNotes,
+      aiExtractionOutcome,
+      usedFallbackSummary
+    )
+
+    if (
+      limitationNotes.length > 0 ||
+      usedFallbackSummary ||
+      aiExtractionOutcome.malformedJson ||
+      aiExtractionOutcome.emptyResponse ||
+      aiExtractionOutcome.lowConfidenceCount > 0 ||
+      aiExtractionOutcome.skipped
+    ) {
+      console.info('[summary] generated with degraded inputs', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        usedFallbackSummary,
+        limitationCount: limitationNotes.length,
+        extractionSkipped: aiExtractionOutcome.skipped,
+        extractionMalformedJson: aiExtractionOutcome.malformedJson,
+        extractionLowConfidenceCount: aiExtractionOutcome.lowConfidenceCount,
+        extractionRejectedCount: aiExtractionOutcome.rejectedCount
+      })
+    }
+
     const adjudicationResult = buildAdjudicationResult({
       evaluationInput,
       vinDataResult: claim.vinDataResult,
-      reviewSummaryText,
-      aiFindings
+      reviewSummaryText: safeReviewSummaryText,
+      aiFindings: aiExtractionOutcome.findings
     })
     const persistedVinDataResult = buildPersistedVinDataResult(claim.vinDataResult, adjudicationResult)
 
@@ -708,7 +978,7 @@ export async function processReviewSummaryJob(
         vinDataResult: persistedVinDataResult,
         reviewSummaryStatus: 'Generated',
         reviewSummaryGeneratedAt: new Date(),
-        reviewSummaryText,
+        reviewSummaryText: safeReviewSummaryText,
         reviewSummaryVersion: REVIEW_SUMMARY_VERSION,
         reviewSummaryLastError: null
       }
