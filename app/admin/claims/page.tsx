@@ -659,7 +659,7 @@ export default async function AdminClaimsPage({ searchParams }: PageProps) {
             >
               <option value="all">All</option>
               <option value="true">Needs summary only</option>
-              <option value="false">No summary needed only</option>
+              <option value="false">Summary not needed only</option>
             </select>
           </label>
 

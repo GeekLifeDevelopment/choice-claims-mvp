@@ -543,7 +543,6 @@ async function run() {
         queueName: QUEUE_NAMES.VIN_DATA,
         jobName: job.name,
         jobId: job.id,
-        payload: job.data,
         attemptsMade,
         attemptsAllowed
       })
@@ -1100,7 +1099,11 @@ async function run() {
           jobId: job.id,
           claimId: claim.id,
           claimNumber: claim.claimNumber,
-          result: providerResult
+          providerResultCode: providerResult.providerResultCode,
+          providerResultMessage: providerResult.providerResultMessage,
+          year: providerResult.year,
+          make: providerResult.make,
+          model: providerResult.model
         })
 
         log('status moved to ReadyForAI', {
@@ -1745,7 +1748,6 @@ async function run() {
         queueName: QUEUE_NAMES.REVIEW_SUMMARY,
         jobName: job.name,
         jobId: job.id,
-        payload: job.data,
         attemptsMade,
         attemptsAllowed,
         isFinalAttempt

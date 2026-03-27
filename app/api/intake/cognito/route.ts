@@ -15,10 +15,6 @@ function getRequestId() {
   return randomUUID().slice(0, 8)
 }
 
-function isDebugModeEnabled() {
-  return process.env.COGNITO_WEBHOOK_DEBUG === 'true'
-}
-
 function logWithRequestId(requestId: string, message: string, details?: unknown) {
   if (details !== undefined) {
     console.info(`[COGNITO_WEBHOOK][${requestId}] ${message}`, details)
@@ -61,7 +57,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const requestId = getRequestId()
-  const debugMode = isDebugModeEnabled()
 
   logWithRequestId(requestId, 'received', { method: request.method })
 
@@ -170,23 +165,6 @@ export async function POST(request: Request) {
         queueName: claimCreationResult.enqueued.queueName,
         jobName: claimCreationResult.enqueued.jobName,
         jobId: claimCreationResult.enqueued.jobId
-      })
-    }
-
-    if (debugMode) {
-      return respond(requestId, 200, {
-        ok: true,
-        requestId,
-        duplicate: claimCreationResult.duplicate,
-        message: claimCreationResult.duplicate
-          ? 'Duplicate submission detected; existing claim returned'
-          : 'Claim created and queued for VIN lookup',
-        claim: claimCreationResult.claim,
-        topLevelKeys: payloadPreview.topLevelKeys,
-        payloadPreview,
-        normalizedPayload: validatedPayload,
-        createClaimInput,
-        dedupeKey: claimCreationResult.dedupeKey
       })
     }
 
