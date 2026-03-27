@@ -15,6 +15,7 @@
     "intake:test-local-invalid": "node scripts/post-cognito-invalid-fixture.mjs",
     "test:intake": "node scripts/replay-intake-fixtures.mjs",
     "test:queue": "node scripts/test-queue-connection.mjs",
+    "test:pcmi-auth": "tsx scripts/pcmi-auth-smoke-test.ts",
     "test:s5-ticket3": "tsx scripts/verify-s5-ticket3.ts",
     "worker": "tsx worker/worker.ts"
   },
