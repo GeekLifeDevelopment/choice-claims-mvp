@@ -7,6 +7,12 @@ type EnvCheckResult = {
 
 const validatedScopes = new Set<ValidationScope>()
 
+const requiredEnvKeysByScope: Record<ValidationScope, string[]> = {
+  app: [],
+  worker: ['REDIS_URL', 'DATABASE_URL'],
+  queue: ['REDIS_URL', 'DATABASE_URL']
+}
+
 function readEnvValue(key: string): EnvCheckResult {
   const raw = process.env[key]
   if (raw === undefined) {
@@ -98,12 +104,26 @@ function warnOptionalUrl(key: string, note: string): void {
 export function validateEnvConfig(scope: ValidationScope = 'app'): void {
   logConfigInfo(`startup validation begin (${scope})`)
 
-  const redisUrl = requireEnv('REDIS_URL')
-  const databaseUrl = requireEnv('DATABASE_URL')
+  const requiredKeys = requiredEnvKeysByScope[scope]
+  const redisUrl = requiredKeys.includes('REDIS_URL')
+    ? requireEnv('REDIS_URL')
+    : readEnvValue('REDIS_URL').value
+  const databaseUrl = requiredKeys.includes('DATABASE_URL')
+    ? requireEnv('DATABASE_URL')
+    : readEnvValue('DATABASE_URL').value
   const queuePrefix = readEnvValue('QUEUE_PREFIX').value
 
-  validateUrl(redisUrl, 'REDIS_URL')
-  validateUrl(databaseUrl, 'DATABASE_URL')
+  if (redisUrl) {
+    validateUrl(redisUrl, 'REDIS_URL')
+  } else {
+    logConfigWarn('REDIS_URL missing (queue features unavailable until configured)')
+  }
+
+  if (databaseUrl) {
+    validateUrl(databaseUrl, 'DATABASE_URL')
+  } else {
+    logConfigWarn('DATABASE_URL missing (database-backed routes unavailable until configured)')
+  }
 
   const queuePreRedisRaw = process.env.QUEUE_PREREDIS_URL
   if (queuePreRedisRaw !== undefined) {

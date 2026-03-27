@@ -9,7 +9,7 @@ export type VinLookupJobPayload = {
   claimNumber?: string
 }
 
-export type ReviewSummaryJobSource = 'rules_ready' | 'manual' | 'backfill'
+export type ReviewSummaryJobSource = 'rules_ready' | 'manual' | 'backfill' | 'document_evidence'
 
 export type ReviewSummaryJobPayload = {
   claimId: string

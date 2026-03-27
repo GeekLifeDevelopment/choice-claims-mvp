@@ -5,6 +5,7 @@ import {
   logClaimDocumentEvidenceConflictDetectedAudit,
   logClaimDocumentEvidencePartiallyAppliedAudit,
   logClaimDocumentEvidenceSkippedAudit,
+  logClaimDocumentEvidenceTriggeredRefreshAudit,
   logClaimDocumentExtractionAttemptedAudit,
   logClaimDocumentExtractionFailedAudit,
   logClaimDocumentExtractionPartialAudit,
@@ -26,6 +27,7 @@ import {
   mergeExtractedDataWithEvidenceApply
 } from '../../../../../../../lib/claims/apply-uploaded-document-evidence'
 import { prisma } from '../../../../../../../lib/prisma'
+import { enqueueReviewSummaryForClaim } from '../../../../../../../lib/review/enqueue-review-summary'
 
 type RouteContext = {
   params: Promise<{ id: string }>
@@ -561,6 +563,27 @@ export async function POST(request: Request, context: RouteContext) {
           await logClaimDocumentEvidenceConflictDetectedAudit(evidenceAuditInput)
         } else {
           await logClaimDocumentEvidenceSkippedAudit(evidenceAuditInput)
+        }
+
+        const shouldTriggerRefresh =
+          (applyStatus === 'applied' || applyStatus === 'partial') && appliedFields.length > 0
+
+        if (shouldTriggerRefresh) {
+          const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'document_evidence')
+
+          await logClaimDocumentEvidenceTriggeredRefreshAudit({
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            documentId: documentForAudit.id,
+            fileName: documentForAudit.fileName,
+            documentType: documentForAudit.documentType || 'unknown',
+            applyStatus,
+            queueEnqueued: refreshResult.enqueued,
+            queueReason: refreshResult.reason,
+            queueName: refreshResult.queueName,
+            jobName: refreshResult.jobName,
+            jobId: refreshResult.jobId
+          })
         }
       }
     } catch (error) {

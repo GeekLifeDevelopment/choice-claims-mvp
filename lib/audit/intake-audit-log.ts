@@ -199,6 +199,20 @@ type LogClaimDocumentEvidenceApplyInput = CommonAuditInput & {
   conflictFields?: Prisma.InputJsonValue
 }
 
+type LogClaimDocumentEvidenceTriggeredRefreshInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  applyStatus: string
+  queueEnqueued: boolean
+  queueReason?: string | null
+  queueName?: string | null
+  jobName?: string | null
+  jobId?: string | null
+}
+
 function getExtractedFieldCount(extractedData?: Prisma.InputJsonValue): number | null {
   if (!extractedData || typeof extractedData !== 'object' || Array.isArray(extractedData)) {
     return null
@@ -668,6 +682,32 @@ export async function logClaimDocumentEvidenceSkippedAudit(input: LogClaimDocume
       skippedFields: input.skippedFields ?? [],
       conflictFields: input.conflictFields ?? [],
       message: `Document evidence skipped (${input.applyStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentEvidenceTriggeredRefreshAudit(
+  input: LogClaimDocumentEvidenceTriggeredRefreshInput
+) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_evidence_triggered_refresh',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      applyStatus: input.applyStatus,
+      queueEnqueued: input.queueEnqueued,
+      queueReason: input.queueReason ?? null,
+      queueName: input.queueName ?? null,
+      jobName: input.jobName ?? null,
+      jobId: input.jobId ?? null,
+      message: input.queueEnqueued
+        ? 'Summary/adjudication refresh queued from document evidence update'
+        : `Summary/adjudication refresh skipped (${input.queueReason ?? 'unknown'})`
     }
   })
 }
