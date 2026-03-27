@@ -53,11 +53,31 @@ model Claim {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  attachments ClaimAttachment[]
-  auditLogs   AuditLog[]
+  attachments     ClaimAttachment[]
+  claimDocuments  ClaimDocument[]
+  auditLogs       AuditLog[]
 
   @@index([status])
   @@index([submittedAt])
+}
+
+model ClaimDocument {
+  id               String   @id @default(cuid())
+  claimId          String
+  fileName         String
+  mimeType         String
+  storageKey       String
+  fileSize         Int
+  uploadedBy       String?
+  processingStatus String   @default("uploaded")
+  documentType     String?
+  matchStatus      String?
+  uploadedAt       DateTime @default(now())
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@index([processingStatus])
 }
 
 model ClaimAttachment {

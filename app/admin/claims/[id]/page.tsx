@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { Prisma } from '@prisma/client'
 import { HeicImagePreview } from '../../../../components/HeicImagePreview'
 import { ClaimStatus } from '../../../../lib/domain/claims'
 import { getProviderConfigStatus } from '../../../../lib/providers/config'
@@ -181,6 +182,7 @@ const CRITICAL_MISSING_DATA_KEYWORDS = ['mileage', 'purchase date', 'valuation',
 function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
     claim_created: 'Claim created',
+    claim_document_uploaded: 'Document uploaded',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -215,6 +217,10 @@ function getTimelineEventBadgeClassName(action: string): string {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
 
+  if (action === 'claim_document_uploaded') {
+    return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
   if (action.includes('failed') || action.includes('error')) {
     return `${base} border-red-300 bg-red-50 text-red-700`
   }
@@ -234,6 +240,10 @@ function getTimelineEventBadgeText(action: string): string {
 
   if (action === 'review_decision_changed' || action === 'review_decision_saved') {
     return 'Decision'
+  }
+
+  if (action === 'claim_document_uploaded') {
+    return 'Document'
   }
 
   if (action.includes('failed') || action.includes('error')) {
@@ -264,6 +274,14 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const jobId = getOptionalString(record.jobId)
   const toDecision = getOptionalString(record.toDecision)
   const fromDecision = getOptionalString(record.fromDecision)
+  const fileName = getOptionalString(record.fileName)
+  const mimeType = getOptionalString(record.mimeType)
+  const documentId = getOptionalString(record.documentId)
+  const uploadedBy = getOptionalString(record.uploadedBy)
+  const processingStatus = getOptionalString(record.processingStatus)
+  const documentType = getOptionalString(record.documentType)
+  const matchStatus = getOptionalString(record.matchStatus)
+  const fileSize = getOptionalNumber(record.fileSize)
 
   const rows: Array<{ label: string; value: string }> = []
 
@@ -297,6 +315,40 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
         label: 'Decision',
         value: fromDecision ? `${fromDecision} -> ${toDecision}` : toDecision
       })
+    }
+  }
+
+  if (action === 'claim_document_uploaded') {
+    if (fileName) {
+      rows.push({ label: 'File', value: fileName })
+    }
+
+    if (mimeType) {
+      rows.push({ label: 'MIME', value: mimeType })
+    }
+
+    if (fileSize !== null) {
+      rows.push({ label: 'Size', value: formatFileSize(fileSize) })
+    }
+
+    if (uploadedBy) {
+      rows.push({ label: 'Uploaded By', value: uploadedBy })
+    }
+
+    if (processingStatus) {
+      rows.push({ label: 'Processing', value: processingStatus })
+    }
+
+    if (documentType) {
+      rows.push({ label: 'Document Type', value: documentType })
+    }
+
+    if (matchStatus) {
+      rows.push({ label: 'Match Status', value: matchStatus })
+    }
+
+    if (documentId) {
+      rows.push({ label: 'Document ID', value: documentId })
     }
   }
 
@@ -885,7 +937,13 @@ function getStatusBadgeClassName(status: string): string {
 
 type PageProps = {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ retry?: string; reviewDecision?: string; summaryRegenerate?: string }>
+  searchParams: Promise<{
+    retry?: string
+    reviewDecision?: string
+    summaryRegenerate?: string
+    documentUpload?: string
+    documentUploadCount?: string
+  }>
 }
 
 function getRetryBannerMessage(retryParam: string | undefined): string | null {
@@ -1036,6 +1094,67 @@ function getSummaryRegenerateBannerClassName(value: string | undefined): string 
   return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
+function getDocumentUploadCount(value: string | undefined): number | null {
+  if (!value) {
+    return null
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+
+  return parsed
+}
+
+function getDocumentUploadBannerMessage(value: string | undefined, count: number | null): string | null {
+  if (value === 'uploaded') {
+    if (count && count > 1) {
+      return `Uploaded ${String(count)} documents successfully.`
+    }
+
+    return 'Document uploaded successfully.'
+  }
+
+  if (value === 'missing-file') {
+    return 'Upload failed: select at least one PDF document.'
+  }
+
+  if (value === 'invalid-file') {
+    return 'Upload failed: one or more files could not be processed.'
+  }
+
+  if (value === 'empty-file') {
+    return 'Upload failed: uploaded file is empty.'
+  }
+
+  if (value === 'file-too-large') {
+    return 'Upload failed: each PDF must be 15MB or smaller.'
+  }
+
+  if (value === 'invalid-file-type') {
+    return 'Upload failed: only PDF files are supported.'
+  }
+
+  if (value === 'upload-failed') {
+    return 'Upload failed: unable to persist one or more documents.'
+  }
+
+  if (value === 'not-found') {
+    return 'Upload failed: claim was not found.'
+  }
+
+  return null
+}
+
+function getDocumentUploadBannerClassName(value: string | undefined): string {
+  if (value === 'uploaded') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
+}
+
 function getSummaryRegenerateDisabledReason(input: {
   claimLockedForProcessing: boolean
   status: string
@@ -1061,6 +1180,22 @@ function getSummaryRegenerateDisabledReason(input: {
   return null
 }
 
+function isMissingClaimDocumentsFieldError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientValidationError)) {
+    return false
+  }
+
+  return error.message.includes('Unknown field `claimDocuments`')
+}
+
+function isMissingClaimDocumentsTableError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false
+  }
+
+  return error.code === 'P2021'
+}
+
 export default async function AdminClaimDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
   const resolvedSearchParams = await searchParams
@@ -1069,73 +1204,126 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const summaryRegenerateBannerMessage = getSummaryRegenerateBannerMessage(
     resolvedSearchParams.summaryRegenerate
   )
+  const documentUploadCount = getDocumentUploadCount(resolvedSearchParams.documentUploadCount)
+  const documentUploadBannerMessage = getDocumentUploadBannerMessage(
+    resolvedSearchParams.documentUpload,
+    documentUploadCount
+  )
 
-  const claim = await prisma.claim.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      claimNumber: true,
-      status: true,
-      source: true,
-      claimantName: true,
-      claimantEmail: true,
-      claimantPhone: true,
-      vin: true,
-      vinDataProvider: true,
-      vinDataFetchedAt: true,
-      vinDataResult: true,
-      vinDataRawPayload: true,
-      vinDataProviderResultCode: true,
-      vinDataProviderResultMessage: true,
-      vinLookupRetryRequestedAt: true,
-      vinLookupAttemptCount: true,
-      vinLookupLastError: true,
-      vinLookupLastFailedAt: true,
-      vinLookupLastJobId: true,
-      vinLookupLastJobName: true,
-      vinLookupLastQueueName: true,
-      reviewRuleFlags: true,
-      reviewRuleEvaluatedAt: true,
-      reviewRuleVersion: true,
-      reviewRuleLastError: true,
-      reviewSummaryStatus: true,
-      reviewSummaryEnqueuedAt: true,
-      reviewSummaryGeneratedAt: true,
-      reviewSummaryText: true,
-      reviewSummaryLastError: true,
-      reviewSummaryJobId: true,
-      reviewSummaryVersion: true,
-      reviewDecision: true,
-      reviewDecisionSetAt: true,
-      reviewDecisionNotes: true,
-      reviewDecisionBy: true,
-      reviewDecisionVersion: true,
-      submittedAt: true,
-      attachments: {
-        orderBy: { uploadedAt: 'asc' },
-        select: {
-          id: true,
-          filename: true,
-          mimeType: true,
-          fileSize: true,
-          sourceUrl: true,
-          externalId: true,
-          storageKey: true,
-          uploadedAt: true
-        }
-      },
-      auditLogs: {
-        orderBy: { createdAt: 'desc' },
-        take: AUDIT_TIMELINE_LIMIT,
-        select: {
-          id: true,
-          action: true,
-          metadata: true,
-          createdAt: true
-        }
+  const claimSelectBase = {
+    id: true,
+    claimNumber: true,
+    status: true,
+    source: true,
+    claimantName: true,
+    claimantEmail: true,
+    claimantPhone: true,
+    vin: true,
+    vinDataProvider: true,
+    vinDataFetchedAt: true,
+    vinDataResult: true,
+    vinDataRawPayload: true,
+    vinDataProviderResultCode: true,
+    vinDataProviderResultMessage: true,
+    vinLookupRetryRequestedAt: true,
+    vinLookupAttemptCount: true,
+    vinLookupLastError: true,
+    vinLookupLastFailedAt: true,
+    vinLookupLastJobId: true,
+    vinLookupLastJobName: true,
+    vinLookupLastQueueName: true,
+    reviewRuleFlags: true,
+    reviewRuleEvaluatedAt: true,
+    reviewRuleVersion: true,
+    reviewRuleLastError: true,
+    reviewSummaryStatus: true,
+    reviewSummaryEnqueuedAt: true,
+    reviewSummaryGeneratedAt: true,
+    reviewSummaryText: true,
+    reviewSummaryLastError: true,
+    reviewSummaryJobId: true,
+    reviewSummaryVersion: true,
+    reviewDecision: true,
+    reviewDecisionSetAt: true,
+    reviewDecisionNotes: true,
+    reviewDecisionBy: true,
+    reviewDecisionVersion: true,
+    submittedAt: true,
+    attachments: {
+      orderBy: { uploadedAt: 'asc' },
+      select: {
+        id: true,
+        filename: true,
+        mimeType: true,
+        fileSize: true,
+        sourceUrl: true,
+        externalId: true,
+        storageKey: true,
+        uploadedAt: true
+      }
+    },
+    auditLogs: {
+      orderBy: { createdAt: 'desc' },
+      take: AUDIT_TIMELINE_LIMIT,
+      select: {
+        id: true,
+        action: true,
+        metadata: true,
+        createdAt: true
       }
     }
-  })
+  } satisfies Prisma.ClaimSelect
+
+  const claimSelectWithDocuments = {
+    ...claimSelectBase,
+    claimDocuments: {
+      orderBy: { uploadedAt: 'desc' },
+      select: {
+        id: true,
+        fileName: true,
+        mimeType: true,
+        fileSize: true,
+        uploadedBy: true,
+        processingStatus: true,
+        documentType: true,
+        matchStatus: true,
+        uploadedAt: true
+      }
+    }
+  } satisfies Prisma.ClaimSelect
+
+  let claimRecord: Record<string, unknown> | null = null
+
+  try {
+    claimRecord = (await prisma.claim.findUnique({
+      where: { id },
+      select: claimSelectWithDocuments
+    })) as Record<string, unknown> | null
+  } catch (error) {
+    if (!isMissingClaimDocumentsFieldError(error) && !isMissingClaimDocumentsTableError(error)) {
+      throw error
+    }
+
+    const reason = isMissingClaimDocumentsFieldError(error)
+      ? 'missing_relation_in_client'
+      : 'missing_table_in_database'
+
+    console.warn('[claim_document] claimDocuments unavailable; falling back', {
+      claimId: id,
+      reason
+    })
+
+    claimRecord = (await prisma.claim.findUnique({
+      where: { id },
+      select: claimSelectBase
+    })) as Record<string, unknown> | null
+  }
+
+  const claim = claimRecord as any
+
+  if (claim && !Array.isArray(claim.claimDocuments)) {
+    claim.claimDocuments = []
+  }
 
   if (!claim) {
     notFound()
@@ -1155,7 +1343,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const adjudicationResult = getAdjudicationResult(vinDataResult)
   const providerEndpointHint = getProviderEndpointHint(resolvedRawProviderPayload)
   const latestReviewDecisionAudit = claim.auditLogs.find(
-    (auditLog) => auditLog.action === 'review_decision_changed'
+    (auditLog: any) => auditLog.action === 'review_decision_changed'
   )
   const latestReviewDecisionChange = latestReviewDecisionAudit
     ? formatReviewDecisionChangeMetadata(latestReviewDecisionAudit.metadata)
@@ -1346,6 +1534,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       {summaryRegenerateBannerMessage ? (
         <p className={getSummaryRegenerateBannerClassName(resolvedSearchParams.summaryRegenerate)}>
           {summaryRegenerateBannerMessage}
+        </p>
+      ) : null}
+
+      {documentUploadBannerMessage ? (
+        <p className={getDocumentUploadBannerClassName(resolvedSearchParams.documentUpload)}>
+          {documentUploadBannerMessage}
         </p>
       ) : null}
 
@@ -1876,7 +2070,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <p className="text-slate-600">No attachments available for this claim.</p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {claim.attachments.map((attachment) => {
+            {claim.attachments.map((attachment: any) => {
               const safePreviewUrl = isSafePreviewUrl(attachment.sourceUrl) ? attachment.sourceUrl : null
               const canPreviewImage = safePreviewUrl && isImageAttachment(attachment)
               const canPreviewPdf = safePreviewUrl && isPdfAttachment(attachment)
@@ -1976,6 +2170,105 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 </article>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">Supporting Documents</h2>
+        <p className="text-sm text-slate-600">
+          Upload claim-specific supporting PDFs for reviewer reference. These files are separate from intake
+          attachments.
+        </p>
+
+        <form
+          method="post"
+          action={`/api/admin/claims/${claim.id}/documents/upload`}
+          encType="multipart/form-data"
+          className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+        >
+          <label className="block space-y-1 text-sm text-slate-700">
+            <span className="font-medium text-slate-900">PDF Files</span>
+            <input
+              type="file"
+              name="documents"
+              accept="application/pdf,.pdf"
+              multiple
+              required
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            />
+          </label>
+
+          <label className="block space-y-1 text-sm text-slate-700">
+            <span className="font-medium text-slate-900">Uploaded By (optional)</span>
+            <input
+              type="text"
+              name="uploadedBy"
+              maxLength={120}
+              placeholder="Reviewer or team name"
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
+          >
+            Upload Supporting PDFs
+          </button>
+        </form>
+
+        <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+          <p>
+            <span className="font-medium text-slate-900">Uploaded Document Count:</span>{' '}
+            {String(claim.claimDocuments.length)}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Last Upload:</span>{' '}
+            {claim.claimDocuments[0]?.uploadedAt ? formatDate(claim.claimDocuments[0].uploadedAt) : '—'}
+          </p>
+        </div>
+
+        {claim.claimDocuments.length === 0 ? (
+          <p className="text-slate-600">No supporting documents uploaded yet.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-slate-600">
+                  <th className="py-2 pr-4 font-medium">File</th>
+                  <th className="py-2 pr-4 font-medium">Status</th>
+                  <th className="py-2 pr-4 font-medium">Type</th>
+                  <th className="py-2 pr-4 font-medium">Uploaded</th>
+                  <th className="py-2 pr-4 font-medium">By</th>
+                  <th className="py-2 pr-4 font-medium">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claim.claimDocuments.map((document: any) => (
+                  <tr key={document.id} className="border-b last:border-0 align-top">
+                    <td className="py-2 pr-4 text-slate-900">
+                      <div className="space-y-1">
+                        <p className="break-all font-medium">{document.fileName}</p>
+                        <a
+                          href={`/api/admin/claims/${claim.id}/documents/${document.id}/file`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-blue-700 underline underline-offset-2"
+                        >
+                          Open PDF
+                        </a>
+                      </div>
+                    </td>
+                    <td className="py-2 pr-4 text-slate-700">{document.processingStatus || 'uploaded'}</td>
+                    <td className="py-2 pr-4 text-slate-700">{document.documentType || document.matchStatus || '—'}</td>
+                    <td className="py-2 pr-4 text-slate-700">{formatDate(document.uploadedAt)}</td>
+                    <td className="py-2 pr-4 text-slate-700">{document.uploadedBy || '—'}</td>
+                    <td className="py-2 pr-4 text-slate-700">{formatFileSize(document.fileSize)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -2396,7 +2689,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           <p className="text-slate-600">No activity recorded for this claim yet.</p>
         ) : (
           <ol className="space-y-3">
-            {timelineAuditLogs.map((auditLog) => {
+            {timelineAuditLogs.map((auditLog: any) => {
               const label = getAuditActionLabel(auditLog.action)
               const message = getAuditMessage(auditLog.action, auditLog.metadata)
               const metadataRows = getTimelineMetadataRows(auditLog.action, auditLog.metadata)

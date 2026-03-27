@@ -119,6 +119,19 @@ type LogReviewSummaryRegenerateQueuedInput = CommonAuditInput & {
   reviewerDecision?: string
 }
 
+type LogClaimDocumentUploadedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  uploadedBy?: string | null
+  processingStatus: string
+  documentType?: string | null
+  matchStatus?: string | null
+}
+
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
   return writeAuditLog({
     client: input.client,
@@ -301,6 +314,27 @@ export async function logReviewSummaryRegenerateQueuedAudit(input: LogReviewSumm
       previousSummaryStatus: input.previousSummaryStatus,
       newSummaryStatus: input.newSummaryStatus,
       reviewerDecision: input.reviewerDecision
+    }
+  })
+}
+
+export async function logClaimDocumentUploadedAudit(input: LogClaimDocumentUploadedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_uploaded',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      fileSize: input.fileSize,
+      uploadedBy: input.uploadedBy ?? null,
+      processingStatus: input.processingStatus,
+      documentType: input.documentType ?? null,
+      matchStatus: input.matchStatus ?? null,
+      message: `Uploaded supporting document: ${input.fileName}`
     }
   })
 }
