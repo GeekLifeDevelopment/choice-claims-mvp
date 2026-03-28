@@ -1,5 +1,6 @@
 export function readRuntimeEnv(key: string): string | null {
-  const value = process.env[key]
+  const runtimeEnv = globalThis.process?.env
+  const value = runtimeEnv ? runtimeEnv[key] : undefined
 
   if (typeof value !== 'string') {
     return null
