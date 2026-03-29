@@ -147,6 +147,41 @@ type LogClaimDocumentRemovedInput = CommonAuditInput & {
   extractionStatus?: string | null
 }
 
+type LogClaimDocumentReprocessRequestedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  requestedBy?: string | null
+  previousProcessingStatus?: string | null
+  previousDocumentType?: string | null
+  previousMatchStatus?: string | null
+  previousExtractionStatus?: string | null
+}
+
+type LogClaimDocumentReprocessedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  processingStatus: string
+  documentType?: string | null
+  matchStatus?: string | null
+  extractionStatus?: string | null
+  applyStatus?: string | null
+  extractedFieldCount?: number | null
+  refreshQueued?: boolean
+  refreshReason?: string | null
+}
+
+type LogClaimDocumentReprocessFailedInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  errorMessage: string
+}
+
 type LogClaimDocumentClassifiedInput = CommonAuditInput & {
   claimId: string
   claimNumber: string
@@ -448,6 +483,65 @@ export async function logClaimDocumentRemovedAudit(input: LogClaimDocumentRemove
       extractionStatus: input.extractionStatus ?? null,
       removedAt: new Date().toISOString(),
       message: 'Document removed from claim for retest'
+    }
+  })
+}
+
+export async function logClaimDocumentReprocessRequestedAudit(input: LogClaimDocumentReprocessRequestedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_reprocess_requested',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      requestedBy: input.requestedBy ?? null,
+      previousProcessingStatus: input.previousProcessingStatus ?? null,
+      previousDocumentType: input.previousDocumentType ?? null,
+      previousMatchStatus: input.previousMatchStatus ?? null,
+      previousExtractionStatus: input.previousExtractionStatus ?? null,
+      message: 'Document reprocess requested'
+    }
+  })
+}
+
+export async function logClaimDocumentReprocessedAudit(input: LogClaimDocumentReprocessedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_reprocessed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      processingStatus: input.processingStatus,
+      documentType: input.documentType ?? null,
+      matchStatus: input.matchStatus ?? null,
+      extractionStatus: input.extractionStatus ?? null,
+      applyStatus: input.applyStatus ?? null,
+      extractedFieldCount: input.extractedFieldCount ?? null,
+      refreshQueued: input.refreshQueued ?? false,
+      refreshReason: input.refreshReason ?? null,
+      message: 'Document reprocessed'
+    }
+  })
+}
+
+export async function logClaimDocumentReprocessFailedAudit(input: LogClaimDocumentReprocessFailedInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_reprocess_failed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      errorMessage: input.errorMessage,
+      message: 'Document reprocess failed'
     }
   })
 }
