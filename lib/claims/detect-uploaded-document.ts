@@ -35,8 +35,9 @@ async function extractPdfText(pdfBytes: Buffer): Promise<{ text: string; parseFa
   return readPdfTextConservatively(pdfBytes)
 }
 
-function detectType(text: string): DetectedDocumentType {
+function detectType(text: string, fileName: string): DetectedDocumentType {
   const upper = text.toUpperCase()
+  const normalizedFileName = normalizeToken(fileName)
 
   if (upper.includes('CARFAX')) {
     return 'carfax'
@@ -46,25 +47,44 @@ function detectType(text: string): DetectedDocumentType {
     return 'autocheck'
   }
 
-  const choiceContractMarkers = [
-    'CHOICE AUTO PROTECTION',
-    'VEHICLE SERVICE CONTRACT',
-    'SERVICE CONTRACT',
-    'DECLARATIONS',
-    'CONTRACT PURCHASE DATE',
-    'AGREEMENT NUMBER',
-    'AGREEMENT NO',
-    'DEDUCTIBLE',
-    'COVERAGE LEVEL'
-  ]
-  const choiceMarkerCount = choiceContractMarkers.filter((marker) => upper.includes(marker)).length
+  let choiceScore = 0
+
+  if (upper.includes('CHOICE AUTO PROTECTION')) {
+    choiceScore += 4
+  }
+
+  if (upper.includes('VEHICLE SERVICE CONTRACT')) {
+    choiceScore += 3
+  }
+
+  if (upper.includes('DECLARATIONS')) {
+    choiceScore += 1
+  }
+
+  if (upper.includes('AGREEMENT NUMBER') || upper.includes('CONTRACT NUMBER') || upper.includes('AGREEMENT NO')) {
+    choiceScore += 2
+  }
+
+  if (upper.includes('DEDUCTIBLE')) {
+    choiceScore += 1
+  }
+
+  if (upper.includes('COVERAGE LEVEL') || upper.includes('PROTECTION PLAN')) {
+    choiceScore += 1
+  }
+
+  if (upper.includes('TERM') && upper.includes('MILES')) {
+    choiceScore += 1
+  }
 
   if (
-    upper.includes('CHOICE AUTO PROTECTION') ||
-    (upper.includes('VEHICLE SERVICE CONTRACT') && upper.includes('CHOICE')) ||
-    (upper.includes('DECLARATIONS') && upper.includes('CHOICE AUTO')) ||
-    (upper.includes('CHOICE') && choiceMarkerCount >= 2)
+    normalizedFileName.includes('CHOICE') &&
+    (normalizedFileName.includes('CONTRACT') || normalizedFileName.includes('AGREEMENT'))
   ) {
+    choiceScore += 2
+  }
+
+  if (upper.includes('CHOICE') && choiceScore >= 4) {
     return 'choice_contract'
   }
 
@@ -196,7 +216,7 @@ function matchDocument(input: {
 
 export async function detectAndMatchUploadedDocument(input: DetectionInput): Promise<DocumentDetectionResult> {
   const parsed = await extractPdfText(input.pdfBytes)
-  const documentType = detectType(parsed.text)
+  const documentType = detectType(parsed.text, input.fileName)
   const anchors = buildAnchors({
     text: parsed.text,
     claimantName: input.claimantName

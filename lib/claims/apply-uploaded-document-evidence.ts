@@ -179,16 +179,29 @@ function buildFieldCandidates(input: {
   }
 
   if (input.documentType === 'choice_contract') {
+    push('vin', 'documentEvidence.contract.vin')
     push('mileageAtSale', 'documentEvidence.contract.mileageAtSale')
+    push('mileageAtSale', 'submission.purchaseMileage')
     push('vehiclePurchaseDate', 'documentEvidence.contract.vehiclePurchaseDate')
+    push('vehiclePurchaseDate', 'submission.purchaseDate')
     push('agreementPurchaseDate', 'documentEvidence.contract.agreementPurchaseDate')
+    push('agreementPurchaseDate', 'submission.contractPurchaseDate')
     push('agreementNumber', 'documentEvidence.contract.agreementNumber')
+    push('contractNumber', 'documentEvidence.contract.contractNumber')
     push('agreementPrice', 'documentEvidence.contract.agreementPrice')
+    push('agreementPrice', 'warranty.coverageData.contractPrice')
     push('coverageLevel', 'documentEvidence.contract.coverageLevel')
+    push('coverageLevel', 'warranty.coverageData.planName')
     push('termMonths', 'documentEvidence.contract.termMonths')
+    push('termMonths', 'warranty.coverageData.termMonths')
     push('termMiles', 'documentEvidence.contract.termMiles')
+    push('termMiles', 'warranty.coverageData.termMiles')
     push('deductible', 'documentEvidence.contract.deductible')
+    push('deductible', 'warranty.coverageData.deductible')
     push('waitingPeriodMarker', 'documentEvidence.contract.waitingPeriodMarker')
+    push('waitingPeriodMarker', 'warranty.coverageData.waitingPeriod')
+    push('coverageSummary', 'warranty.coverageData.summary')
+    push('selectedAddOnsSummary', 'warranty.coverageData.addOns')
   }
 
   return candidates

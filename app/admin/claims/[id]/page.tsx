@@ -707,10 +707,29 @@ function getDocumentExtractionSummary(documentType: string | null | undefined, e
   }
 
   if (documentType === 'choice_contract') {
+    const agreementNumber = getOptionalString(record.agreementNumber) || getOptionalString(record.contractNumber)
+    const vehiclePurchaseDate = getOptionalString(record.vehiclePurchaseDate)
+    const agreementPurchaseDate = getOptionalString(record.agreementPurchaseDate)
+    const agreementPrice = getOptionalNumber(record.agreementPrice)
     const plan = getOptionalString(record.coverageLevel)
     const termMonths = getOptionalNumber(record.termMonths)
     const termMiles = getOptionalNumber(record.termMiles)
     const deductible = getOptionalNumber(record.deductible)
+    const coverageSummary = getOptionalString(record.coverageSummary)
+    const addOns = getOptionalString(record.selectedAddOnsSummary)
+
+    if (agreementNumber) {
+      pieces.push(`Agreement ${agreementNumber}`)
+    }
+    if (vehiclePurchaseDate) {
+      pieces.push(`Vehicle purchase ${vehiclePurchaseDate}`)
+    }
+    if (agreementPurchaseDate) {
+      pieces.push(`Agreement purchase ${agreementPurchaseDate}`)
+    }
+    if (agreementPrice !== null) {
+      pieces.push(`Agreement price $${String(agreementPrice)}`)
+    }
 
     if (plan) {
       pieces.push(`Plan ${plan}`)
@@ -722,6 +741,12 @@ function getDocumentExtractionSummary(documentType: string | null | undefined, e
     }
     if (deductible !== null) {
       pieces.push(`Deductible $${String(deductible)}`)
+    }
+    if (coverageSummary) {
+      pieces.push(`Coverage ${coverageSummary}`)
+    }
+    if (addOns) {
+      pieces.push(`Add-ons ${addOns}`)
     }
   }
 

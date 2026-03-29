@@ -86,6 +86,8 @@ export function buildQuestionEvidenceAndMissing(context: EvidenceContext): Evide
   const serviceHistory = asRecord(context.vinDataResult.serviceHistory)
   const recalls = asRecord(context.vinDataResult.nhtsaRecalls)
   const valuation = asRecord(context.vinDataResult.valuation)
+  const warranty = asRecord(context.vinDataResult.warranty)
+  const warrantyCoverageData = asRecord(warranty.coverageData)
 
   if (context.questionId === 'miles_since_purchase') {
     if (hasKnownNumber(submission.mileage)) {
@@ -152,8 +154,11 @@ export function buildQuestionEvidenceAndMissing(context: EvidenceContext): Evide
   }
 
   if (context.questionId === 'warranty_support') {
-    pushEvidence('rule.placeholder', true)
-    missing.push('warranty.coverageData')
+    if (Object.keys(warrantyCoverageData).length > 0) {
+      pushEvidence('warranty.coverageData', true)
+    } else {
+      missing.push('warranty.coverageData')
+    }
   }
 
   if (context.questionId === 'branded_title') {
