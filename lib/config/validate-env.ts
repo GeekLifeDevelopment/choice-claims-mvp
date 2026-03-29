@@ -98,12 +98,26 @@ function warnOptionalUrl(key: string, note: string): void {
 export function validateEnvConfig(scope: ValidationScope = 'app'): void {
   logConfigInfo(`startup validation begin (${scope})`)
 
-  const redisUrl = requireEnv('REDIS_URL')
-  const databaseUrl = requireEnv('DATABASE_URL')
+  const requiresRedis = scope === 'queue' || scope === 'worker'
+  const requiresDatabase = scope === 'worker'
+
+  const redisUrl = requiresRedis ? requireEnv('REDIS_URL') : readEnvValue('REDIS_URL').value
+  const databaseUrl = requiresDatabase
+    ? requireEnv('DATABASE_URL')
+    : readEnvValue('DATABASE_URL').value
   const queuePrefix = readEnvValue('QUEUE_PREFIX').value
 
-  validateUrl(redisUrl, 'REDIS_URL')
-  validateUrl(databaseUrl, 'DATABASE_URL')
+  if (redisUrl) {
+    validateUrl(redisUrl, 'REDIS_URL')
+  } else {
+    logConfigWarn('REDIS_URL missing (queue infrastructure disabled until set)')
+  }
+
+  if (databaseUrl) {
+    validateUrl(databaseUrl, 'DATABASE_URL')
+  } else {
+    logConfigWarn('DATABASE_URL missing (database-backed routes may fail until set)')
+  }
 
   const queuePreRedisRaw = process.env.QUEUE_PREREDIS_URL
   if (queuePreRedisRaw !== undefined) {
