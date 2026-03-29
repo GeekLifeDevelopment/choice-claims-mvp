@@ -186,6 +186,9 @@ function getAuditActionLabel(action: string): string {
     claim_created: 'Claim created',
     claim_document_uploaded: 'Document uploaded',
     claim_document_removed: 'Document removed',
+    claim_document_reprocess_requested: 'Document reprocess requested',
+    claim_document_reprocessed: 'Document reprocessed',
+    claim_document_reprocess_failed: 'Document reprocess failed',
     claim_document_reuploaded: 'Document reuploaded',
     claim_document_classified: 'Document classified',
     claim_document_match_evaluated: 'Document match evaluated',
@@ -236,6 +239,9 @@ function getTimelineEventBadgeClassName(action: string): string {
   if (
     action === 'claim_document_uploaded' ||
     action === 'claim_document_removed' ||
+    action === 'claim_document_reprocess_requested' ||
+    action === 'claim_document_reprocessed' ||
+    action === 'claim_document_reprocess_failed' ||
     action === 'claim_document_reuploaded' ||
     action === 'claim_document_classified' ||
     action === 'claim_document_match_evaluated' ||
@@ -284,7 +290,13 @@ function getTimelineEventBadgeText(action: string): string {
     return 'Document'
   }
 
-  if (action === 'claim_document_removed' || action === 'claim_document_reuploaded') {
+  if (
+    action === 'claim_document_removed' ||
+    action === 'claim_document_reuploaded' ||
+    action === 'claim_document_reprocess_requested' ||
+    action === 'claim_document_reprocessed' ||
+    action === 'claim_document_reprocess_failed'
+  ) {
     return 'Document'
   }
 
@@ -343,6 +355,7 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const documentId = getOptionalString(record.documentId)
   const uploadedBy = getOptionalString(record.uploadedBy)
   const removedBy = getOptionalString(record.removedBy)
+  const requestedBy = getOptionalString(record.requestedBy)
   const removedAt = getOptionalString(record.removedAt)
   const processingStatus = getOptionalString(record.processingStatus)
   const documentType = getOptionalString(record.documentType)
@@ -395,6 +408,9 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
   if (
     action === 'claim_document_uploaded' ||
+    action === 'claim_document_reprocess_requested' ||
+    action === 'claim_document_reprocessed' ||
+    action === 'claim_document_reprocess_failed' ||
     action === 'claim_document_extraction_attempted' ||
     action === 'claim_document_extraction_succeeded' ||
     action === 'claim_document_extraction_partial' ||
@@ -423,6 +439,10 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
     if (removedBy) {
       rows.push({ label: 'Removed By', value: removedBy })
+    }
+
+    if (requestedBy) {
+      rows.push({ label: 'Requested By', value: requestedBy })
     }
 
     if (removedAt) {
@@ -722,6 +742,66 @@ function formatDocumentProcessingStatus(value: string | null | undefined): strin
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function getDocumentProcessingPresentation(input: {
+  processingStatus: string | null | undefined
+  documentType: string | null | undefined
+  matchStatus: string | null | undefined
+  extractionStatus: string | null | undefined
+}): { label: string; className: string; note: string | null } {
+  const base = BADGE_BASE_CLASSNAME
+  const label = formatDocumentProcessingStatus(input.processingStatus)
+
+  if (input.matchStatus === 'conflict') {
+    return {
+      label,
+      className: `${base} border-red-300 bg-red-50 text-red-700`,
+      note: 'Conflict detected, manual review required.'
+    }
+  }
+
+  if (input.extractionStatus === 'failed') {
+    return {
+      label,
+      className: `${base} border-red-300 bg-red-50 text-red-700`,
+      note: 'Extraction failed, reprocess recommended.'
+    }
+  }
+
+  if (
+    input.processingStatus === 'pending' &&
+    (input.documentType === 'unknown' || !input.documentType) &&
+    (input.extractionStatus === 'pending' || !input.extractionStatus)
+  ) {
+    return {
+      label: 'Stale pending',
+      className: `${base} border-amber-300 bg-amber-50 text-amber-900`,
+      note: 'Document remained unclassified. Use reprocess to retry classification and extraction.'
+    }
+  }
+
+  if (input.processingStatus === 'classified' && input.extractionStatus === 'partial') {
+    return {
+      label,
+      className: `${base} border-amber-300 bg-amber-50 text-amber-900`,
+      note: 'Partially extracted. Reprocess can retry field capture.'
+    }
+  }
+
+  if (input.processingStatus === 'classified') {
+    return {
+      label,
+      className: `${base} border-emerald-300 bg-emerald-50 text-emerald-700`,
+      note: null
+    }
+  }
+
+  return {
+    label,
+    className: `${base} border-slate-300 bg-slate-50 text-slate-700`,
+    note: null
+  }
 }
 
 function getDocumentEvidenceApplyRecord(value: unknown): Record<string, unknown> {
@@ -1417,6 +1497,7 @@ type PageProps = {
     documentUpload?: string
     documentUploadCount?: string
     documentRemove?: string
+    documentReprocess?: string
   }>
 }
 
@@ -1657,6 +1738,46 @@ function getDocumentRemoveBannerClassName(value: string | undefined): string {
   return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
+function getDocumentReprocessBannerMessage(value: string | undefined): string | null {
+  if (value === 'reprocessed') {
+    return 'Document reprocessed successfully.'
+  }
+
+  if (value === 'missing-document') {
+    return 'Reprocess failed: document was not found for this claim.'
+  }
+
+  if (value === 'file-unavailable') {
+    return 'Reprocess failed: source file is missing from storage.'
+  }
+
+  if (value === 'failed') {
+    return 'Reprocess failed: unable to refresh this document.'
+  }
+
+  if (value === 'not-found') {
+    return 'Reprocess failed: claim was not found.'
+  }
+
+  if (value === 'locked_final_decision') {
+    return 'Reprocess blocked: this claim is locked by a final reviewer decision.'
+  }
+
+  return null
+}
+
+function getDocumentReprocessBannerClassName(value: string | undefined): string {
+  if (value === 'reprocessed') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  if (value === 'locked_final_decision') {
+    return 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
+}
+
 function getSummaryRegenerateDisabledReason(input: {
   claimLockedForProcessing: boolean
   status: string
@@ -1736,6 +1857,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     documentUploadCount
   )
   const documentRemoveBannerMessage = getDocumentRemoveBannerMessage(resolvedSearchParams.documentRemove)
+  const documentReprocessBannerMessage = getDocumentReprocessBannerMessage(
+    resolvedSearchParams.documentReprocess
+  )
 
   const claimSelectBase = {
     id: true,
@@ -2207,6 +2331,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       {documentRemoveBannerMessage ? (
         <p className={getDocumentRemoveBannerClassName(resolvedSearchParams.documentRemove)}>
           {documentRemoveBannerMessage}
+        </p>
+      ) : null}
+
+      {documentReprocessBannerMessage ? (
+        <p className={getDocumentReprocessBannerClassName(resolvedSearchParams.documentReprocess)}>
+          {documentReprocessBannerMessage}
         </p>
       ) : null}
 
@@ -2925,8 +3055,16 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 </tr>
               </thead>
               <tbody>
-                {claim.claimDocuments.map((document: any) => (
-                  <tr key={document.id} className="border-b last:border-0 align-top">
+                {claim.claimDocuments.map((document: any) => {
+                  const processingPresentation = getDocumentProcessingPresentation({
+                    processingStatus: document.processingStatus,
+                    documentType: document.documentType,
+                    matchStatus: document.matchStatus,
+                    extractionStatus: document.extractionStatus
+                  })
+
+                  return (
+                    <tr key={document.id} className="border-b last:border-0 align-top">
                     <td className="py-2 pr-4 text-slate-900">
                       <div className="space-y-1">
                         <p className="break-all font-medium">{document.fileName}</p>
@@ -2988,22 +3126,46 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         extractedData: document.extractedData
                       })}
                     </td>
-                    <td className="py-2 pr-4 text-slate-700">{formatDocumentProcessingStatus(document.processingStatus)}</td>
+                    <td className="py-2 pr-4 text-slate-700">
+                      <div className="space-y-1">
+                        <span className={processingPresentation.className}>{processingPresentation.label}</span>
+                        {processingPresentation.note ? (
+                          <p className="text-xs text-slate-600">{processingPresentation.note}</p>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="py-2 pr-4 text-slate-700">{formatDate(document.uploadedAt)}</td>
                     <td className="py-2 pr-4 text-slate-700">{document.uploadedBy || '—'}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatFileSize(document.fileSize)}</td>
                     <td className="py-2 pr-4 text-slate-700">
-                      <form method="post" action={`/api/admin/claims/${claim.id}/documents/${document.id}/remove`}>
-                        <button
-                          type="submit"
-                          className="inline-flex items-center rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                        >
-                          Remove
-                        </button>
-                      </form>
+                      <div className="flex flex-col gap-2">
+                        <form method="post" action={`/api/admin/claims/${claim.id}/documents/${document.id}/reprocess`}>
+                          <button
+                            type="submit"
+                            disabled={claimLockedForProcessing}
+                            className="inline-flex items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            title={
+                              claimLockedForProcessing
+                                ? 'Claim is locked by final decision'
+                                : 'Reprocess this document'
+                            }
+                          >
+                            Reprocess
+                          </button>
+                        </form>
+                        <form method="post" action={`/api/admin/claims/${claim.id}/documents/${document.id}/remove`}>
+                          <button
+                            type="submit"
+                            className="inline-flex items-center rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </form>
+                      </div>
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

@@ -46,10 +46,24 @@ function detectType(text: string): DetectedDocumentType {
     return 'autocheck'
   }
 
+  const choiceContractMarkers = [
+    'CHOICE AUTO PROTECTION',
+    'VEHICLE SERVICE CONTRACT',
+    'SERVICE CONTRACT',
+    'DECLARATIONS',
+    'CONTRACT PURCHASE DATE',
+    'AGREEMENT NUMBER',
+    'AGREEMENT NO',
+    'DEDUCTIBLE',
+    'COVERAGE LEVEL'
+  ]
+  const choiceMarkerCount = choiceContractMarkers.filter((marker) => upper.includes(marker)).length
+
   if (
     upper.includes('CHOICE AUTO PROTECTION') ||
     (upper.includes('VEHICLE SERVICE CONTRACT') && upper.includes('CHOICE')) ||
-    (upper.includes('DECLARATIONS') && upper.includes('CHOICE AUTO'))
+    (upper.includes('DECLARATIONS') && upper.includes('CHOICE AUTO')) ||
+    (upper.includes('CHOICE') && choiceMarkerCount >= 2)
   ) {
     return 'choice_contract'
   }

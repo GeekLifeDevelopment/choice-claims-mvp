@@ -238,7 +238,8 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 
   const agreementNumber = extractFirstMatch(text, [
     /(?:agreement|contract)\s*(?:number|no\.?|#)\s*[:#]?\s*([A-Z0-9-]{5,})/i,
-    /(?:agreement id|contract id)\s*[:#]?\s*([A-Z0-9-]{5,})/i
+    /(?:agreement id|contract id)\s*[:#]?\s*([A-Z0-9-]{5,})/i,
+    /\b(?:agreement|contract)\s*[:#]\s*([A-Z0-9-]{5,})/i
   ])
   if (agreementNumber) {
     data.agreementNumber = agreementNumber
@@ -271,7 +272,8 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 
   const agreementPriceRaw = extractFirstMatch(text, [
     /(?:agreement\s+price|purchase\s+price|total\s+contract\s+price)\s*[:#]?\s*(\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i,
-    /(?:price\s+paid)\s*[:#]?\s*(\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i
+    /(?:price\s+paid)\s*[:#]?\s*(\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i,
+    /(?:agreement\s+price|contract\s+price|purchase\s+price)\s*[:#]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i
   ])
   const agreementPrice = extractMoneyValue(agreementPriceRaw)
   if (agreementPrice !== null) {
@@ -279,7 +281,7 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
   }
 
   const coverageLevel = extractFirstMatch(text, [
-    /(?:coverage\s+level|plan\s+name|plan)\s*[:#]?\s*([A-Za-z][A-Za-z0-9\s\-/]{2,40})/i
+    /(?:coverage\s+level|plan\s+name|plan|protection\s+plan|coverage\s+option)\s*[:#]?\s*([A-Za-z][A-Za-z0-9\s\-/]{2,40})/i
   ])
   if (coverageLevel) {
     data.coverageLevel = coverageLevel
@@ -287,7 +289,8 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 
   const termMonthsRaw = extractFirstMatch(text, [
     /(?:term\s*[:#]?\s*)(\d{1,3})\s*months?/i,
-    /(\d{1,3})\s*months?\s*\/\s*\d{1,3}(?:,\d{3}){0,2}\s*miles?/i
+    /(\d{1,3})\s*months?\s*\/\s*\d{1,3}(?:,\d{3}){0,2}\s*miles?/i,
+    /(?:service\s+term)\s*[:#]?\s*(\d{1,3})\s*months?/i
   ])
   const termMonths = extractIntegerValue(termMonthsRaw)
   if (termMonths !== null) {
@@ -296,7 +299,7 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 
   const termMilesRaw = extractFirstMatch(text, [
     /(?:term\s*[:#]?\s*\d{1,3}\s*months?\s*\/\s*)(\d{1,3}(?:,\d{3}){0,2})\s*miles?/i,
-    /(?:term\s+miles?|mileage\s+term)\s*[:#]?\s*(\d{1,3}(?:,\d{3}){0,2})/i
+    /(?:term\s+miles?|mileage\s+term|service\s+term\s+miles?)\s*[:#]?\s*(\d{1,3}(?:,\d{3}){0,2})/i
   ])
   const termMiles = extractIntegerValue(termMilesRaw)
   if (termMiles !== null) {
@@ -305,7 +308,8 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 
   const deductibleRaw = extractFirstMatch(text, [
     /(?:deductible)\s*[:#]?\s*(\$\s*\d{1,4})/i,
-    /(\$\s*\d{1,4})\s*deductible/i
+    /(\$\s*\d{1,4})\s*deductible/i,
+    /(?:deductible)\s*[:#]?\s*(\d{1,4})/i
   ])
   const deductible = extractMoneyValue(deductibleRaw)
   if (deductible !== null) {
@@ -330,6 +334,10 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 
   if (!vin) {
     warnings.push('VIN not confidently extracted from Choice contract.')
+  }
+
+  if (!agreementNumber && !data.coverageLevel && !data.termMonths && !data.termMiles) {
+    warnings.push('Choice contract markers were detected but key contract terms were not confidently extracted.')
   }
 
   return { data, warnings }
