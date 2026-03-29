@@ -1,0 +1,93 @@
+services:
+  - type: web
+    name: choice-claims-web
+    env: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npm run prisma:generate && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health/db
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: QUEUE_PREFIX
+        value: choice-claims
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: VIN_DATA_PROVIDER
+        sync: false
+      - key: MARKETCHECK_API_KEY
+        sync: false
+      - key: MARKETCHECK_API_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: EXPERIAN_BASE_URL
+        sync: false
+      - key: EXPERIAN_USERNAME
+        sync: false
+      - key: EXPERIAN_PASSWORD
+        sync: false
+      - key: EXPERIAN_CLIENT_ID
+        sync: false
+      - key: EXPERIAN_CLIENT_SECRET
+        sync: false
+      - key: VIN_PROVIDER_TIMEOUT_MS
+        value: "10000"
+
+  - type: worker
+    name: choice-claims-worker
+    env: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npm run prisma:generate
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: QUEUE_PREFIX
+        value: choice-claims
+      - key: VIN_DATA_PROVIDER
+        sync: false
+      - key: MARKETCHECK_API_KEY
+        sync: false
+      - key: MARKETCHECK_API_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: EXPERIAN_BASE_URL
+        sync: false
+      - key: EXPERIAN_USERNAME
+        sync: false
+      - key: EXPERIAN_PASSWORD
+        sync: false
+      - key: EXPERIAN_CLIENT_ID
+        sync: false
+      - key: EXPERIAN_CLIENT_SECRET
+        sync: false
+      - key: VIN_PROVIDER_TIMEOUT_MS
+        value: "10000"
