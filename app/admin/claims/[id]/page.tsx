@@ -197,6 +197,10 @@ function getAuditActionLabel(action: string): string {
     claim_document_extraction_partial: 'Document extraction partial',
     claim_document_extraction_failed: 'Document extraction failed',
     claim_document_extraction_skipped: 'Document extraction skipped',
+    claim_document_choice_fallback_attempted: 'Choice OCR fallback attempted',
+    claim_document_choice_fallback_succeeded: 'Choice OCR fallback succeeded',
+    claim_document_choice_fallback_partial: 'Choice OCR fallback partial',
+    claim_document_choice_fallback_failed: 'Choice OCR fallback failed',
     claim_document_evidence_applied: 'Document evidence applied',
     claim_document_evidence_partially_applied: 'Document evidence partially applied',
     claim_document_evidence_conflict_detected: 'Document evidence conflict detected',
@@ -249,6 +253,9 @@ function getTimelineEventBadgeClassName(action: string): string {
     action === 'claim_document_extraction_succeeded' ||
     action === 'claim_document_extraction_partial' ||
     action === 'claim_document_extraction_skipped' ||
+    action === 'claim_document_choice_fallback_attempted' ||
+    action === 'claim_document_choice_fallback_succeeded' ||
+    action === 'claim_document_choice_fallback_partial' ||
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_skipped' ||
@@ -310,6 +317,10 @@ function getTimelineEventBadgeText(action: string): string {
     action === 'claim_document_extraction_partial' ||
     action === 'claim_document_extraction_skipped' ||
     action === 'claim_document_extraction_failed' ||
+    action === 'claim_document_choice_fallback_attempted' ||
+    action === 'claim_document_choice_fallback_succeeded' ||
+    action === 'claim_document_choice_fallback_partial' ||
+    action === 'claim_document_choice_fallback_failed' ||
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_conflict_detected' ||
@@ -365,6 +376,15 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const extractedAt = getOptionalString(record.extractedAt)
   const extractedFieldCount = getOptionalNumber(record.extractedFieldCount)
   const extractionWarnings = getOptionalStringArray(record.extractionWarnings)
+  const fallbackStatus = getOptionalString(record.fallbackStatus)
+  const fallbackMethod = getOptionalString(record.method)
+  const fallbackAttempted = getOptionalBoolean(record.attempted)
+  const fallbackUsed = getOptionalBoolean(record.used)
+  const fallbackTriggerReasons = getOptionalStringArray(record.triggerReasons)
+  const fallbackFilledFields = getOptionalStringArray(record.filledFields)
+  const fallbackFailureReason = getOptionalString(record.failureReason)
+  const fallbackWarnings = getOptionalStringArray(record.warnings)
+  const fallbackConfidence = getOptionalNumber(record.confidence)
   const applyStatus = getOptionalString(record.applyStatus)
   const appliedFields = getOptionalStringArray(record.appliedFields)
   const skippedFields = getOptionalStringArray(record.skippedFields)
@@ -416,6 +436,10 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
     action === 'claim_document_extraction_partial' ||
     action === 'claim_document_extraction_failed' ||
     action === 'claim_document_extraction_skipped' ||
+    action === 'claim_document_choice_fallback_attempted' ||
+    action === 'claim_document_choice_fallback_succeeded' ||
+    action === 'claim_document_choice_fallback_partial' ||
+    action === 'claim_document_choice_fallback_failed' ||
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_conflict_detected' ||
@@ -483,6 +507,42 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
     if (extractionWarnings.length > 0) {
       rows.push({ label: 'Warnings', value: extractionWarnings.join(' | ') })
+    }
+
+    if (fallbackStatus) {
+      rows.push({ label: 'Fallback Status', value: fallbackStatus })
+    }
+
+    if (fallbackMethod) {
+      rows.push({ label: 'Fallback Method', value: fallbackMethod })
+    }
+
+    if (fallbackAttempted !== null) {
+      rows.push({ label: 'Fallback Attempted', value: fallbackAttempted ? 'Yes' : 'No' })
+    }
+
+    if (fallbackUsed !== null) {
+      rows.push({ label: 'Fallback Used', value: fallbackUsed ? 'Yes' : 'No' })
+    }
+
+    if (fallbackTriggerReasons.length > 0) {
+      rows.push({ label: 'Fallback Triggers', value: fallbackTriggerReasons.join(' | ') })
+    }
+
+    if (fallbackFilledFields.length > 0) {
+      rows.push({ label: 'Fallback Filled Fields', value: fallbackFilledFields.join(' | ') })
+    }
+
+    if (fallbackConfidence !== null) {
+      rows.push({ label: 'Fallback Confidence', value: String(fallbackConfidence) })
+    }
+
+    if (fallbackWarnings.length > 0) {
+      rows.push({ label: 'Fallback Warnings', value: fallbackWarnings.join(' | ') })
+    }
+
+    if (fallbackFailureReason) {
+      rows.push({ label: 'Fallback Failure', value: fallbackFailureReason })
     }
 
     if (applyStatus) {
@@ -634,6 +694,29 @@ function formatDocumentExtractionStatus(value: string | null | undefined): strin
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function getChoiceFallbackRecord(value: unknown): Record<string, unknown> {
+  const extracted = asRecord(value)
+  return asRecord(extracted.__choiceContractFallback)
+}
+
+function hasChoiceFallbackUsed(extractedData: unknown): boolean {
+  const fallback = getChoiceFallbackRecord(extractedData)
+  return getOptionalBoolean(fallback.used) === true
+}
+
+function formatDocumentExtractionLabel(input: {
+  extractionStatus: string | null | undefined
+  documentType: string | null | undefined
+  extractedData: unknown
+}): string {
+  const base = formatDocumentExtractionStatus(input.extractionStatus)
+  if (input.documentType === 'choice_contract' && hasChoiceFallbackUsed(input.extractedData)) {
+    return `${base} (OpenAI fallback)`
+  }
+
+  return base
 }
 
 function getDocumentExtractionBadgeClassName(value: string | null | undefined): string {
@@ -885,6 +968,7 @@ function getDocumentAppliedAt(value: unknown): string {
 }
 
 function getDocumentOutcomeSummary(input: {
+  documentType: string | null | undefined
   matchStatus: string | null | undefined
   matchNotes: string | null | undefined
   extractionStatus: string | null | undefined
@@ -901,9 +985,17 @@ function getDocumentOutcomeSummary(input: {
     parts.push(`Match conflict: ${input.matchNotes}`)
   }
 
-  const extractionLabel = formatDocumentExtractionStatus(input.extractionStatus)
+  const extractionLabel = formatDocumentExtractionLabel({
+    extractionStatus: input.extractionStatus,
+    documentType: input.documentType,
+    extractedData: input.extractedData
+  })
   if (extractionLabel !== 'Pending') {
     parts.push(`Extraction ${extractionLabel}`)
+  }
+
+  if (input.documentType === 'choice_contract' && hasChoiceFallbackUsed(input.extractedData)) {
+    parts.push('OCR/vision fallback used due to weak PDF text')
   }
 
   const warningCount = getOptionalStringArray(input.extractionWarnings).length
@@ -3083,7 +3175,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         <p>Uploaded</p>
                         <p>Classified: {formatDetectedDocumentType(document.documentType)}</p>
                         <p>Match: {formatDocumentMatchStatus(document.matchStatus)}</p>
-                        <p>Extraction: {formatDocumentExtractionStatus(document.extractionStatus)}</p>
+                        <p>
+                          Extraction:{' '}
+                          {formatDocumentExtractionLabel({
+                            extractionStatus: document.extractionStatus,
+                            documentType: document.documentType,
+                            extractedData: document.extractedData
+                          })}
+                        </p>
                         <p>Evidence: {formatDocumentEvidenceApplyStatus(document.extractedData)}</p>
                       </div>
                     </td>
@@ -3097,7 +3196,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     <td className="py-2 pr-4 text-slate-700">{getDocumentAnchorSummary(document.parsedAnchors)}</td>
                     <td className="py-2 pr-4">
                       <span className={getDocumentExtractionBadgeClassName(document.extractionStatus)}>
-                        {formatDocumentExtractionStatus(document.extractionStatus)}
+                        {formatDocumentExtractionLabel({
+                          extractionStatus: document.extractionStatus,
+                          documentType: document.documentType,
+                          extractedData: document.extractedData
+                        })}
                       </span>
                     </td>
                     <td className="py-2 pr-4 text-slate-700">{formatIsoDate(document.extractedAt)}</td>
@@ -3119,6 +3222,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     <td className="py-2 pr-4 text-slate-700">{getDocumentEvidenceConflictSummary(document.extractedData)}</td>
                     <td className="py-2 pr-4 text-slate-700">
                       {getDocumentOutcomeSummary({
+                        documentType: document.documentType,
                         matchStatus: document.matchStatus,
                         matchNotes: document.matchNotes,
                         extractionStatus: document.extractionStatus,

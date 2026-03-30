@@ -1,4 +1,8 @@
 import type { DetectedDocumentType } from './detect-uploaded-document'
+import {
+  extractChoiceContractWithOpenAi,
+  type ChoiceContractOpenAiFallbackResult
+} from './extract-choice-contract-with-openai'
 import { readPdfTextConservatively } from './read-pdf-text'
 
 export type DocumentExtractionStatus = 'pending' | 'extracted' | 'partial' | 'failed' | 'skipped'
@@ -8,6 +12,18 @@ export type DocumentExtractionResult = {
   extractedAt: string
   extractedData: Record<string, unknown> | null
   warnings: string[]
+  choiceContractFallback?: {
+    attempted: boolean
+    status: 'succeeded' | 'partial' | 'failed' | 'skipped'
+    used: boolean
+    method: 'openai_ocr_vision'
+    extractedAt: string | null
+    filledFields: string[]
+    triggerReasons: string[]
+    confidence: number | null
+    warnings: string[]
+    failureReason: string | null
+  }
 }
 
 type ExtractionInput = {
@@ -16,10 +32,52 @@ type ExtractionInput = {
 }
 
 const MAX_HISTORY_ENTRIES = 5
+const CHOICE_MARKER_EXPRESSIONS = [
+  /choice\s+auto\s+protection/i,
+  /vehicle\s+service\s+contract/i,
+  /agreement\s+(?:number|no\.?)/i,
+  /contract\s+purchase\s+date/i,
+  /coverage\s+level/i,
+  /deductible/i
+]
 
-async function extractPdfText(pdfBytes: Buffer): Promise<string> {
+const CHOICE_HIGH_VALUE_FIELDS = [
+  'vin',
+  'agreementNumber',
+  'mileageAtSale',
+  'vehiclePurchaseDate',
+  'agreementPurchaseDate',
+  'agreementPrice',
+  'coverageLevel',
+  'termMonths',
+  'termMiles',
+  'deductible'
+] as const
+
+type ParsedPdfTextResult = {
+  text: string
+  parseFailed: boolean
+}
+
+type ChoiceFallbackDetails = {
+  attempted: boolean
+  status: 'succeeded' | 'partial' | 'failed' | 'skipped'
+  used: boolean
+  method: 'openai_ocr_vision'
+  extractedAt: string | null
+  filledFields: string[]
+  triggerReasons: string[]
+  confidence: number | null
+  warnings: string[]
+  failureReason: string | null
+}
+
+async function extractPdfText(pdfBytes: Buffer): Promise<ParsedPdfTextResult> {
   const parsed = await readPdfTextConservatively(pdfBytes)
-  return parsed.text
+  return {
+    text: parsed.text,
+    parseFailed: parsed.parseFailed
+  }
 }
 
 function extractFirstMatch(text: string, expressions: RegExp[]): string | null {
@@ -344,7 +402,11 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
 }
 
 function countScalarFields(data: Record<string, unknown>): number {
-  return Object.values(data).filter((value) => {
+  return Object.entries(data).filter(([key, value]) => {
+    if (key.startsWith('__')) {
+      return false
+    }
+
     if (value === null || value === undefined) {
       return false
     }
@@ -361,6 +423,125 @@ function countScalarFields(data: Record<string, unknown>): number {
   }).length
 }
 
+function hasChoiceMarkers(text: string): boolean {
+  const markerMatches = CHOICE_MARKER_EXPRESSIONS.reduce((count, expression) => {
+    return expression.test(text) ? count + 1 : count
+  }, 0)
+
+  return markerMatches >= 2
+}
+
+function hasMeaningfulChoiceValue(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0
+  }
+
+  return false
+}
+
+function getMissingChoiceFields(data: Record<string, unknown>): string[] {
+  return CHOICE_HIGH_VALUE_FIELDS.filter((field) => !hasMeaningfulChoiceValue(data[field]))
+}
+
+function buildChoiceFallbackTriggerReasons(input: {
+  parseFailed: boolean
+  extractedFieldCount: number
+  missingHighValueFields: string[]
+  text: string
+}): string[] {
+  const reasons: string[] = []
+
+  if (input.parseFailed) {
+    reasons.push('pdf_text_parse_failed')
+  }
+
+  if (input.extractedFieldCount < 3) {
+    reasons.push('deterministic_extraction_sparse')
+  }
+
+  if (input.missingHighValueFields.length >= 4) {
+    reasons.push('high_value_fields_missing')
+  }
+
+  if (!hasChoiceMarkers(input.text)) {
+    reasons.push('choice_markers_weak')
+  }
+
+  return reasons
+}
+
+function mapChoiceFallbackFieldValue(field: string, value: unknown): { key: string; value: unknown } | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (field === 'waitingPeriod') {
+    return { key: 'waitingPeriodMarker', value }
+  }
+
+  return { key: field, value }
+}
+
+function mergeChoiceFallbackData(input: {
+  deterministicData: Record<string, unknown>
+  fallbackResult: ChoiceContractOpenAiFallbackResult
+}): { mergedData: Record<string, unknown>; filledFields: string[] } {
+  const mergedData = { ...input.deterministicData }
+  const filledFields: string[] = []
+
+  const fallbackEntries = Object.entries(input.fallbackResult.data)
+  for (const [field, rawValue] of fallbackEntries) {
+    const mapped = mapChoiceFallbackFieldValue(field, rawValue)
+    if (!mapped) {
+      continue
+    }
+
+    const existing = mergedData[mapped.key]
+    if (hasMeaningfulChoiceValue(existing)) {
+      continue
+    }
+
+    mergedData[mapped.key] = mapped.value
+    filledFields.push(mapped.key)
+  }
+
+  return {
+    mergedData,
+    filledFields
+  }
+}
+
+function buildChoiceFallbackDetails(input: {
+  fallbackResult: ChoiceContractOpenAiFallbackResult
+  filledFields: string[]
+  triggerReasons: string[]
+}): ChoiceFallbackDetails {
+  const used =
+    (input.fallbackResult.status === 'succeeded' || input.fallbackResult.status === 'partial') &&
+    input.filledFields.length > 0
+
+  return {
+    attempted: input.fallbackResult.attempted,
+    status: input.fallbackResult.status,
+    used,
+    method: 'openai_ocr_vision',
+    extractedAt: input.fallbackResult.attempted ? input.fallbackResult.extractedAt : null,
+    filledFields: input.filledFields,
+    triggerReasons: input.triggerReasons,
+    confidence: input.fallbackResult.confidence,
+    warnings: input.fallbackResult.warnings,
+    failureReason: input.fallbackResult.failureReason
+  }
+}
+
 export async function extractUploadedDocumentData(input: ExtractionInput): Promise<DocumentExtractionResult> {
   const extractedAt = new Date().toISOString()
 
@@ -374,7 +555,8 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
   }
 
   try {
-    const text = await extractPdfText(input.pdfBytes)
+    const parsedText = await extractPdfText(input.pdfBytes)
+    const text = parsedText.text
 
     let built: { data: Record<string, unknown>; warnings: string[] }
     if (input.documentType === 'carfax') {
@@ -385,14 +567,93 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
       built = buildChoiceContractData(text)
     }
 
-    const extractedFieldCount = countScalarFields(built.data)
+    let extractedData = { ...built.data }
+    let warnings = [...built.warnings]
+    let choiceFallback: ChoiceFallbackDetails | undefined
+
+    if (input.documentType === 'choice_contract') {
+      const missingHighValueFields = getMissingChoiceFields(extractedData)
+      const triggerReasons = buildChoiceFallbackTriggerReasons({
+        parseFailed: parsedText.parseFailed,
+        extractedFieldCount: countScalarFields(extractedData),
+        missingHighValueFields,
+        text
+      })
+
+      const shouldAttemptFallback =
+        hasChoiceMarkers(text) &&
+        (triggerReasons.includes('pdf_text_parse_failed') ||
+          triggerReasons.includes('deterministic_extraction_sparse') ||
+          triggerReasons.includes('high_value_fields_missing'))
+
+      if (shouldAttemptFallback) {
+        console.info('[claim_document] choice contract fallback attempted', {
+          documentType: input.documentType,
+          triggerReasons,
+          missingFieldCount: missingHighValueFields.length
+        })
+
+        const fallbackResult = await extractChoiceContractWithOpenAi({
+          pdfBytes: input.pdfBytes
+        })
+
+        const merged = mergeChoiceFallbackData({
+          deterministicData: extractedData,
+          fallbackResult
+        })
+
+        extractedData = merged.mergedData
+        choiceFallback = buildChoiceFallbackDetails({
+          fallbackResult,
+          filledFields: merged.filledFields,
+          triggerReasons
+        })
+
+        if (choiceFallback.used) {
+          extractedData.__choiceContractFallback = {
+            used: true,
+            method: 'openai_ocr_vision',
+            extractedAt: choiceFallback.extractedAt,
+            filledFields: choiceFallback.filledFields,
+            confidence: choiceFallback.confidence,
+            warnings: choiceFallback.warnings
+          }
+
+          warnings.push('OCR/vision fallback used due to weak PDF text.')
+          if (choiceFallback.warnings.length > 0) {
+            warnings = warnings.concat(choiceFallback.warnings.map((entry) => `OpenAI fallback: ${entry}`))
+          }
+
+          console.info('[claim_document] choice contract fallback succeeded', {
+            documentType: input.documentType,
+            fallbackStatus: choiceFallback.status,
+            filledFieldCount: choiceFallback.filledFields.length
+          })
+        } else if (choiceFallback.status === 'failed') {
+          warnings.push('OpenAI OCR/vision fallback failed; deterministic extraction retained.')
+
+          console.warn('[claim_document] choice contract fallback failed', {
+            documentType: input.documentType,
+            failureReason: choiceFallback.failureReason ?? 'unknown_error'
+          })
+        } else if (choiceFallback.status === 'partial') {
+          console.info('[claim_document] choice contract fallback partial', {
+            documentType: input.documentType,
+            filledFieldCount: choiceFallback.filledFields.length
+          })
+        }
+      }
+    }
+
+    const extractedFieldCount = countScalarFields(extractedData)
 
     if (extractedFieldCount === 0) {
       return {
         status: 'partial',
         extractedAt,
         extractedData: null,
-        warnings: [...built.warnings, 'No reliable structured fields were extracted.']
+        warnings: [...warnings, 'No reliable structured fields were extracted.'],
+        choiceContractFallback: choiceFallback
       }
     }
 
@@ -400,16 +661,18 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
       return {
         status: 'partial',
         extractedAt,
-        extractedData: built.data,
-        warnings: built.warnings
+        extractedData,
+        warnings,
+        choiceContractFallback: choiceFallback
       }
     }
 
     return {
       status: 'extracted',
       extractedAt,
-      extractedData: built.data,
-      warnings: built.warnings
+      extractedData,
+      warnings,
+      choiceContractFallback: choiceFallback
     }
   } catch (error) {
     return {

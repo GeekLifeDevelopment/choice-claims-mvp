@@ -221,6 +221,24 @@ type LogClaimDocumentExtractionResultInput = CommonAuditInput & {
   extractionWarnings?: Prisma.InputJsonValue
 }
 
+type LogClaimDocumentChoiceFallbackInput = CommonAuditInput & {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  fallbackStatus: 'succeeded' | 'partial' | 'failed' | 'skipped'
+  attempted: boolean
+  used: boolean
+  method: 'openai_ocr_vision'
+  extractedAt?: string | null
+  filledFields?: string[]
+  triggerReasons?: string[]
+  confidence?: number | null
+  warnings?: string[]
+  failureReason?: string | null
+}
+
 type LogClaimDocumentEvidenceApplyInput = CommonAuditInput & {
   claimId: string
   claimNumber: string
@@ -253,7 +271,8 @@ function getExtractedFieldCount(extractedData?: Prisma.InputJsonValue): number |
     return null
   }
 
-  return Object.keys(extractedData as Record<string, unknown>).length
+  const keys = Object.keys(extractedData as Record<string, unknown>).filter((key) => !key.startsWith('__'))
+  return keys.length
 }
 
 export async function logClaimCreatedAudit(input: LogClaimCreatedInput) {
@@ -692,6 +711,110 @@ export async function logClaimDocumentExtractionSkippedAudit(input: LogClaimDocu
       extractedAt: input.extractedAt ?? null,
       extractionWarnings: input.extractionWarnings ?? null,
       message: `Document extraction skipped (${input.extractionStatus})`
+    }
+  })
+}
+
+export async function logClaimDocumentChoiceFallbackAttemptedAudit(input: LogClaimDocumentChoiceFallbackInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_choice_fallback_attempted',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      fallbackStatus: input.fallbackStatus,
+      attempted: input.attempted,
+      used: input.used,
+      method: input.method,
+      extractedAt: input.extractedAt ?? null,
+      filledFields: input.filledFields ?? [],
+      triggerReasons: input.triggerReasons ?? [],
+      confidence: input.confidence ?? null,
+      warnings: input.warnings ?? [],
+      failureReason: input.failureReason ?? null,
+      message: 'Choice contract OCR fallback attempted'
+    }
+  })
+}
+
+export async function logClaimDocumentChoiceFallbackSucceededAudit(input: LogClaimDocumentChoiceFallbackInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_choice_fallback_succeeded',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      fallbackStatus: input.fallbackStatus,
+      attempted: input.attempted,
+      used: input.used,
+      method: input.method,
+      extractedAt: input.extractedAt ?? null,
+      filledFields: input.filledFields ?? [],
+      triggerReasons: input.triggerReasons ?? [],
+      confidence: input.confidence ?? null,
+      warnings: input.warnings ?? [],
+      failureReason: input.failureReason ?? null,
+      message: 'Choice contract OCR fallback succeeded'
+    }
+  })
+}
+
+export async function logClaimDocumentChoiceFallbackPartialAudit(input: LogClaimDocumentChoiceFallbackInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_choice_fallback_partial',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      fallbackStatus: input.fallbackStatus,
+      attempted: input.attempted,
+      used: input.used,
+      method: input.method,
+      extractedAt: input.extractedAt ?? null,
+      filledFields: input.filledFields ?? [],
+      triggerReasons: input.triggerReasons ?? [],
+      confidence: input.confidence ?? null,
+      warnings: input.warnings ?? [],
+      failureReason: input.failureReason ?? null,
+      message: 'Choice contract OCR fallback partial'
+    }
+  })
+}
+
+export async function logClaimDocumentChoiceFallbackFailedAudit(input: LogClaimDocumentChoiceFallbackInput) {
+  return writeAuditLog({
+    client: input.client,
+    action: 'claim_document_choice_fallback_failed',
+    claimId: input.claimId,
+    metadata: {
+      claimId: input.claimId,
+      claimNumber: input.claimNumber,
+      documentId: input.documentId,
+      fileName: input.fileName,
+      documentType: input.documentType,
+      fallbackStatus: input.fallbackStatus,
+      attempted: input.attempted,
+      used: input.used,
+      method: input.method,
+      extractedAt: input.extractedAt ?? null,
+      filledFields: input.filledFields ?? [],
+      triggerReasons: input.triggerReasons ?? [],
+      confidence: input.confidence ?? null,
+      warnings: input.warnings ?? [],
+      failureReason: input.failureReason ?? null,
+      message: 'Choice contract OCR fallback failed'
     }
   })
 }

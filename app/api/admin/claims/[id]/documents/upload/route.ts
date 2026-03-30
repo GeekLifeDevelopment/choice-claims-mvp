@@ -2,6 +2,10 @@ import '../../../../../../../lib/config/ensure-database-url'
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import {
+  logClaimDocumentChoiceFallbackAttemptedAudit,
+  logClaimDocumentChoiceFallbackFailedAudit,
+  logClaimDocumentChoiceFallbackPartialAudit,
+  logClaimDocumentChoiceFallbackSucceededAudit,
   logClaimDocumentEvidenceAppliedAudit,
   logClaimDocumentEvidenceConflictDetectedAudit,
   logClaimDocumentEvidencePartiallyAppliedAudit,
@@ -74,6 +78,33 @@ function getAuditMetadataFileName(value: Prisma.JsonValue | null): string | null
 
   const trimmed = fileName.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function toChoiceFallbackAuditInput(input: {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  choiceFallback: NonNullable<Awaited<ReturnType<typeof extractUploadedDocumentData>>['choiceContractFallback']>
+}) {
+  return {
+    claimId: input.claimId,
+    claimNumber: input.claimNumber,
+    documentId: input.documentId,
+    fileName: input.fileName,
+    documentType: input.documentType,
+    fallbackStatus: input.choiceFallback.status,
+    attempted: input.choiceFallback.attempted,
+    used: input.choiceFallback.used,
+    method: input.choiceFallback.method,
+    extractedAt: input.choiceFallback.extractedAt,
+    filledFields: input.choiceFallback.filledFields,
+    triggerReasons: input.choiceFallback.triggerReasons,
+    confidence: input.choiceFallback.confidence,
+    warnings: input.choiceFallback.warnings,
+    failureReason: input.choiceFallback.failureReason
+  } as const
 }
 
 async function wasDocumentPreviouslyRemoved(claimId: string, fileName: string): Promise<boolean> {
@@ -242,6 +273,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     let updatedDocument = createdDocument
+    let extractionResult: Awaited<ReturnType<typeof extractUploadedDocumentData>> | null = null
 
     try {
       const document = createdDocument
@@ -280,7 +312,7 @@ export async function POST(request: Request, context: RouteContext) {
         }
       }
 
-      const extractionResult = await extractUploadedDocumentData({
+      extractionResult = await extractUploadedDocumentData({
         documentType: detectionResult.documentType,
         pdfBytes: file.bytes
       })
@@ -451,6 +483,28 @@ export async function POST(request: Request, context: RouteContext) {
         fileName: documentForAudit.fileName,
         documentType: documentForAudit.documentType || 'unknown'
       })
+
+      const choiceFallback = extractionResult?.choiceContractFallback
+      if (choiceFallback?.attempted) {
+        const fallbackAuditInput = toChoiceFallbackAuditInput({
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: documentForAudit.id,
+          fileName: documentForAudit.fileName,
+          documentType: documentForAudit.documentType || 'unknown',
+          choiceFallback
+        })
+
+        await logClaimDocumentChoiceFallbackAttemptedAudit(fallbackAuditInput)
+
+        if (choiceFallback.status === 'succeeded') {
+          await logClaimDocumentChoiceFallbackSucceededAudit(fallbackAuditInput)
+        } else if (choiceFallback.status === 'partial') {
+          await logClaimDocumentChoiceFallbackPartialAudit(fallbackAuditInput)
+        } else if (choiceFallback.status === 'failed') {
+          await logClaimDocumentChoiceFallbackFailedAudit(fallbackAuditInput)
+        }
+      }
 
       if (documentForAudit.extractionStatus === 'extracted') {
         await logClaimDocumentExtractionSucceededAudit({

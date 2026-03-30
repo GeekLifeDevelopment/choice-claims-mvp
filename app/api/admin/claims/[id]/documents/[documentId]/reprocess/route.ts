@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import {
+  logClaimDocumentChoiceFallbackAttemptedAudit,
+  logClaimDocumentChoiceFallbackFailedAudit,
+  logClaimDocumentChoiceFallbackPartialAudit,
+  logClaimDocumentChoiceFallbackSucceededAudit,
   logClaimDocumentClassifiedAudit,
   logClaimDocumentEvidenceAppliedAudit,
   logClaimDocumentEvidenceConflictDetectedAudit,
@@ -49,7 +53,7 @@ function getExtractedDataRecord(value: unknown): Record<string, unknown> {
 
 function getExtractedFieldCount(value: unknown): number {
   const record = getExtractedDataRecord(value)
-  const keys = Object.keys(record).filter((entry) => entry !== '__evidenceApply')
+  const keys = Object.keys(record).filter((entry) => !entry.startsWith('__'))
   return keys.length
 }
 
@@ -57,6 +61,33 @@ function getEvidenceApplyRecord(value: unknown): Record<string, unknown> {
   const extracted = getExtractedDataRecord(value)
   const apply = extracted.__evidenceApply
   return getExtractedDataRecord(apply)
+}
+
+function toChoiceFallbackAuditInput(input: {
+  claimId: string
+  claimNumber: string
+  documentId: string
+  fileName: string
+  documentType: string
+  choiceFallback: NonNullable<Awaited<ReturnType<typeof extractUploadedDocumentData>>['choiceContractFallback']>
+}) {
+  return {
+    claimId: input.claimId,
+    claimNumber: input.claimNumber,
+    documentId: input.documentId,
+    fileName: input.fileName,
+    documentType: input.documentType,
+    fallbackStatus: input.choiceFallback.status,
+    attempted: input.choiceFallback.attempted,
+    used: input.choiceFallback.used,
+    method: input.choiceFallback.method,
+    extractedAt: input.choiceFallback.extractedAt,
+    filledFields: input.choiceFallback.filledFields,
+    triggerReasons: input.choiceFallback.triggerReasons,
+    confidence: input.choiceFallback.confidence,
+    warnings: input.choiceFallback.warnings,
+    failureReason: input.choiceFallback.failureReason
+  } as const
 }
 
 function parseEvidenceApplyForAudit(value: unknown): {
@@ -332,6 +363,40 @@ export async function POST(request: Request, context: RouteContext) {
         fileName: updatedDocument.fileName,
         documentType: updatedDocument.documentType || 'unknown'
       })
+
+      const choiceFallback = extractionResult.choiceContractFallback
+      if (choiceFallback?.attempted) {
+        const fallbackAuditInput = toChoiceFallbackAuditInput({
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: updatedDocument.id,
+          fileName: updatedDocument.fileName,
+          documentType: updatedDocument.documentType || 'unknown',
+          choiceFallback
+        })
+
+        await logClaimDocumentChoiceFallbackAttemptedAudit({
+          client: tx,
+          ...fallbackAuditInput
+        })
+
+        if (choiceFallback.status === 'succeeded') {
+          await logClaimDocumentChoiceFallbackSucceededAudit({
+            client: tx,
+            ...fallbackAuditInput
+          })
+        } else if (choiceFallback.status === 'partial') {
+          await logClaimDocumentChoiceFallbackPartialAudit({
+            client: tx,
+            ...fallbackAuditInput
+          })
+        } else if (choiceFallback.status === 'failed') {
+          await logClaimDocumentChoiceFallbackFailedAudit({
+            client: tx,
+            ...fallbackAuditInput
+          })
+        }
+      }
 
       if (updatedDocument.extractionStatus === 'extracted') {
         await logClaimDocumentExtractionSucceededAudit({
