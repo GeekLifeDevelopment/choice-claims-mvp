@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
+    "clean:next": "node scripts/clean-next-artifacts.mjs",
+    "predev": "npm run clean:next",
     "dev": "next dev",
+    "prebuild": "npm run clean:next",
     "build": "next build",
     "prisma:generate": "prisma generate",
     "start": "next start",

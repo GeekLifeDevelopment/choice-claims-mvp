@@ -314,12 +314,15 @@ export async function POST(request: Request, context: RouteContext) {
 
       extractionResult = await extractUploadedDocumentData({
         documentType: detectionResult.documentType,
-        pdfBytes: file.bytes
+        pdfBytes: file.bytes,
+        fileName: file.fileName
       })
+
+      const effectiveDocumentType = extractionResult.resolvedDocumentType
 
       const evidenceApplyResult = applyUploadedDocumentEvidence({
         documentId: document.id,
-        documentType: detectionResult.documentType,
+        documentType: effectiveDocumentType,
         matchStatus: detectionResult.matchStatus,
         extractionStatus: extractionResult.status,
         extractedData: extractionResult.extractedData,
@@ -345,7 +348,7 @@ export async function POST(request: Request, context: RouteContext) {
       updatedDocument = await prisma.claimDocument.update({
         where: { id: document.id },
         data: {
-          documentType: detectionResult.documentType,
+          documentType: effectiveDocumentType,
           matchStatus: detectionResult.matchStatus,
           matchNotes: detectionResult.matchNotes,
           parsedAnchors: detectionResult.anchors,

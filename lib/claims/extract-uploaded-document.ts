@@ -12,6 +12,7 @@ export type DocumentExtractionResult = {
   extractedAt: string
   extractedData: Record<string, unknown> | null
   warnings: string[]
+  resolvedDocumentType: DetectedDocumentType
   choiceContractFallback?: {
     attempted: boolean
     status: 'succeeded' | 'partial' | 'failed' | 'skipped'
@@ -29,6 +30,7 @@ export type DocumentExtractionResult = {
 type ExtractionInput = {
   documentType: DetectedDocumentType
   pdfBytes: Buffer
+  fileName?: string | null
 }
 
 const MAX_HISTORY_ENTRIES = 5
@@ -431,6 +433,44 @@ function hasChoiceMarkers(text: string): boolean {
   return markerMatches >= 2
 }
 
+function getChoiceMarkerCount(text: string): number {
+  return CHOICE_MARKER_EXPRESSIONS.reduce((count, expression) => {
+    return expression.test(text) ? count + 1 : count
+  }, 0)
+}
+
+function isChoiceLikeFilename(fileName: string | null | undefined): boolean {
+  if (!fileName) {
+    return false
+  }
+
+  const lower = fileName.toLowerCase()
+  return (
+    lower.includes('choice') ||
+    lower.includes('contract') ||
+    lower.includes('agreement') ||
+    lower.includes('declaration') ||
+    lower.includes('service-plan') ||
+    lower.includes('service_contract')
+  )
+}
+
+function isChoiceLikeDocument(input: { text: string; fileName?: string | null; parseFailed: boolean }): boolean {
+  const markerCount = getChoiceMarkerCount(input.text)
+  const hasBrand = /choice\s+auto\s+protection/i.test(input.text)
+  const hasContractLanguage =
+    /vehicle\s+service\s+contract/i.test(input.text) ||
+    /agreement\s+(?:number|no\.?)/i.test(input.text) ||
+    /contract\s+purchase\s+date/i.test(input.text)
+  const fileNameHint = isChoiceLikeFilename(input.fileName)
+
+  return (
+    hasBrand ||
+    markerCount >= 2 ||
+    (fileNameHint && (markerCount >= 1 || hasContractLanguage || input.parseFailed))
+  )
+}
+
 function hasMeaningfulChoiceValue(value: unknown): boolean {
   if (typeof value === 'number') {
     return Number.isFinite(value)
@@ -545,23 +585,44 @@ function buildChoiceFallbackDetails(input: {
 export async function extractUploadedDocumentData(input: ExtractionInput): Promise<DocumentExtractionResult> {
   const extractedAt = new Date().toISOString()
 
-  if (input.documentType === 'unknown') {
-    return {
-      status: 'skipped',
-      extractedAt,
-      extractedData: null,
-      warnings: ['Extraction skipped for unknown document type.']
-    }
-  }
-
   try {
     const parsedText = await extractPdfText(input.pdfBytes)
     const text = parsedText.text
 
+    const choiceLike = isChoiceLikeDocument({
+      text,
+      fileName: input.fileName,
+      parseFailed: parsedText.parseFailed
+    })
+
+    const shouldTreatAsChoiceContract =
+      input.documentType === 'choice_contract' || (input.documentType === 'unknown' && choiceLike)
+
+    const resolvedDocumentType: DetectedDocumentType = shouldTreatAsChoiceContract
+      ? 'choice_contract'
+      : input.documentType
+
+    if (input.documentType === 'unknown' && !shouldTreatAsChoiceContract) {
+      console.info('[claim_document] fallback decision: skip (not choice-like enough)', {
+        reason: 'not_choice_like_enough',
+        documentType: input.documentType,
+        fileNameHint: isChoiceLikeFilename(input.fileName),
+        choiceMarkerCount: getChoiceMarkerCount(text)
+      })
+
+      return {
+        status: 'skipped',
+        extractedAt,
+        extractedData: null,
+        warnings: ['Extraction skipped for unknown document type.'],
+        resolvedDocumentType
+      }
+    }
+
     let built: { data: Record<string, unknown>; warnings: string[] }
-    if (input.documentType === 'carfax') {
+    if (resolvedDocumentType === 'carfax') {
       built = buildCarfaxData(text)
-    } else if (input.documentType === 'autocheck') {
+    } else if (resolvedDocumentType === 'autocheck') {
       built = buildAutocheckData(text)
     } else {
       built = buildChoiceContractData(text)
@@ -571,7 +632,7 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
     let warnings = [...built.warnings]
     let choiceFallback: ChoiceFallbackDetails | undefined
 
-    if (input.documentType === 'choice_contract') {
+    if (shouldTreatAsChoiceContract) {
       const missingHighValueFields = getMissingChoiceFields(extractedData)
       const triggerReasons = buildChoiceFallbackTriggerReasons({
         parseFailed: parsedText.parseFailed,
@@ -580,15 +641,20 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
         text
       })
 
+      if (input.documentType === 'unknown' && shouldTreatAsChoiceContract) {
+        triggerReasons.push('skipped_but_choice_like')
+      }
+
       const shouldAttemptFallback =
-        hasChoiceMarkers(text) &&
+        (hasChoiceMarkers(text) || (input.documentType === 'unknown' && shouldTreatAsChoiceContract)) &&
         (triggerReasons.includes('pdf_text_parse_failed') ||
           triggerReasons.includes('deterministic_extraction_sparse') ||
-          triggerReasons.includes('high_value_fields_missing'))
+          triggerReasons.includes('high_value_fields_missing') ||
+          triggerReasons.includes('skipped_but_choice_like'))
 
       if (shouldAttemptFallback) {
         console.info('[claim_document] choice contract fallback attempted', {
-          documentType: input.documentType,
+          documentType: resolvedDocumentType,
           triggerReasons,
           missingFieldCount: missingHighValueFields.length
         })
@@ -625,7 +691,7 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
           }
 
           console.info('[claim_document] choice contract fallback succeeded', {
-            documentType: input.documentType,
+            documentType: resolvedDocumentType,
             fallbackStatus: choiceFallback.status,
             filledFieldCount: choiceFallback.filledFields.length
           })
@@ -633,15 +699,24 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
           warnings.push('OpenAI OCR/vision fallback failed; deterministic extraction retained.')
 
           console.warn('[claim_document] choice contract fallback failed', {
-            documentType: input.documentType,
+            documentType: resolvedDocumentType,
             failureReason: choiceFallback.failureReason ?? 'unknown_error'
           })
         } else if (choiceFallback.status === 'partial') {
           console.info('[claim_document] choice contract fallback partial', {
-            documentType: input.documentType,
+            documentType: resolvedDocumentType,
             filledFieldCount: choiceFallback.filledFields.length
           })
         }
+      } else {
+        console.info('[claim_document] fallback decision: skip', {
+          reason: triggerReasons.includes('choice_markers_weak')
+            ? 'not_choice_like_enough'
+            : 'deterministic_extraction_strong_enough',
+          documentType: resolvedDocumentType,
+          triggerReasons,
+          missingFieldCount: missingHighValueFields.length
+        })
       }
     }
 
@@ -653,6 +728,7 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
         extractedAt,
         extractedData: null,
         warnings: [...warnings, 'No reliable structured fields were extracted.'],
+        resolvedDocumentType,
         choiceContractFallback: choiceFallback
       }
     }
@@ -663,6 +739,7 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
         extractedAt,
         extractedData,
         warnings,
+        resolvedDocumentType,
         choiceContractFallback: choiceFallback
       }
     }
@@ -672,6 +749,7 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
       extractedAt,
       extractedData,
       warnings,
+      resolvedDocumentType,
       choiceContractFallback: choiceFallback
     }
   } catch (error) {
@@ -679,7 +757,8 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
       status: 'failed',
       extractedAt,
       extractedData: null,
-      warnings: [error instanceof Error ? error.message : 'Document extraction failed.']
+      warnings: [error instanceof Error ? error.message : 'Document extraction failed.'],
+      resolvedDocumentType: input.documentType
     }
   }
 }
