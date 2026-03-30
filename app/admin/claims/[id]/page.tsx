@@ -180,6 +180,267 @@ const BADGE_BASE_CLASSNAME = 'inline-flex items-center rounded-full border px-2.
 const REVIEWER_LOW_CONFIDENCE_THRESHOLD = 0.4
 const REVIEWER_LOW_COMPLETENESS_THRESHOLD = 0.4
 const CRITICAL_MISSING_DATA_KEYWORDS = ['mileage', 'purchase date', 'valuation', 'warranty']
+const DOCUMENT_EVIDENCE_FIELD_LABELS: Record<string, string> = {
+  'serviceHistory.latestMileage': 'Latest mileage',
+  'ownershipHistory.ownerCount': 'Owner count',
+  'recall.summary': 'Recall summary',
+  'recall.status': 'Recall status',
+  'titleHistory.titleStatus': 'Title status',
+  'serviceHistory.eventCount': 'Service history count',
+  'accident.summary': 'Accident summary',
+  'titleProblem.lienStatus': 'Lien status',
+  'titleHistory.odometerCheckSummary': 'Odometer check summary',
+  'documentEvidence.contract.mileageAtSale': 'Contract mileage at sale',
+  'documentEvidence.contract.vehiclePurchaseDate': 'Vehicle purchase date',
+  'documentEvidence.contract.agreementPurchaseDate': 'Agreement purchase date',
+  'documentEvidence.contract.agreementNumber': 'Agreement number',
+  'documentEvidence.contract.agreementPrice': 'Agreement price',
+  'documentEvidence.contract.coverageLevel': 'Coverage level',
+  'documentEvidence.contract.termMonths': 'Contract term months',
+  'documentEvidence.contract.termMiles': 'Contract term miles',
+  'documentEvidence.contract.deductible': 'Deductible',
+  'documentEvidence.contract.waitingPeriodMarker': 'Waiting period'
+}
+const DOCUMENT_EVIDENCE_MISSING_KEYWORDS = [
+  'mileage',
+  'purchase date',
+  'agreement',
+  'contract',
+  'coverage',
+  'deductible',
+  'warranty',
+  'service',
+  'title',
+  'valuation'
+]
+
+type ClaimDocumentEvidenceAppliedField = {
+  fieldPath: string
+  fieldLabel: string
+  sourceDocumentId: string | null
+  sourceDocumentType: string | null
+  sourceDocumentName: string | null
+}
+
+type ClaimDocumentEvidenceConflict = {
+  fieldPath: string
+  fieldLabel: string
+  reason: string
+  sourceDocumentId: string | null
+  sourceDocumentType: string | null
+  sourceDocumentName: string | null
+}
+
+type ClaimDocumentEvidenceSummary = {
+  totalDocuments: number
+  processedDocuments: number
+  contributedDocuments: number
+  conflictOnlyDocuments: number
+  skippedDocuments: number
+  pendingOrReprocessDocuments: number
+  appliedFields: ClaimDocumentEvidenceAppliedField[]
+  conflicts: ClaimDocumentEvidenceConflict[]
+  remainingGaps: string[]
+}
+
+function formatDocumentEvidenceFieldLabel(fieldPath: string): string {
+  const exactLabel = DOCUMENT_EVIDENCE_FIELD_LABELS[fieldPath]
+  if (exactLabel) {
+    return exactLabel
+  }
+
+  const finalSegment = fieldPath.split('.').pop() || fieldPath
+  return finalSegment
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/^./, (letter) => letter.toUpperCase())
+}
+
+function getValueAtPath(root: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.')
+  let cursor: unknown = root
+
+  for (const part of parts) {
+    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) {
+      return undefined
+    }
+
+    cursor = (cursor as Record<string, unknown>)[part]
+  }
+
+  return cursor
+}
+
+function hasMeaningfulClaimValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+  }
+
+  if (typeof value === 'boolean') {
+    return true
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0
+  }
+
+  if (typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).length > 0
+  }
+
+  return false
+}
+
+function getEvidenceRelatedMissingData(missingData: string[]): string[] {
+  return missingData.filter((entry) =>
+    DOCUMENT_EVIDENCE_MISSING_KEYWORDS.some((keyword) => entry.toLowerCase().includes(keyword))
+  )
+}
+
+function buildClaimDocumentEvidenceSummary(input: {
+  vinDataResult: Record<string, unknown>
+  claimDocuments: Array<Record<string, unknown>>
+  adjudicationMissingData: string[]
+}): ClaimDocumentEvidenceSummary {
+  const documentEvidence = asRecord(input.vinDataResult.documentEvidence)
+  const evidenceDocuments = asRecord(documentEvidence.documents)
+  const evidenceProvenance = asRecord(documentEvidence.provenance)
+  const evidenceConflicts = Array.isArray(documentEvidence.conflicts) ? documentEvidence.conflicts : []
+
+  const documentById = new Map(
+    input.claimDocuments.map((document) => [getOptionalString(document.id) || '', document])
+  )
+
+  const appliedFieldsByPath = new Map<string, ClaimDocumentEvidenceAppliedField>()
+
+  for (const [fieldPath, provenanceValue] of Object.entries(evidenceProvenance)) {
+    const provenance = asRecord(provenanceValue)
+    const sourceDocumentId = getOptionalString(provenance.sourceDocumentId)
+    const sourceDocumentType = getOptionalString(provenance.sourceDocumentType)
+    const sourceDocumentName =
+      sourceDocumentId && documentById.has(sourceDocumentId)
+        ? getOptionalString(asRecord(documentById.get(sourceDocumentId)).fileName)
+        : null
+
+    appliedFieldsByPath.set(fieldPath, {
+      fieldPath,
+      fieldLabel: formatDocumentEvidenceFieldLabel(fieldPath),
+      sourceDocumentId,
+      sourceDocumentType,
+      sourceDocumentName
+    })
+  }
+
+  if (appliedFieldsByPath.size === 0) {
+    for (const [documentId, evidenceDocumentValue] of Object.entries(evidenceDocuments)) {
+      const evidenceDocument = asRecord(evidenceDocumentValue)
+      const appliedFields = getOptionalStringArray(evidenceDocument.appliedFields)
+      const sourceDocument = asRecord(documentById.get(documentId) || {})
+      const sourceDocumentType = getOptionalString(sourceDocument.documentType)
+      const sourceDocumentName = getOptionalString(sourceDocument.fileName)
+
+      for (const fieldPath of appliedFields) {
+        if (!appliedFieldsByPath.has(fieldPath)) {
+          appliedFieldsByPath.set(fieldPath, {
+            fieldPath,
+            fieldLabel: formatDocumentEvidenceFieldLabel(fieldPath),
+            sourceDocumentId: documentId,
+            sourceDocumentType,
+            sourceDocumentName
+          })
+        }
+      }
+    }
+  }
+
+  const conflicts: ClaimDocumentEvidenceConflict[] = evidenceConflicts
+    .map((entry) => {
+      const conflict = asRecord(entry)
+      const fieldPath = getOptionalString(conflict.field)
+      if (!fieldPath) {
+        return null
+      }
+
+      const sourceDocumentId = getOptionalString(conflict.documentId)
+      const sourceDocument = asRecord((sourceDocumentId && documentById.get(sourceDocumentId)) || {})
+
+      return {
+        fieldPath,
+        fieldLabel: formatDocumentEvidenceFieldLabel(fieldPath),
+        reason: getOptionalString(conflict.reason) || 'existing_value_differs',
+        sourceDocumentId,
+        sourceDocumentType: getOptionalString(conflict.documentType),
+        sourceDocumentName: getOptionalString(sourceDocument.fileName)
+      }
+    })
+    .filter((entry): entry is ClaimDocumentEvidenceConflict => Boolean(entry))
+
+  let processedDocuments = 0
+  let contributedDocuments = 0
+  let conflictOnlyDocuments = 0
+  let skippedDocuments = 0
+  let pendingOrReprocessDocuments = 0
+
+  for (const document of input.claimDocuments) {
+    const documentId = getOptionalString(document.id)
+    const processingStatus = getOptionalString(document.processingStatus)
+    const extractionStatus = getOptionalString(document.extractionStatus)
+    const evidenceDocument = asRecord((documentId && evidenceDocuments[documentId]) || {})
+    const applyStatus = getOptionalString(evidenceDocument.applyStatus)
+    const appliedFields = getOptionalStringArray(evidenceDocument.appliedFields)
+    const conflictFields = Array.isArray(evidenceDocument.conflictFields) ? evidenceDocument.conflictFields : []
+
+    if (processingStatus === 'classified') {
+      processedDocuments += 1
+    }
+
+    if (appliedFields.length > 0) {
+      contributedDocuments += 1
+    }
+
+    if (appliedFields.length === 0 && conflictFields.length > 0) {
+      conflictOnlyDocuments += 1
+    }
+
+    if (applyStatus === 'skipped') {
+      skippedDocuments += 1
+    }
+
+    if (
+      processingStatus === 'pending' ||
+      extractionStatus === 'failed' ||
+      (processingStatus === 'classified' && extractionStatus === 'partial')
+    ) {
+      pendingOrReprocessDocuments += 1
+    }
+  }
+
+  const appliedFields = Array.from(appliedFieldsByPath.values())
+    .filter((entry) => hasMeaningfulClaimValue(getValueAtPath(input.vinDataResult, entry.fieldPath)))
+    .sort((left, right) => left.fieldLabel.localeCompare(right.fieldLabel))
+
+  const remainingGaps = getEvidenceRelatedMissingData(input.adjudicationMissingData)
+
+  return {
+    totalDocuments: input.claimDocuments.length,
+    processedDocuments,
+    contributedDocuments,
+    conflictOnlyDocuments,
+    skippedDocuments,
+    pendingOrReprocessDocuments,
+    appliedFields,
+    conflicts,
+    remainingGaps
+  }
+}
 
 function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -2378,6 +2639,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     : isOverrideActiveForForm && !currentOverrideReason.trim()
       ? 'Override reason is required before submitting this override.'
       : null
+  const claimDocumentEvidenceSummary = buildClaimDocumentEvidenceSummary({
+    vinDataResult,
+    claimDocuments: claim.claimDocuments as Array<Record<string, unknown>>,
+    adjudicationMissingData
+  })
   const hasEnrichmentData =
     claim.vinDataFetchedAt !== null ||
     Boolean(claim.vinDataProvider) ||
@@ -3059,6 +3325,114 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 </article>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">Document Evidence Summary</h2>
+        <p className="text-sm text-slate-600">
+          Claim-level summary of what uploaded documents filled, where conflicts exist, and what key gaps remain.
+        </p>
+
+        {claimDocumentEvidenceSummary.totalDocuments === 0 ? (
+          <p className="text-slate-600">
+            No uploaded document evidence has been applied yet. Upload supporting PDFs to begin evidence fill.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
+              <p>
+                <span className="font-medium text-slate-900">Processed documents:</span>{' '}
+                {String(claimDocumentEvidenceSummary.processedDocuments)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Contributed evidence:</span>{' '}
+                {String(claimDocumentEvidenceSummary.contributedDocuments)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Conflict-only:</span>{' '}
+                {String(claimDocumentEvidenceSummary.conflictOnlyDocuments)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Skipped:</span>{' '}
+                {String(claimDocumentEvidenceSummary.skippedDocuments)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Pending/reprocess:</span>{' '}
+                {String(claimDocumentEvidenceSummary.pendingOrReprocessDocuments)}
+              </p>
+              <p>
+                <span className="font-medium text-slate-900">Resolved applied fields:</span>{' '}
+                {String(claimDocumentEvidenceSummary.appliedFields.length)}
+              </p>
+            </div>
+
+            {claimDocumentEvidenceSummary.appliedFields.length === 0 ? (
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Uploaded documents did not fill any claim fields yet. Reprocess or upload additional documents to continue.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-slate-600">
+                      <th className="py-2 pr-4 font-medium">Field</th>
+                      <th className="py-2 pr-4 font-medium">Source Document</th>
+                      <th className="py-2 pr-4 font-medium">Detected Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {claimDocumentEvidenceSummary.appliedFields.map((entry) => (
+                      <tr key={entry.fieldPath} className="border-b last:border-0 align-top">
+                        <td className="py-2 pr-4 text-slate-900">{entry.fieldLabel}</td>
+                        <td className="py-2 pr-4 text-slate-700">{entry.sourceDocumentName || '—'}</td>
+                        <td className="py-2 pr-4 text-slate-700">
+                          {entry.sourceDocumentType ? formatDetectedDocumentType(entry.sourceDocumentType) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">Conflicts</p>
+                {claimDocumentEvidenceSummary.conflicts.length === 0 ? (
+                  <p className="mt-2 text-slate-600">No unresolved document evidence conflicts.</p>
+                ) : (
+                  <ul className="mt-2 space-y-2">
+                    {claimDocumentEvidenceSummary.conflicts.map((conflict, index) => (
+                      <li
+                        key={`${conflict.fieldPath}-${conflict.sourceDocumentId || 'unknown'}-${String(index)}`}
+                        className="rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-red-900"
+                      >
+                        <p className="font-medium">{conflict.fieldLabel}</p>
+                        <p className="text-xs">
+                          Source: {conflict.sourceDocumentName || conflict.sourceDocumentId || 'Unknown document'}
+                        </p>
+                        <p className="text-xs">Reason: {conflict.reason}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">Still Missing After Document Review</p>
+                {claimDocumentEvidenceSummary.remainingGaps.length === 0 ? (
+                  <p className="mt-2 text-slate-600">No major adjudication data gaps currently flagged.</p>
+                ) : (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {claimDocumentEvidenceSummary.remainingGaps.map((gap) => (
+                      <li key={gap}>{gap}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>
