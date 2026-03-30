@@ -27,8 +27,103 @@ export type DocumentDetectionResult = {
   processingStatus: 'classified' | 'pending'
 }
 
+export type ChoicePostExtractionMatchResolution = {
+  matchStatus: DocumentMatchStatus
+  matchNotes: string
+  processingStatus: 'classified' | 'pending'
+  anchors: DocumentAnchorData
+  resolutionReason:
+    | 'vin_match'
+    | 'vin_conflict'
+    | 'possible_match_partial_anchors'
+    | 'pending_insufficient_anchors'
+    | 'unchanged'
+  usedFallbackAnchors: boolean
+  availableAnchors: {
+    vin: boolean
+    agreementNumber: boolean
+    mileageAtSale: boolean
+    vehiclePurchaseDate: boolean
+    agreementPurchaseDate: boolean
+    claimantName: boolean
+  }
+}
+
 function normalizeToken(input: string): string {
   return input.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+}
+
+function normalizeVin(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, '')
+  if (normalized.length !== 17) {
+    return null
+  }
+
+  return normalized
+}
+
+function normalizeAgreementNumber(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase()
+  return normalized.length > 0 ? normalized : null
+}
+
+function normalizeMileage(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value))
+  }
+
+  if (typeof value === 'string') {
+    const numeric = Number.parseInt(value.replace(/[\s,]/g, ''), 10)
+    if (Number.isFinite(numeric)) {
+      return Math.max(0, numeric)
+    }
+  }
+
+  return null
+}
+
+function normalizeComparableDate(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (trimmed.length === 0) {
+    return null
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/)
+  if (isoMatch) {
+    const year = Number.parseInt(isoMatch[1], 10)
+    const month = Number.parseInt(isoMatch[2], 10)
+    const day = Number.parseInt(isoMatch[3], 10)
+    if (year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    }
+  }
+
+  const usMatch = trimmed.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/)
+  if (!usMatch) {
+    return null
+  }
+
+  const month = Number.parseInt(usMatch[1], 10)
+  const day = Number.parseInt(usMatch[2], 10)
+  const yearRaw = Number.parseInt(usMatch[3], 10)
+  const year = usMatch[3].length === 2 ? 2000 + yearRaw : yearRaw
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900) {
+    return null
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 async function extractPdfText(pdfBytes: Buffer): Promise<{ text: string; parseFailed: boolean }> {
@@ -191,6 +286,121 @@ function matchDocument(input: {
     matchStatus: 'no_match',
     matchNotes: 'Document appears unrelated to this claim based on available anchors.',
     processingStatus: 'classified'
+  }
+}
+
+function getRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as Record<string, unknown>
+}
+
+export function resolveChoiceMatchAfterExtraction(input: {
+  initial: Pick<DocumentDetectionResult, 'matchStatus' | 'matchNotes' | 'processingStatus' | 'anchors'>
+  extractionStatus: 'pending' | 'extracted' | 'partial' | 'failed' | 'skipped'
+  extractedData: Record<string, unknown> | null
+  claimVin?: string | null
+}): ChoicePostExtractionMatchResolution {
+  const extracted = getRecord(input.extractedData)
+  const fallback = getRecord(extracted.__choiceContractFallback)
+  const usedFallbackAnchors = fallback.used === true
+
+  const claimVin = normalizeVin(input.claimVin)
+  const extractedVin = normalizeVin(extracted.vin)
+  const agreementNumber = normalizeAgreementNumber(extracted.agreementNumber)
+  const mileageAtSale = normalizeMileage(extracted.mileageAtSale)
+  const vehiclePurchaseDate = normalizeComparableDate(extracted.vehiclePurchaseDate)
+  const agreementPurchaseDate = normalizeComparableDate(extracted.agreementPurchaseDate)
+
+  const anchors: DocumentAnchorData = {
+    vin: extractedVin ?? input.initial.anchors.vin,
+    claimantName: input.initial.anchors.claimantName,
+    mileage: mileageAtSale ?? input.initial.anchors.mileage,
+    contractDate: input.initial.anchors.contractDate,
+    purchaseDate: vehiclePurchaseDate ?? input.initial.anchors.purchaseDate,
+    agreementDate: agreementPurchaseDate ?? input.initial.anchors.agreementDate
+  }
+
+  const availableAnchors = {
+    vin: Boolean(extractedVin),
+    agreementNumber: Boolean(agreementNumber),
+    mileageAtSale: mileageAtSale !== null,
+    vehiclePurchaseDate: Boolean(vehiclePurchaseDate),
+    agreementPurchaseDate: Boolean(agreementPurchaseDate),
+    claimantName: Boolean(anchors.claimantName)
+  }
+
+  const nonVinAnchorCount = [
+    availableAnchors.agreementNumber,
+    availableAnchors.mileageAtSale,
+    availableAnchors.vehiclePurchaseDate,
+    availableAnchors.agreementPurchaseDate,
+    availableAnchors.claimantName
+  ].filter(Boolean).length
+
+  const noUsableExtractionAnchors = !availableAnchors.vin && nonVinAnchorCount === 0
+  if (input.extractionStatus !== 'extracted' && input.extractionStatus !== 'partial') {
+    return {
+      matchStatus: input.initial.matchStatus,
+      matchNotes: input.initial.matchNotes,
+      processingStatus: input.initial.processingStatus,
+      anchors,
+      resolutionReason: 'unchanged',
+      usedFallbackAnchors,
+      availableAnchors
+    }
+  }
+
+  if (claimVin && extractedVin) {
+    if (claimVin === extractedVin) {
+      return {
+        matchStatus: 'matched',
+        matchNotes: usedFallbackAnchors
+          ? 'VIN matches claim VIN after Choice extraction fallback.'
+          : 'VIN matches claim VIN after Choice extraction.',
+        processingStatus: 'classified',
+        anchors,
+        resolutionReason: 'vin_match',
+        usedFallbackAnchors,
+        availableAnchors
+      }
+    }
+
+    return {
+      matchStatus: 'conflict',
+      matchNotes: `VIN mismatch after Choice extraction: document VIN ${extractedVin} differs from claim VIN ${claimVin}.`,
+      processingStatus: 'classified',
+      anchors,
+      resolutionReason: 'vin_conflict',
+      usedFallbackAnchors,
+      availableAnchors
+    }
+  }
+
+  if (noUsableExtractionAnchors) {
+    return {
+      matchStatus: 'pending',
+      matchNotes: 'Choice extraction completed but no reliable anchors were available for match verification.',
+      processingStatus: 'pending',
+      anchors,
+      resolutionReason: 'pending_insufficient_anchors',
+      usedFallbackAnchors,
+      availableAnchors
+    }
+  }
+
+  return {
+    matchStatus: 'possible_match',
+    matchNotes: usedFallbackAnchors
+      ? 'Choice extraction fallback produced usable anchors, but VIN was not confirmed.'
+      : 'Choice extraction produced usable anchors, but VIN was not confirmed.',
+    processingStatus: 'classified',
+    anchors,
+    resolutionReason: 'possible_match_partial_anchors',
+    usedFallbackAnchors,
+    availableAnchors
   }
 }
 

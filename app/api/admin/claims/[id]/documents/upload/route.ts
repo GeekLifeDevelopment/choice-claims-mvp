@@ -24,6 +24,7 @@ import {
 import { removeClaimDocumentFile, saveClaimDocumentFile } from '../../../../../../../lib/claims/claim-document-storage'
 import {
   detectAndMatchUploadedDocument,
+  resolveChoiceMatchAfterExtraction,
   type DocumentDetectionResult
 } from '../../../../../../../lib/claims/detect-uploaded-document'
 import { extractUploadedDocumentData } from '../../../../../../../lib/claims/extract-uploaded-document'
@@ -319,11 +320,50 @@ export async function POST(request: Request, context: RouteContext) {
       })
 
       const effectiveDocumentType = extractionResult.resolvedDocumentType
+      let finalMatchStatus = detectionResult.matchStatus
+      let finalMatchNotes = detectionResult.matchNotes
+      let finalProcessingStatus = detectionResult.processingStatus
+      let finalAnchors = detectionResult.anchors
+
+      if (
+        effectiveDocumentType === 'choice_contract' &&
+        (detectionResult.matchStatus === 'pending' || detectionResult.matchStatus === 'possible_match')
+      ) {
+        const choiceResolution = resolveChoiceMatchAfterExtraction({
+          initial: {
+            matchStatus: detectionResult.matchStatus,
+            matchNotes: detectionResult.matchNotes,
+            processingStatus: detectionResult.processingStatus,
+            anchors: detectionResult.anchors
+          },
+          extractionStatus: extractionResult.status,
+          extractedData: extractionResult.extractedData,
+          claimVin: claim.vin
+        })
+
+        finalMatchStatus = choiceResolution.matchStatus
+        finalMatchNotes = choiceResolution.matchNotes
+        finalProcessingStatus = choiceResolution.processingStatus
+        finalAnchors = choiceResolution.anchors
+
+        console.info('[claim_document] choice match resolution', {
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          documentId: document.id,
+          fileName: file.fileName,
+          initialMatchStatus: detectionResult.matchStatus,
+          finalMatchStatus,
+          resolutionReason: choiceResolution.resolutionReason,
+          extractionStatus: extractionResult.status,
+          usedFallbackAnchors: choiceResolution.usedFallbackAnchors,
+          availableAnchors: choiceResolution.availableAnchors
+        })
+      }
 
       const evidenceApplyResult = applyUploadedDocumentEvidence({
         documentId: document.id,
         documentType: effectiveDocumentType,
-        matchStatus: detectionResult.matchStatus,
+        matchStatus: finalMatchStatus,
         extractionStatus: extractionResult.status,
         extractedData: extractionResult.extractedData,
         vinDataResult: claim.vinDataResult
@@ -349,10 +389,10 @@ export async function POST(request: Request, context: RouteContext) {
         where: { id: document.id },
         data: {
           documentType: effectiveDocumentType,
-          matchStatus: detectionResult.matchStatus,
-          matchNotes: detectionResult.matchNotes,
-          parsedAnchors: detectionResult.anchors,
-          processingStatus: detectionResult.processingStatus,
+          matchStatus: finalMatchStatus,
+          matchNotes: finalMatchNotes,
+          parsedAnchors: finalAnchors,
+          processingStatus: finalProcessingStatus,
           extractionStatus: extractionResult.status,
           extractedAt: new Date(extractionResult.extractedAt),
           extractedData: extractedDataWithApply as Prisma.InputJsonValue,
