@@ -850,11 +850,33 @@ export async function processReviewSummaryJob(
   }
 
   if (isStaleRequestedAt(requestedAt, claim.updatedAt)) {
+    const staleTransition = await prisma.claim.updateMany({
+      where: {
+        id: claim.id,
+        reviewSummaryStatus: 'Queued',
+        status: ClaimStatus.ReadyForAI,
+        OR: [
+          { reviewDecision: null },
+          {
+            reviewDecision: {
+              notIn: FINAL_REVIEW_DECISIONS
+            }
+          }
+        ]
+      },
+      data: {
+        reviewSummaryStatus: 'Failed',
+        reviewSummaryLastError: 'stale_job',
+        reviewSummaryVersion: REVIEW_SUMMARY_VERSION
+      }
+    })
+
     console.info('[summary] job skipped stale request', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
       requestedAt: options.requestedAt ?? null,
-      claimUpdatedAt: claim.updatedAt.toISOString()
+      claimUpdatedAt: claim.updatedAt.toISOString(),
+      transitioned: staleTransition.count
     })
 
     return {

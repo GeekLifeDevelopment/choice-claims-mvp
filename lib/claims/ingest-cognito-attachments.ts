@@ -355,6 +355,11 @@ export async function ingestCognitoAttachmentsIntoClaimDocuments(
       finalAnchors = choiceResolution.anchors
     }
 
+    const latestClaimForEvidence = await prisma.claim.findUnique({
+      where: { id: input.claimId },
+      select: { vinDataResult: true }
+    })
+
     const evidenceApplyResult = applyUploadedDocumentEvidence({
       documentId: createdDocument.id,
       source: 'cognito_form',
@@ -362,7 +367,7 @@ export async function ingestCognitoAttachmentsIntoClaimDocuments(
       matchStatus: finalMatchStatus,
       extractionStatus: extractionResult.status,
       extractedData: extractionResult.extractedData,
-      vinDataResult: currentVinDataResult
+      vinDataResult: latestClaimForEvidence?.vinDataResult ?? currentVinDataResult
     })
 
     const extractedDataWithApply = mergeExtractedDataWithEvidenceApply(
