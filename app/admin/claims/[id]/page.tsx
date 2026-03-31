@@ -353,6 +353,8 @@ function getAuditActionLabel(action: string): string {
     claim_document_evidence_conflict_detected: 'Document evidence conflict detected',
     claim_document_evidence_skipped: 'Document evidence skipped',
     claim_document_evidence_triggered_refresh: 'Document evidence triggered refresh',
+    manual_evidence_entered: 'Manual evidence entered',
+    manual_evidence_triggered_refresh: 'Manual evidence triggered refresh',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -406,7 +408,9 @@ function getTimelineEventBadgeClassName(action: string): string {
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_skipped' ||
-    action === 'claim_document_evidence_triggered_refresh'
+    action === 'claim_document_evidence_triggered_refresh' ||
+    action === 'manual_evidence_entered' ||
+    action === 'manual_evidence_triggered_refresh'
   ) {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
   }
@@ -471,12 +475,13 @@ function getTimelineEventBadgeText(action: string): string {
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_conflict_detected' ||
-    action === 'claim_document_evidence_skipped'
+    action === 'claim_document_evidence_skipped' ||
+    action === 'manual_evidence_entered'
   ) {
     return 'Extraction'
   }
 
-  if (action === 'claim_document_evidence_triggered_refresh') {
+  if (action === 'claim_document_evidence_triggered_refresh' || action === 'manual_evidence_triggered_refresh') {
     return 'Refresh'
   }
 
@@ -537,6 +542,9 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const skippedFields = getOptionalStringArray(record.skippedFields)
   const conflictFields = getOptionalStringArray(record.conflictFields)
   const fileSize = getOptionalNumber(record.fileSize)
+  const enteredBy = getOptionalString(record.enteredBy)
+  const reviewerNote = getOptionalString(record.reviewerNote)
+  const blockedFields = getOptionalStringArray(record.blockedFields)
 
   const rows: Array<{ label: string; value: string }> = []
 
@@ -713,6 +721,24 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
     rows.push({ label: 'Reason', value: reason })
   }
 
+  if (action === 'manual_evidence_entered' || action === 'manual_evidence_triggered_refresh') {
+    if (enteredBy) {
+      rows.push({ label: 'Entered By', value: enteredBy })
+    }
+
+    if (appliedFields.length > 0) {
+      rows.push({ label: 'Applied Fields', value: appliedFields.join(' | ') })
+    }
+
+    if (blockedFields.length > 0) {
+      rows.push({ label: 'Blocked Fields', value: blockedFields.join(' | ') })
+    }
+
+    if (reviewerNote) {
+      rows.push({ label: 'Reviewer Note', value: reviewerNote })
+    }
+  }
+
   return rows
 }
 
@@ -740,6 +766,73 @@ function getOptionalStringArray(value: unknown): string[] {
   }
 
   return value.map((entry) => getOptionalString(entry)).filter((entry): entry is string => Boolean(entry))
+}
+
+function getValueAtPath(root: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.')
+  let cursor: unknown = root
+
+  for (const part of parts) {
+    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) {
+      return undefined
+    }
+
+    cursor = (cursor as Record<string, unknown>)[part]
+  }
+
+  return cursor
+}
+
+function formatManualFieldDisplayValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '—'
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value.toLocaleString('en-US') : '—'
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0 ? value : '—'
+  }
+
+  if (Array.isArray(value)) {
+    const entries = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : null))
+      .filter((entry): entry is string => Boolean(entry))
+    return entries.length > 0 ? entries.join(', ') : '—'
+  }
+
+  if (typeof value === 'object') {
+    const serialized = JSON.stringify(value)
+    return serialized.length > 0 ? serialized : '—'
+  }
+
+  return '—'
+}
+
+function hasManualSlotValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0
+  }
+
+  if (typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).length > 0
+  }
+
+  return false
 }
 
 function formatDetectedDocumentType(value: string | null | undefined): string {
@@ -851,7 +944,8 @@ function formatEvidenceContributionSource(entry: ClaimDocumentEvidenceSlotContri
     pieces.push(formatDetectedDocumentType(entry.sourceDocumentType))
   }
 
-  pieces.push(entry.sourceLabel)
+  const sourceLabel = entry.sourceLabel === 'manual_reviewer_entry' ? 'manual reviewer entry' : entry.sourceLabel
+  pieces.push(sourceLabel)
 
   if (entry.extractionMethod) {
     pieces.push(`method ${entry.extractionMethod}`)
@@ -1766,7 +1860,56 @@ type PageProps = {
     documentUploadCount?: string
     documentRemove?: string
     documentReprocess?: string
+    manualEvidence?: string
   }>
+}
+
+function getManualEvidenceBannerMessage(value: string | undefined): string | null {
+  if (value === 'saved') {
+    return 'Manual evidence saved and refresh queued.'
+  }
+
+  if (value === 'blocked-populated') {
+    return 'Manual evidence was not applied because selected fields are already populated.'
+  }
+
+  if (value === 'locked_final_decision') {
+    return 'Manual evidence blocked: this claim is locked by a final reviewer decision.'
+  }
+
+  if (value === 'invalid') {
+    return 'Manual evidence save failed: one or more values are invalid.'
+  }
+
+  if (value === 'invalid-note') {
+    return 'Manual evidence save failed: reviewer note is too long.'
+  }
+
+  if (value === 'empty') {
+    return 'Manual evidence save skipped: enter at least one value.'
+  }
+
+  if (value === 'not-found') {
+    return 'Manual evidence save failed: claim was not found.'
+  }
+
+  if (value === 'error') {
+    return 'Manual evidence save failed unexpectedly.'
+  }
+
+  return null
+}
+
+function getManualEvidenceBannerClassName(value: string | undefined): string {
+  if (value === 'saved') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  if (value === 'locked_final_decision' || value === 'blocked-populated') {
+    return 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
 function getRetryBannerMessage(retryParam: string | undefined): string | null {
@@ -2128,6 +2271,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   const documentReprocessBannerMessage = getDocumentReprocessBannerMessage(
     resolvedSearchParams.documentReprocess
   )
+  const manualEvidenceBannerMessage = getManualEvidenceBannerMessage(resolvedSearchParams.manualEvidence)
 
   const claimSelectBase = {
     id: true,
@@ -2572,6 +2716,38 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     Boolean(claim.vinDataProviderResultMessage) ||
     Object.keys(vinDataResult).length > 0
   const claimSubmissionMileage = formatClaimSubmissionMileage(claim.rawSubmissionPayload)
+  const manualPurchaseDate =
+    getValueAtPath(vinDataResult, 'documentEvidence.contract.vehiclePurchaseDate') ||
+    getValueAtPath(vinDataResult, 'documentEvidence.contract.agreementPurchaseDate')
+  const manualPurchaseMileage = getValueAtPath(vinDataResult, 'documentEvidence.contract.mileageAtSale')
+  const manualCurrentMileage = getValueAtPath(vinDataResult, 'serviceHistory.latestMileage')
+  const manualAgreementNumber = getValueAtPath(vinDataResult, 'documentEvidence.contract.agreementNumber')
+  const manualDeductible = getValueAtPath(vinDataResult, 'documentEvidence.contract.deductible')
+  const manualTermMonths = getValueAtPath(vinDataResult, 'documentEvidence.contract.termMonths')
+  const manualTermMiles = getValueAtPath(vinDataResult, 'documentEvidence.contract.termMiles')
+  const manualCoverageLevel = getValueAtPath(vinDataResult, 'documentEvidence.contract.coverageLevel')
+  const manualPlanName = getValueAtPath(vinDataResult, 'documentEvidence.contract.planName')
+  const manualWarrantyCoverageSummary = getValueAtPath(
+    vinDataResult,
+    'documentEvidence.contract.warrantyCoverageSummary'
+  )
+  const manualValuationContextNote = getValueAtPath(vinDataResult, 'valuation.contextNote')
+  const manualObdCodes = getValueAtPath(vinDataResult, 'documentEvidence.contract.obdCodes')
+
+  const manualFieldState = {
+    purchaseDate: hasManualSlotValue(manualPurchaseDate),
+    purchaseMileage: hasManualSlotValue(manualPurchaseMileage),
+    currentMileage: hasManualSlotValue(manualCurrentMileage),
+    agreementNumber: hasManualSlotValue(manualAgreementNumber),
+    deductible: hasManualSlotValue(manualDeductible),
+    termMonths: hasManualSlotValue(manualTermMonths),
+    termMiles: hasManualSlotValue(manualTermMiles),
+    coverageLevel: hasManualSlotValue(manualCoverageLevel),
+    planName: hasManualSlotValue(manualPlanName),
+    warrantyCoverageSummary: hasManualSlotValue(manualWarrantyCoverageSummary),
+    valuationContextNote: hasManualSlotValue(manualValuationContextNote),
+    obdCodes: hasManualSlotValue(manualObdCodes)
+  }
   const cognitoAttachmentLabelCandidates =
     typeof claim.source === 'string' && claim.source.toLowerCase().includes('cognito')
       ? buildCognitoAttachmentLabelCandidates(claim.rawSubmissionPayload)
@@ -2642,6 +2818,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </p>
       ) : null}
 
+      {manualEvidenceBannerMessage ? (
+        <p className={getManualEvidenceBannerClassName(resolvedSearchParams.manualEvidence)}>
+          {manualEvidenceBannerMessage}
+        </p>
+      ) : null}
+
       {claimLockedForProcessing ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           Claim locked by final decision ({claim.reviewDecision}).
@@ -2683,6 +2865,212 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         <p>
           <span className="font-medium text-slate-900">Attachment Count:</span> {claim.attachments.length}
         </p>
+      </div>
+
+      <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">Manual Evidence Entry</h2>
+          <span className="text-xs text-slate-600">Empty fields only in this version</span>
+        </div>
+        <p className="text-sm text-slate-600">
+          Enter reviewer-confirmed values for unresolved gaps. Existing populated fields are shown as read-only.
+        </p>
+        <form method="post" action={`/api/admin/claims/${claim.id}/manual-evidence`} className="space-y-3">
+          <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Purchase Date</span>
+              {manualFieldState.purchaseDate ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualPurchaseDate)}
+                </p>
+              ) : (
+                <input type="date" name="purchaseDate" className="w-full rounded border border-slate-300 px-2 py-1" />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Purchase Mileage</span>
+              {manualFieldState.purchaseMileage ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualPurchaseMileage)}
+                </p>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  name="purchaseMileage"
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Current Mileage</span>
+              {manualFieldState.currentMileage ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualCurrentMileage)}
+                </p>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  name="currentMileage"
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Agreement Number</span>
+              {manualFieldState.agreementNumber ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualAgreementNumber)}
+                </p>
+              ) : (
+                <input type="text" name="agreementNumber" className="w-full rounded border border-slate-300 px-2 py-1" />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Deductible</span>
+              {manualFieldState.deductible ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualDeductible)}
+                </p>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  name="deductible"
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Term Months</span>
+              {manualFieldState.termMonths ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualTermMonths)}
+                </p>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  name="termMonths"
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Term Miles</span>
+              {manualFieldState.termMiles ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualTermMiles)}
+                </p>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  name="termMiles"
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Coverage Level</span>
+              {manualFieldState.coverageLevel ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualCoverageLevel)}
+                </p>
+              ) : (
+                <input type="text" name="coverageLevel" className="w-full rounded border border-slate-300 px-2 py-1" />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Plan Name</span>
+              {manualFieldState.planName ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualPlanName)}
+                </p>
+              ) : (
+                <input type="text" name="planName" className="w-full rounded border border-slate-300 px-2 py-1" />
+              )}
+            </label>
+          </div>
+
+          <div className="grid gap-3 text-sm">
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Warranty Coverage Summary</span>
+              {manualFieldState.warrantyCoverageSummary ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualWarrantyCoverageSummary)}
+                </p>
+              ) : (
+                <textarea
+                  name="warrantyCoverageSummary"
+                  rows={2}
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Valuation Context Note</span>
+              {manualFieldState.valuationContextNote ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualValuationContextNote)}
+                </p>
+              ) : (
+                <textarea
+                  name="valuationContextNote"
+                  rows={2}
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">OBD Codes</span>
+              {manualFieldState.obdCodes ? (
+                <p className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-700">
+                  {formatManualFieldDisplayValue(manualObdCodes)}
+                </p>
+              ) : (
+                <input
+                  type="text"
+                  name="obdCodes"
+                  placeholder="e.g. P0420, P0301"
+                  className="w-full rounded border border-slate-300 px-2 py-1"
+                />
+              )}
+            </label>
+
+            <label className="space-y-1">
+              <span className="font-medium text-slate-900">Reviewer Note (optional)</span>
+              <textarea name="reviewerNote" rows={2} className="w-full rounded border border-slate-300 px-2 py-1" />
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-slate-600">Source is recorded as manual_reviewer_entry.</p>
+            <button
+              type="submit"
+              disabled={claimLockedForProcessing}
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Save Manual Evidence
+            </button>
+          </div>
+        </form>
       </div>
 
       <div className="space-y-3">

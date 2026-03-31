@@ -107,6 +107,11 @@ const DOCUMENT_EVIDENCE_FIELD_LABELS: Record<string, string> = {
   'documentEvidence.contract.termMiles': 'Contract term miles',
   'documentEvidence.contract.deductible': 'Deductible',
   'documentEvidence.contract.waitingPeriodMarker': 'Waiting period'
+  ,
+  'documentEvidence.contract.planName': 'Plan name',
+  'documentEvidence.contract.warrantyCoverageSummary': 'Warranty coverage summary',
+  'documentEvidence.contract.obdCodes': 'OBD codes',
+  'valuation.contextNote': 'Valuation context note'
 }
 
 const SLOT_CONFIG: EvidenceSlotConfig[] = [
@@ -191,19 +196,30 @@ const SLOT_CONFIG: EvidenceSlotConfig[] = [
   {
     slotId: 'warrantyCoverageData',
     slotLabel: 'Warranty coverage support',
-    fieldPaths: ['documentEvidence.contract.waitingPeriodMarker', 'documentEvidence.contract.agreementPrice'],
+    fieldPaths: [
+      'documentEvidence.contract.waitingPeriodMarker',
+      'documentEvidence.contract.agreementPrice',
+      'documentEvidence.contract.warrantyCoverageSummary',
+      'documentEvidence.contract.obdCodes'
+    ],
     missingKeywords: ['warranty_support', 'warranty', 'coverage']
   },
   {
     slotId: 'coverageLevel',
     slotLabel: 'Coverage level / plan name',
-    fieldPaths: ['documentEvidence.contract.coverageLevel'],
+    fieldPaths: ['documentEvidence.contract.coverageLevel', 'documentEvidence.contract.planName'],
     missingKeywords: ['warranty_support', 'coverage', 'plan']
   },
   {
     slotId: 'valuationContext',
     slotLabel: 'Valuation context',
-    fieldPaths: ['valuation.estimatedValue', 'valuation.retailValue', 'valuation.tradeInValue', 'valuation.confidence'],
+    fieldPaths: [
+      'valuation.estimatedValue',
+      'valuation.retailValue',
+      'valuation.tradeInValue',
+      'valuation.confidence',
+      'valuation.contextNote'
+    ],
     missingKeywords: ['valuation']
   },
   {
