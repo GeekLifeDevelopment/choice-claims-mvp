@@ -20,6 +20,7 @@ import {
   type ClaimDocumentEvidenceSlotContribution
 } from '../../../../lib/review/document-evidence-read-model'
 import { isClaimLockedForProcessing } from '../../../../lib/review/claim-lock'
+import { extractCognitoAttachments } from '../../../../lib/intake/extract-cognito-attachments'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -47,6 +48,147 @@ function formatFileSize(value?: number | null): string {
   }
 
   return `${Math.round((value / 1024) * 10) / 10} KB`
+}
+
+function normalizeLookupKey(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+}
+
+function findFirstPayloadString(rawPayload: unknown, candidateKeys: string[]): string | null {
+  const targetKeys = new Set(candidateKeys.map((entry) => normalizeLookupKey(entry)))
+  const queue: unknown[] = [rawPayload]
+  const seen = new Set<unknown>()
+
+  while (queue.length > 0 && seen.size < 1000) {
+    const current = queue.shift()
+
+    if (!current || seen.has(current)) {
+      continue
+    }
+
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      queue.push(...current)
+      continue
+    }
+
+    const record = asRecord(current)
+    if (Object.keys(record).length === 0) {
+      continue
+    }
+
+    for (const [key, value] of Object.entries(record)) {
+      if (!targetKeys.has(normalizeLookupKey(key))) {
+        continue
+      }
+
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim()
+      }
+    }
+
+    queue.push(...Object.values(record))
+  }
+
+  return null
+}
+
+function formatClaimSubmissionMileage(rawPayload: unknown): string {
+  const rawMileage = findFirstPayloadString(rawPayload, ['MilesOnVehicle', 'milesOnVehicle', 'MileageAtSubmission'])
+  if (!rawMileage) {
+    return '—'
+  }
+
+  const parsed = Number(rawMileage.replace(/,/g, '').trim())
+  if (!Number.isFinite(parsed)) {
+    return rawMileage
+  }
+
+  return parsed.toLocaleString('en-US')
+}
+
+type CognitoAttachmentLabelCandidate = {
+  filename: string
+  mimeType?: string
+  fileSize?: number
+  sourceUrl?: string
+  externalId?: string
+  sourceFieldLabel: string
+}
+
+function buildCognitoAttachmentLabelCandidates(rawPayload: unknown): CognitoAttachmentLabelCandidate[] {
+  return extractCognitoAttachments(rawPayload)
+    .filter((entry): entry is CognitoAttachmentLabelCandidate => Boolean(entry.sourceFieldLabel))
+    .map((entry) => ({
+      filename: entry.filename,
+      mimeType: entry.mimeType,
+      fileSize: entry.fileSize,
+      sourceUrl: entry.sourceUrl,
+      externalId: entry.externalId,
+      sourceFieldLabel: entry.sourceFieldLabel as string
+    }))
+}
+
+function resolveCognitoAttachmentFieldLabel(
+  input: {
+    filename?: string | null
+    mimeType?: string | null
+    fileSize?: number | null
+    sourceUrl?: string | null
+    externalId?: string | null
+  },
+  candidates: CognitoAttachmentLabelCandidate[]
+): string | null {
+  if (candidates.length === 0) {
+    return null
+  }
+
+  if (input.sourceUrl) {
+    const bySourceUrl = candidates.find((entry) => entry.sourceUrl === input.sourceUrl)
+    if (bySourceUrl) {
+      return bySourceUrl.sourceFieldLabel
+    }
+  }
+
+  if (input.externalId) {
+    const byExternalId = candidates.find((entry) => entry.externalId === input.externalId)
+    if (byExternalId) {
+      return byExternalId.sourceFieldLabel
+    }
+  }
+
+  const fileName = input.filename?.trim().toLowerCase()
+  if (!fileName) {
+    return null
+  }
+
+  const matchingFileName = candidates.filter((entry) => entry.filename.trim().toLowerCase() === fileName)
+  if (matchingFileName.length === 0) {
+    return null
+  }
+
+  if (typeof input.fileSize === 'number') {
+    const byFileSize = matchingFileName.find((entry) => entry.fileSize === input.fileSize)
+    if (byFileSize) {
+      return byFileSize.sourceFieldLabel
+    }
+  }
+
+  if (input.mimeType) {
+    const normalizedMime = input.mimeType.toLowerCase()
+    const byMimeType = matchingFileName.find((entry) => entry.mimeType?.toLowerCase() === normalizedMime)
+    if (byMimeType) {
+      return byMimeType.sourceFieldLabel
+    }
+  }
+
+  const distinctLabels = new Set(matchingFileName.map((entry) => entry.sourceFieldLabel))
+  if (distinctLabels.size === 1) {
+    return matchingFileName[0]?.sourceFieldLabel || null
+  }
+
+  return null
 }
 
 function getFilenameExtension(filename: string): string {
@@ -1995,6 +2137,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     claimantName: true,
     claimantEmail: true,
     claimantPhone: true,
+    rawSubmissionPayload: true,
     vin: true,
     vinDataProvider: true,
     vinDataFetchedAt: true,
@@ -2060,6 +2203,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         fileName: true,
         mimeType: true,
         fileSize: true,
+        storageKey: true,
         uploadedBy: true,
         processingStatus: true,
         documentType: true,
@@ -2084,6 +2228,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         fileName: true,
         mimeType: true,
         fileSize: true,
+        storageKey: true,
         uploadedBy: true,
         processingStatus: true,
         documentType: true,
@@ -2104,6 +2249,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         fileName: true,
         mimeType: true,
         fileSize: true,
+        storageKey: true,
         uploadedBy: true,
         processingStatus: true,
         documentType: true,
@@ -2227,6 +2373,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   if (claim && Array.isArray(claim.claimDocuments)) {
     claim.claimDocuments = claim.claimDocuments.map((document: any) => ({
       ...document,
+      storageKey: typeof document.storageKey === 'string' ? document.storageKey : null,
       matchNotes: document.matchNotes ?? null,
       parsedAnchors: document.parsedAnchors ?? null,
       extractionStatus: document.extractionStatus ?? 'pending',
@@ -2424,6 +2571,29 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     Boolean(claim.vinDataProviderResultCode) ||
     Boolean(claim.vinDataProviderResultMessage) ||
     Object.keys(vinDataResult).length > 0
+  const claimSubmissionMileage = formatClaimSubmissionMileage(claim.rawSubmissionPayload)
+  const cognitoAttachmentLabelCandidates =
+    typeof claim.source === 'string' && claim.source.toLowerCase().includes('cognito')
+      ? buildCognitoAttachmentLabelCandidates(claim.rawSubmissionPayload)
+      : []
+  const attachmentCognitoLabelByStorageKey = new Map<string, string>()
+
+  for (const attachment of claim.attachments as Array<any>) {
+    const resolvedLabel = resolveCognitoAttachmentFieldLabel(
+      {
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        fileSize: attachment.fileSize,
+        sourceUrl: attachment.sourceUrl,
+        externalId: attachment.externalId
+      },
+      cognitoAttachmentLabelCandidates
+    )
+
+    if (resolvedLabel && typeof attachment.storageKey === 'string' && attachment.storageKey.trim().length > 0) {
+      attachmentCognitoLabelByStorageKey.set(attachment.storageKey, resolvedLabel)
+    }
+  }
 
   return (
     <section className="card space-y-6">
@@ -2505,6 +2675,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </p>
         <p>
           <span className="font-medium text-slate-900">Submitted:</span> {formatDate(claim.submittedAt)}
+        </p>
+        <p>
+          <span className="font-medium text-slate-900">Mileage at Claim Submission:</span>{' '}
+          {claimSubmissionMileage}
         </p>
         <p>
           <span className="font-medium text-slate-900">Attachment Count:</span> {claim.attachments.length}
@@ -3000,6 +3174,16 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {claim.attachments.map((attachment: any) => {
+              const cognitoFieldLabel = resolveCognitoAttachmentFieldLabel(
+                {
+                  filename: attachment.filename,
+                  mimeType: attachment.mimeType,
+                  fileSize: attachment.fileSize,
+                  sourceUrl: attachment.sourceUrl,
+                  externalId: attachment.externalId
+                },
+                cognitoAttachmentLabelCandidates
+              )
               const safePreviewUrl = isSafePreviewUrl(attachment.sourceUrl) ? attachment.sourceUrl : null
               const canPreviewImage = safePreviewUrl && isImageAttachment(attachment)
               const canPreviewPdf = safePreviewUrl && isPdfAttachment(attachment)
@@ -3011,6 +3195,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                   className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
                 >
                   <div className="space-y-2">
+                    {cognitoFieldLabel ? (
+                      <p className="text-xs font-medium uppercase tracking-wide text-sky-700">
+                        {cognitoFieldLabel}
+                      </p>
+                    ) : null}
                     <p className="font-medium text-slate-900 break-all">{attachment.filename}</p>
 
                     <div className="grid gap-1 text-xs text-slate-600 sm:grid-cols-2">
@@ -3379,11 +3568,37 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     matchStatus: document.matchStatus,
                     extractionStatus: document.extractionStatus
                   })
+                  const cognitoFieldLabel =
+                    document.uploadedBy === 'cognito_form'
+                      ? (typeof document.storageKey === 'string' && document.storageKey.trim().length > 0
+                          ? attachmentCognitoLabelByStorageKey.get(document.storageKey) ||
+                            resolveCognitoAttachmentFieldLabel(
+                              {
+                                filename: document.fileName,
+                                mimeType: document.mimeType,
+                                fileSize: document.fileSize
+                              },
+                              cognitoAttachmentLabelCandidates
+                            )
+                          : resolveCognitoAttachmentFieldLabel(
+                              {
+                                filename: document.fileName,
+                                mimeType: document.mimeType,
+                                fileSize: document.fileSize
+                              },
+                              cognitoAttachmentLabelCandidates
+                            ))
+                      : null
 
                   return (
                     <tr key={document.id} className="border-b last:border-0 align-top">
                     <td className="py-2 pr-4 text-slate-900">
                       <div className="space-y-1">
+                        {cognitoFieldLabel ? (
+                          <p className="text-xs font-medium uppercase tracking-wide text-sky-700">
+                            {cognitoFieldLabel}
+                          </p>
+                        ) : null}
                         <p className="break-all font-medium">{document.fileName}</p>
                         <a
                           href={`/api/admin/claims/${claim.id}/documents/${document.id}/file`}

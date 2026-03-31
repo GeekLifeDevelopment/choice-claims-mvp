@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "inspect-cognito-label-source-fields",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"--input-type=module",
+				"-e",
+				"import { PrismaClient } from '@prisma/client'; const prisma=new PrismaClient(); const claimId='cmnddo7yl000ljp091qf5aob8'; const claim=await prisma.claim.findUnique({where:{id:claimId},select:{id:true,submissionPayload:true,attachments:{select:{id:true,fileName:true,mimeType:true,fileSize:true,sourceFieldName:true,sourceFieldLabel:true}},documents:{select:{id:true,fileName:true,mimeType:true,uploadedBy:true,metadata:true}}}}); if(!claim){console.log('claim_not_found'); process.exit(0);} const payload=(claim.submissionPayload&&typeof claim.submissionPayload==='object')?claim.submissionPayload:{}; const keys=Object.keys(payload).filter(k=>/(Repair|Photo|Picture|Odometer|Hood|Carriage|Profile|FailedParts|MilesOnVehicle)/i.test(k)); console.log(JSON.stringify({payloadKeys:keys,attachments:claim.attachments,documents:claim.documents.map(d=>({id:d.id,fileName:d.fileName,uploadedBy:d.uploadedBy,mimeType:d.mimeType,sourceFieldName:(d.metadata&&typeof d.metadata==='object')?d.metadata.sourceFieldName:null,sourceFieldLabel:(d.metadata&&typeof d.metadata==='object')?d.metadata.sourceFieldLabel:null}))},null,2)); await prisma.$disconnect();"
+			]
+		}
+	]
+}
