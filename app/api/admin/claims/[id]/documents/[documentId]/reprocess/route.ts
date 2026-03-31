@@ -58,6 +58,72 @@ function getExtractedFieldCount(value: unknown): number {
   return keys.length
 }
 
+function normalizeVinForLog(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim().toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, '')
+  return normalized.length === 17 ? normalized : null
+}
+
+function normalizeComparableDateForLog(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (trimmed.length === 0) {
+    return null
+  }
+
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  return parsed.toISOString().slice(0, 10)
+}
+
+function normalizeMileageForLog(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value))
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value.replace(/[\s,]/g, ''), 10)
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, parsed)
+    }
+  }
+
+  return null
+}
+
+function getChoiceResolutionDebugFields(claimVin: string | null, extractedData: unknown) {
+  const extracted = getExtractedDataRecord(extractedData)
+
+  const extractedVinRaw = typeof extracted.vin === 'string' ? extracted.vin : null
+  const vehiclePurchaseDateRaw =
+    typeof extracted.vehiclePurchaseDate === 'string' ? extracted.vehiclePurchaseDate : null
+  const agreementPurchaseDateRaw =
+    typeof extracted.agreementPurchaseDate === 'string' ? extracted.agreementPurchaseDate : null
+
+  return {
+    claimVinRaw: claimVin,
+    claimVinNormalized: normalizeVinForLog(claimVin),
+    extractedVinRaw,
+    extractedVinNormalized: normalizeVinForLog(extractedVinRaw),
+    vehiclePurchaseDateRaw,
+    vehiclePurchaseDateNormalized: normalizeComparableDateForLog(vehiclePurchaseDateRaw),
+    agreementPurchaseDateRaw,
+    agreementPurchaseDateNormalized: normalizeComparableDateForLog(agreementPurchaseDateRaw),
+    mileageAtSaleRaw: extracted.mileageAtSale ?? null,
+    mileageAtSaleNormalized: normalizeMileageForLog(extracted.mileageAtSale),
+    agreementNumber: typeof extracted.agreementNumber === 'string' ? extracted.agreementNumber : null
+  }
+}
+
 function getEvidenceApplyRecord(value: unknown): Record<string, unknown> {
   const extracted = getExtractedDataRecord(value)
   const apply = extracted.__evidenceApply
@@ -228,6 +294,19 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const fileBuffer = await readClaimDocumentFile(document.storageKey)
     pdfBytes = Buffer.from(fileBuffer)
+
+    const pdfHeader = pdfBytes.subarray(0, 5).toString('ascii')
+    console.info('[claim_document] reprocess storage read diagnostics', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      documentId: document.id,
+      fileName: document.fileName,
+      storageKey: document.storageKey,
+      storedFileSize: document.fileSize,
+      readBytes: pdfBytes.length,
+      pdfHeader,
+      pdfHeaderLooksValid: pdfHeader.startsWith('%PDF-')
+    })
   } catch {
     await logClaimDocumentReprocessFailedAudit({
       claimId: claim.id,
@@ -264,7 +343,9 @@ export async function POST(request: Request, context: RouteContext) {
   const extractionResult = await extractUploadedDocumentData({
     documentType: detectionResult.documentType,
     pdfBytes,
-    fileName: document.fileName
+    fileName: document.fileName,
+    documentId: document.id,
+    storageKey: document.storageKey
   })
 
   const effectiveDocumentType = extractionResult.resolvedDocumentType
@@ -272,11 +353,28 @@ export async function POST(request: Request, context: RouteContext) {
   let finalMatchNotes = detectionResult.matchNotes
   let finalProcessingStatus = detectionResult.processingStatus
   let finalAnchors = detectionResult.anchors
-
-  if (
+  const shouldRunChoiceResolver =
     effectiveDocumentType === 'choice_contract' &&
-    (detectionResult.matchStatus === 'pending' || detectionResult.matchStatus === 'possible_match')
-  ) {
+    (detectionResult.matchStatus === 'pending' ||
+      detectionResult.matchStatus === 'possible_match' ||
+      detectionResult.matchStatus === 'no_match')
+  const choiceResolutionDebug = getChoiceResolutionDebugFields(claim.vin, extractionResult.extractedData)
+
+  if (effectiveDocumentType === 'choice_contract') {
+    console.info('[claim_document] reprocess choice match resolver gate', {
+      claimId: claim.id,
+      claimNumber: claim.claimNumber,
+      documentId: document.id,
+      fileName: document.fileName,
+      documentType: effectiveDocumentType,
+      initialMatchStatus: detectionResult.matchStatus,
+      extractionStatus: extractionResult.status,
+      resolverRan: shouldRunChoiceResolver,
+      ...choiceResolutionDebug
+    })
+  }
+
+  if (shouldRunChoiceResolver) {
     const choiceResolution = resolveChoiceMatchAfterExtraction({
       initial: {
         matchStatus: detectionResult.matchStatus,
@@ -299,12 +397,16 @@ export async function POST(request: Request, context: RouteContext) {
       claimNumber: claim.claimNumber,
       documentId: document.id,
       fileName: document.fileName,
+      documentType: effectiveDocumentType,
       initialMatchStatus: detectionResult.matchStatus,
       finalMatchStatus,
       resolutionReason: choiceResolution.resolutionReason,
       extractionStatus: extractionResult.status,
+      resolverRan: true,
+      finalResolutionReason: choiceResolution.resolutionReason,
       usedFallbackAnchors: choiceResolution.usedFallbackAnchors,
-      availableAnchors: choiceResolution.availableAnchors
+      availableAnchors: choiceResolution.availableAnchors,
+      ...choiceResolutionDebug
     })
   }
 
@@ -375,6 +477,18 @@ export async function POST(request: Request, context: RouteContext) {
           extractionWarnings: true,
           extractedData: true
         }
+      })
+
+      console.info('[claim_document] reprocess persisted document state', {
+        claimId: claim.id,
+        claimNumber: claim.claimNumber,
+        documentId: updatedDocument.id,
+        fileName: updatedDocument.fileName,
+        documentType: updatedDocument.documentType,
+        matchStatus: updatedDocument.matchStatus,
+        extractionStatus: updatedDocument.extractionStatus,
+        processingStatus: updatedDocument.processingStatus,
+        extractedFieldCount: getExtractedFieldCount(updatedDocument.extractedData)
       })
 
       await logClaimDocumentClassifiedAudit({

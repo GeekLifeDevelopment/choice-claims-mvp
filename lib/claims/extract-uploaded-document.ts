@@ -31,6 +31,8 @@ type ExtractionInput = {
   documentType: DetectedDocumentType
   pdfBytes: Buffer
   fileName?: string | null
+  documentId?: string | null
+  storageKey?: string | null
 }
 
 const MAX_HISTORY_ENTRIES = 5
@@ -56,6 +58,8 @@ const CHOICE_HIGH_VALUE_FIELDS = [
   'deductible'
 ] as const
 
+const LOW_TEXT_SIGNAL_THRESHOLD = 500
+
 type ParsedPdfTextResult = {
   text: string
   parseFailed: boolean
@@ -72,6 +76,17 @@ type ChoiceFallbackDetails = {
   confidence: number | null
   warnings: string[]
   failureReason: string | null
+}
+
+type ParsedTextDiagnostics = {
+  parsedTextLength: number
+  normalizedTextLength: number
+  wordCount: number
+  alphaNumericRatio: number
+  lowTextSignal: boolean
+  weakTextSignal: boolean
+  choiceMarkerCount: number
+  snippet: string
 }
 
 async function extractPdfText(pdfBytes: Buffer): Promise<ParsedPdfTextResult> {
@@ -439,6 +454,47 @@ function getChoiceMarkerCount(text: string): number {
   }, 0)
 }
 
+function buildSafeSnippet(text: string): string {
+  return text
+    .slice(0, 500)
+    .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isLikelyVehicleHistoryFilename(fileName: string | null | undefined): boolean {
+  if (!fileName) {
+    return false
+  }
+
+  const lower = fileName.toLowerCase()
+  return lower.includes('carfax') || lower.includes('autocheck')
+}
+
+function buildParsedTextDiagnostics(input: { text: string; parseFailed: boolean }): ParsedTextDiagnostics {
+  const parsedTextLength = input.text.length
+  const normalizedTextLength = input.text.replace(/\s+/g, '').length
+  const words = input.text.split(/\s+/).filter((token) => token.length >= 2)
+  const wordCount = words.length
+  const alphaNumericCount = (input.text.match(/[A-Za-z0-9]/g) || []).length
+  const alphaNumericRatio =
+    parsedTextLength > 0 ? Number((alphaNumericCount / parsedTextLength).toFixed(4)) : 0
+  const lowTextSignal = normalizedTextLength < LOW_TEXT_SIGNAL_THRESHOLD
+  const weakTextSignal =
+    input.parseFailed || lowTextSignal || (normalizedTextLength < 1800 && wordCount < 200) || alphaNumericRatio < 0.35
+
+  return {
+    parsedTextLength,
+    normalizedTextLength,
+    wordCount,
+    alphaNumericRatio,
+    lowTextSignal,
+    weakTextSignal,
+    choiceMarkerCount: getChoiceMarkerCount(input.text),
+    snippet: buildSafeSnippet(input.text)
+  }
+}
+
 function isChoiceLikeFilename(fileName: string | null | undefined): boolean {
   if (!fileName) {
     return false
@@ -455,19 +511,28 @@ function isChoiceLikeFilename(fileName: string | null | undefined): boolean {
   )
 }
 
-function isChoiceLikeDocument(input: { text: string; fileName?: string | null; parseFailed: boolean }): boolean {
-  const markerCount = getChoiceMarkerCount(input.text)
+function isChoiceLikeDocument(input: {
+  text: string
+  fileName?: string | null
+  parseFailed: boolean
+  diagnostics: ParsedTextDiagnostics
+}): boolean {
+  const markerCount = input.diagnostics.choiceMarkerCount
+  const lowTextSignal = input.diagnostics.lowTextSignal
   const hasBrand = /choice\s+auto\s+protection/i.test(input.text)
   const hasContractLanguage =
     /vehicle\s+service\s+contract/i.test(input.text) ||
     /agreement\s+(?:number|no\.?)/i.test(input.text) ||
     /contract\s+purchase\s+date/i.test(input.text)
   const fileNameHint = isChoiceLikeFilename(input.fileName)
+  const likelyVehicleHistoryFile = isLikelyVehicleHistoryFilename(input.fileName)
 
   return (
     hasBrand ||
     markerCount >= 2 ||
-    (fileNameHint && (markerCount >= 1 || hasContractLanguage || input.parseFailed))
+    (lowTextSignal && (markerCount >= 1 || fileNameHint)) ||
+    (fileNameHint && (markerCount >= 1 || hasContractLanguage || input.parseFailed)) ||
+    (input.diagnostics.weakTextSignal && !likelyVehicleHistoryFile)
   )
 }
 
@@ -496,8 +561,10 @@ function buildChoiceFallbackTriggerReasons(input: {
   extractedFieldCount: number
   missingHighValueFields: string[]
   text: string
+  diagnostics: ParsedTextDiagnostics
 }): string[] {
   const reasons: string[] = []
+  const lowTextSignal = input.diagnostics.lowTextSignal || input.diagnostics.weakTextSignal
 
   if (input.parseFailed) {
     reasons.push('pdf_text_parse_failed')
@@ -509,6 +576,10 @@ function buildChoiceFallbackTriggerReasons(input: {
 
   if (input.missingHighValueFields.length >= 4) {
     reasons.push('high_value_fields_missing')
+  }
+
+  if (lowTextSignal) {
+    reasons.push('low_text_quality')
   }
 
   if (!hasChoiceMarkers(input.text)) {
@@ -588,11 +659,31 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
   try {
     const parsedText = await extractPdfText(input.pdfBytes)
     const text = parsedText.text
+    const diagnostics = buildParsedTextDiagnostics({
+      text,
+      parseFailed: parsedText.parseFailed
+    })
+
+    console.info('[claim_document] uploaded document parse diagnostics', {
+      documentId: input.documentId ?? null,
+      fileName: input.fileName ?? null,
+      storageKey: input.storageKey ?? null,
+      parseFailed: parsedText.parseFailed,
+      parsedTextLength: diagnostics.parsedTextLength,
+      normalizedTextLength: diagnostics.normalizedTextLength,
+      wordCount: diagnostics.wordCount,
+      alphaNumericRatio: diagnostics.alphaNumericRatio,
+      lowTextSignal: diagnostics.lowTextSignal,
+      weakTextSignal: diagnostics.weakTextSignal,
+      choiceMarkerCount: diagnostics.choiceMarkerCount,
+      snippet: diagnostics.snippet
+    })
 
     const choiceLike = isChoiceLikeDocument({
       text,
       fileName: input.fileName,
-      parseFailed: parsedText.parseFailed
+      parseFailed: parsedText.parseFailed,
+      diagnostics
     })
 
     const shouldTreatAsChoiceContract =
@@ -605,9 +696,17 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
     if (input.documentType === 'unknown' && !shouldTreatAsChoiceContract) {
       console.info('[claim_document] fallback decision: skip (not choice-like enough)', {
         reason: 'not_choice_like_enough',
+        documentId: input.documentId ?? null,
+        fileName: input.fileName ?? null,
+        storageKey: input.storageKey ?? null,
         documentType: input.documentType,
         fileNameHint: isChoiceLikeFilename(input.fileName),
-        choiceMarkerCount: getChoiceMarkerCount(text)
+        choiceMarkerCount: diagnostics.choiceMarkerCount,
+        parsedTextLength: diagnostics.parsedTextLength,
+        normalizedTextLength: diagnostics.normalizedTextLength,
+        lowTextSignal: diagnostics.lowTextSignal,
+        weakTextSignal: diagnostics.weakTextSignal,
+        snippet: diagnostics.snippet
       })
 
       return {
@@ -638,7 +737,8 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
         parseFailed: parsedText.parseFailed,
         extractedFieldCount: countScalarFields(extractedData),
         missingHighValueFields,
-        text
+        text,
+        diagnostics
       })
 
       if (input.documentType === 'unknown' && shouldTreatAsChoiceContract) {
@@ -650,13 +750,21 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
         (triggerReasons.includes('pdf_text_parse_failed') ||
           triggerReasons.includes('deterministic_extraction_sparse') ||
           triggerReasons.includes('high_value_fields_missing') ||
+          triggerReasons.includes('low_text_quality') ||
           triggerReasons.includes('skipped_but_choice_like'))
 
       if (shouldAttemptFallback) {
         console.info('[claim_document] choice contract fallback attempted', {
+          documentId: input.documentId ?? null,
+          fileName: input.fileName ?? null,
+          storageKey: input.storageKey ?? null,
           documentType: resolvedDocumentType,
           triggerReasons,
-          missingFieldCount: missingHighValueFields.length
+          missingFieldCount: missingHighValueFields.length,
+          parsedTextLength: diagnostics.parsedTextLength,
+          normalizedTextLength: diagnostics.normalizedTextLength,
+          lowTextSignal: diagnostics.lowTextSignal,
+          weakTextSignal: diagnostics.weakTextSignal
         })
 
         const fallbackResult = await extractChoiceContractWithOpenAi({
@@ -713,9 +821,17 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
           reason: triggerReasons.includes('choice_markers_weak')
             ? 'not_choice_like_enough'
             : 'deterministic_extraction_strong_enough',
+          documentId: input.documentId ?? null,
+          fileName: input.fileName ?? null,
+          storageKey: input.storageKey ?? null,
           documentType: resolvedDocumentType,
           triggerReasons,
-          missingFieldCount: missingHighValueFields.length
+          missingFieldCount: missingHighValueFields.length,
+          parsedTextLength: diagnostics.parsedTextLength,
+          normalizedTextLength: diagnostics.normalizedTextLength,
+          lowTextSignal: diagnostics.lowTextSignal,
+          weakTextSignal: diagnostics.weakTextSignal,
+          snippet: diagnostics.snippet
         })
       }
     }
