@@ -393,7 +393,8 @@ export async function POST(request: Request, context: RouteContext) {
 
       extractionResult = await extractUploadedDocumentData({
         documentType: detectionResult.documentType,
-        pdfBytes: file.bytes,
+        fileBytes: file.bytes,
+        mimeType: file.mimeType,
         fileName: file.fileName,
         documentId: document.id,
         storageKey: savedFile.storageKey
@@ -463,6 +464,7 @@ export async function POST(request: Request, context: RouteContext) {
 
       const evidenceApplyResult = applyUploadedDocumentEvidence({
         documentId: document.id,
+        source: 'uploaded_document',
         documentType: effectiveDocumentType,
         matchStatus: finalMatchStatus,
         extractionStatus: extractionResult.status,

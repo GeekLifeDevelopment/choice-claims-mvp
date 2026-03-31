@@ -9,6 +9,7 @@ import { validateCognitoWebhookHeaders } from '../../../../lib/intake/validate-c
 import { getPayloadPreview } from '../../../../lib/intake/get-payload-preview'
 import { buildDedupeKeyDetails } from '../../../../lib/claims/build-dedupe-key'
 import { createClaimFromSubmission } from '../../../../lib/claims/create-claim-from-submission'
+import { ingestCognitoAttachmentsIntoClaimDocuments } from '../../../../lib/claims/ingest-cognito-attachments'
 import { logIntakeValidationFailedAudit } from '../../../../lib/audit/intake-audit-log'
 
 export const runtime = 'nodejs'
@@ -168,6 +169,31 @@ export async function POST(request: Request) {
         jobName: claimCreationResult.enqueued.jobName,
         jobId: claimCreationResult.enqueued.jobId
       })
+
+      if (createClaimInput.attachments.length > 0) {
+        try {
+          await ingestCognitoAttachmentsIntoClaimDocuments({
+            claimId: claimCreationResult.claim.id,
+            claimNumber: claimCreationResult.claim.claimNumber,
+            claimVin: createClaimInput.vin,
+            claimantName: createClaimInput.claimantName,
+            attachments: createClaimInput.attachments
+          })
+
+          logWithRequestId(requestId, 'cognito attachments ingested into claim document pipeline', {
+            claimId: claimCreationResult.claim.id,
+            claimNumber: claimCreationResult.claim.claimNumber,
+            attachmentCount: createClaimInput.attachments.length
+          })
+        } catch (error) {
+          logWarnWithRequestId(requestId, 'cognito attachment ingestion failed; continuing', {
+            claimId: claimCreationResult.claim.id,
+            claimNumber: claimCreationResult.claim.claimNumber,
+            attachmentCount: createClaimInput.attachments.length,
+            error: error instanceof Error ? error.message : 'unknown_error'
+          })
+        }
+      }
     }
 
     return respond(requestId, 200, {

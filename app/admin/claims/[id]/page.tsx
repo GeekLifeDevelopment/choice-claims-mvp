@@ -849,6 +849,18 @@ function formatDocumentProcessingStatus(value: string | null | undefined): strin
     .join(' ')
 }
 
+function formatClaimDocumentSource(uploadedBy: string | null | undefined): string {
+  if (uploadedBy === 'cognito_form') {
+    return 'Cognito form'
+  }
+
+  if (uploadedBy && uploadedBy.trim().length > 0) {
+    return uploadedBy
+  }
+
+  return 'Manual upload'
+}
+
 function getDocumentProcessingPresentation(input: {
   processingStatus: string | null | undefined
   documentType: string | null | undefined
@@ -3280,8 +3292,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Supporting Documents</h2>
         <p className="text-sm text-slate-600">
-          Upload claim-specific supporting PDFs for reviewer reference. These files are separate from intake
-          attachments.
+          Claim documents include manual uploads and Cognito form attachments processed through the same evidence pipeline.
         </p>
 
         <form
@@ -3355,7 +3366,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                   <th className="py-2 pr-4 font-medium">Outcome</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
                   <th className="py-2 pr-4 font-medium">Uploaded</th>
-                  <th className="py-2 pr-4 font-medium">By</th>
+                  <th className="py-2 pr-4 font-medium">Source</th>
                   <th className="py-2 pr-4 font-medium">Size</th>
                   <th className="py-2 pr-4 font-medium">Actions</th>
                 </tr>
@@ -3453,7 +3464,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       </div>
                     </td>
                     <td className="py-2 pr-4 text-slate-700">{formatDate(document.uploadedAt)}</td>
-                    <td className="py-2 pr-4 text-slate-700">{document.uploadedBy || '—'}</td>
+                    <td className="py-2 pr-4 text-slate-700">{formatClaimDocumentSource(document.uploadedBy)}</td>
                     <td className="py-2 pr-4 text-slate-700">{formatFileSize(document.fileSize)}</td>
                     <td className="py-2 pr-4 text-slate-700">
                       <div className="flex flex-col gap-2">
