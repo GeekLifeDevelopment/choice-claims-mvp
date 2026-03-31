@@ -20,6 +20,7 @@
     "test:queue": "node scripts/test-queue-connection.mjs",
     "test:pcmi-auth": "tsx scripts/pcmi-auth-smoke-test.ts",
     "test:s5-ticket3": "tsx scripts/verify-s5-ticket3.ts",
+    "requeue:stale-summary": "tsx scripts/requeue-stale-review-summary.ts",
     "worker": "tsx worker/worker.ts"
   },
   "prisma": {

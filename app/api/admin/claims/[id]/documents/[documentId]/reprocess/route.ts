@@ -411,6 +411,11 @@ export async function POST(request: Request, context: RouteContext) {
     })
   }
 
+  const latestClaimForEvidence = await prisma.claim.findUnique({
+    where: { id: claim.id },
+    select: { vinDataResult: true }
+  })
+
   const evidenceApplyResult = applyUploadedDocumentEvidence({
     documentId: document.id,
     source: 'uploaded_document',
@@ -418,7 +423,7 @@ export async function POST(request: Request, context: RouteContext) {
     matchStatus: finalMatchStatus,
     extractionStatus: extractionResult.status,
     extractedData: extractionResult.extractedData,
-    vinDataResult: claim.vinDataResult
+    vinDataResult: latestClaimForEvidence?.vinDataResult ?? claim.vinDataResult
   })
 
   const extractedDataWithApply = mergeExtractedDataWithEvidenceApply(
