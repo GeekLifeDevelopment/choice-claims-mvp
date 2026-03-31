@@ -30,6 +30,8 @@ export type IntakeAttachmentMetadata = {
   sourceUrl?: string
   storageKey?: string
   externalId?: string
+  sourceFieldName?: string
+  sourceFieldLabel?: string
 }
 
 export type NormalizedIntakePayload = {
