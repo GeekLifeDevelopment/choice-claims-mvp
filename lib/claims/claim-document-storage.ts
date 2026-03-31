@@ -12,18 +12,13 @@ function getBaseDir(): string {
 
 function sanitizeFileName(input: string): string {
   const base = basename(input).replace(/[^a-zA-Z0-9._-]/g, '_')
-  return base.length > 0 ? base : 'document.pdf'
-}
-
-function normalizePdfFileName(input: string): string {
-  const safeName = sanitizeFileName(input)
-  return extname(safeName).toLowerCase() === '.pdf' ? safeName : `${safeName}.pdf`
+  return base.length > 0 ? base : 'document.bin'
 }
 
 function buildStorageKey(claimId: string, fileName: string): string {
   const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, '')
   const unique = randomUUID().slice(0, 8)
-  return `${claimId}/${timestamp}-${unique}-${normalizePdfFileName(fileName)}`
+  return `${claimId}/${timestamp}-${unique}-${sanitizeFileName(fileName)}`
 }
 
 function resolveStoragePath(storageKey: string): string {

@@ -4,7 +4,7 @@ import { getOpenAiTimeoutMs } from '../providers/config'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const DEFAULT_CHOICE_CONTRACT_OCR_MODEL = process.env.CHOICE_CONTRACT_OCR_MODEL || 'gpt-4.1-mini'
-const MAX_FALLBACK_PDF_BYTES = 8 * 1024 * 1024
+const MAX_FALLBACK_FILE_BYTES = 8 * 1024 * 1024
 
 type ChoiceContractOpenAiData = {
   vin?: string
@@ -224,8 +224,13 @@ function buildUserPrompt(): string {
   ].join(' ')
 }
 
-function toRequestBody(pdfBytes: Buffer): Record<string, unknown> {
-  const fileData = `data:application/pdf;base64,${pdfBytes.toString('base64')}`
+function toRequestBody(input: {
+  fileBytes: Buffer
+  mimeType: string
+  fileName: string
+}): Record<string, unknown> {
+  const fileData = `data:${input.mimeType};base64,${input.fileBytes.toString('base64')}`
+  const isImage = input.mimeType.startsWith('image/')
 
   return {
     model: DEFAULT_CHOICE_CONTRACT_OCR_MODEL,
@@ -239,11 +244,16 @@ function toRequestBody(pdfBytes: Buffer): Record<string, unknown> {
         role: 'user',
         content: [
           { type: 'input_text', text: buildUserPrompt() },
-          {
-            type: 'input_file',
-            filename: 'choice-contract.pdf',
-            file_data: fileData
-          }
+          isImage
+            ? {
+                type: 'input_image',
+                image_url: fileData
+              }
+            : {
+                type: 'input_file',
+                filename: input.fileName,
+                file_data: fileData
+              }
         ]
       }
     ],
@@ -271,7 +281,9 @@ function getSkipResult(reason: string, extractedAt: string): ChoiceContractOpenA
 }
 
 export async function extractChoiceContractWithOpenAi(input: {
-  pdfBytes: Buffer
+  fileBytes: Buffer
+  mimeType?: string | null
+  fileName?: string | null
 }): Promise<ChoiceContractOpenAiFallbackResult> {
   const extractedAt = new Date().toISOString()
 
@@ -284,13 +296,16 @@ export async function extractChoiceContractWithOpenAi(input: {
     return getSkipResult('OpenAI fallback unavailable: OPENAI_API_KEY not configured.', extractedAt)
   }
 
-  if (input.pdfBytes.length <= 0) {
+  if (input.fileBytes.length <= 0) {
     return getSkipResult('OpenAI fallback skipped: empty PDF content.', extractedAt)
   }
 
-  if (input.pdfBytes.length > MAX_FALLBACK_PDF_BYTES) {
-    return getSkipResult('OpenAI fallback skipped: PDF too large for OCR fallback.', extractedAt)
+  if (input.fileBytes.length > MAX_FALLBACK_FILE_BYTES) {
+    return getSkipResult('OpenAI fallback skipped: file too large for OCR fallback.', extractedAt)
   }
+
+  const normalizedMimeType = (input.mimeType || 'application/pdf').toLowerCase()
+  const fileName = input.fileName?.trim() || (normalizedMimeType.startsWith('image/') ? 'choice-contract-image' : 'choice-contract.pdf')
 
   const timeoutMs = getOpenAiTimeoutMs()
   const controller = new AbortController()
@@ -303,7 +318,13 @@ export async function extractChoiceContractWithOpenAi(input: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(toRequestBody(input.pdfBytes)),
+      body: JSON.stringify(
+        toRequestBody({
+          fileBytes: input.fileBytes,
+          mimeType: normalizedMimeType,
+          fileName
+        })
+      ),
       signal: controller.signal
     })
 

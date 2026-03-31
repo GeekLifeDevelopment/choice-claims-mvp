@@ -4,6 +4,7 @@ export type EvidenceApplyStatus = 'pending' | 'applied' | 'partial' | 'conflict'
 
 type ApplyInput = {
   documentId: string
+  source?: 'uploaded_document' | 'cognito_form'
   documentType: DetectedDocumentType
   matchStatus: DocumentMatchStatus
   extractionStatus: 'pending' | 'extracted' | 'partial' | 'failed' | 'skipped'
@@ -27,7 +28,7 @@ type FieldConflict = {
 type AppliedFieldDetail = {
   field: string
   value: string | number | boolean
-  source: 'uploaded_document'
+  source: 'uploaded_document' | 'cognito_form'
   sourceDocumentId: string
   sourceDocumentType: DetectedDocumentType
   appliedAt: string
@@ -228,6 +229,7 @@ function resolveApplyStatus(input: {
 
 export function applyUploadedDocumentEvidence(input: ApplyInput): EvidenceApplyResult {
   const appliedAt = new Date().toISOString()
+  const evidenceSource = input.source || 'uploaded_document'
   const nextVinDataResult = asRecord(input.vinDataResult)
 
   const skippedReasons: string[] = []
@@ -270,7 +272,7 @@ export function applyUploadedDocumentEvidence(input: ApplyInput): EvidenceApplyR
         appliedDetails.push({
           field: candidate.targetPath,
           value: candidate.value,
-          source: 'uploaded_document',
+          source: evidenceSource,
           sourceDocumentId: input.documentId,
           sourceDocumentType: input.documentType,
           appliedAt
@@ -322,7 +324,7 @@ export function applyUploadedDocumentEvidence(input: ApplyInput): EvidenceApplyR
     appliedFields: applied,
     skippedFields: skippedReasons,
     conflictFields: conflicts,
-    source: 'uploaded_document'
+    source: evidenceSource
   }
 
   for (const detail of appliedDetails) {

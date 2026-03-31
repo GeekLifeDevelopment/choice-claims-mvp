@@ -29,7 +29,8 @@ export type DocumentExtractionResult = {
 
 type ExtractionInput = {
   documentType: DetectedDocumentType
-  pdfBytes: Buffer
+  fileBytes: Buffer
+  mimeType?: string | null
   fileName?: string | null
   documentId?: string | null
   storageKey?: string | null
@@ -89,12 +90,44 @@ type ParsedTextDiagnostics = {
   snippet: string
 }
 
-async function extractPdfText(pdfBytes: Buffer): Promise<ParsedPdfTextResult> {
-  const parsed = await readPdfTextConservatively(pdfBytes)
+async function extractPdfText(fileBytes: Buffer): Promise<ParsedPdfTextResult> {
+  const parsed = await readPdfTextConservatively(fileBytes)
   return {
     text: parsed.text,
     parseFailed: parsed.parseFailed
   }
+}
+
+function isPdfLike(input: { mimeType?: string | null; fileName?: string | null; fileBytes: Buffer }): boolean {
+  const normalizedMime = (input.mimeType || '').toLowerCase()
+  if (normalizedMime.includes('pdf')) {
+    return true
+  }
+
+  const lowerFileName = (input.fileName || '').toLowerCase()
+  if (lowerFileName.endsWith('.pdf')) {
+    return true
+  }
+
+  const header = input.fileBytes.subarray(0, 5).toString('ascii')
+  return header.startsWith('%PDF-')
+}
+
+function isImageLike(input: { mimeType?: string | null; fileName?: string | null }): boolean {
+  const normalizedMime = (input.mimeType || '').toLowerCase()
+  if (normalizedMime.startsWith('image/')) {
+    return true
+  }
+
+  const lowerFileName = (input.fileName || '').toLowerCase()
+  return (
+    lowerFileName.endsWith('.jpg') ||
+    lowerFileName.endsWith('.jpeg') ||
+    lowerFileName.endsWith('.png') ||
+    lowerFileName.endsWith('.heic') ||
+    lowerFileName.endsWith('.heif') ||
+    lowerFileName.endsWith('.webp')
+  )
 }
 
 function extractFirstMatch(text: string, expressions: RegExp[]): string | null {
@@ -655,9 +688,80 @@ function buildChoiceFallbackDetails(input: {
 
 export async function extractUploadedDocumentData(input: ExtractionInput): Promise<DocumentExtractionResult> {
   const extractedAt = new Date().toISOString()
+  const pdfLike = isPdfLike({
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+    fileBytes: input.fileBytes
+  })
+  const imageLike = isImageLike({
+    mimeType: input.mimeType,
+    fileName: input.fileName
+  })
+
+  if (!pdfLike && !imageLike) {
+    return {
+      status: 'skipped',
+      extractedAt,
+      extractedData: null,
+      warnings: ['Extraction skipped for unsupported file type.'],
+      resolvedDocumentType: input.documentType
+    }
+  }
+
+  if (imageLike) {
+    const triggerReasons = ['image_document', 'ocr_vision_required']
+    const fallbackResult = await extractChoiceContractWithOpenAi({
+      fileBytes: input.fileBytes,
+      mimeType: input.mimeType,
+      fileName: input.fileName
+    })
+
+    const fallbackDetails = buildChoiceFallbackDetails({
+      fallbackResult,
+      filledFields: Object.keys(fallbackResult.data),
+      triggerReasons
+    })
+
+    if (fallbackResult.status === 'failed' || fallbackResult.status === 'skipped') {
+      return {
+        status: fallbackResult.status === 'failed' ? 'failed' : 'skipped',
+        extractedAt,
+        extractedData: null,
+        warnings:
+          fallbackResult.warnings.length > 0
+            ? fallbackResult.warnings
+            : ['OCR/vision extraction failed for image document.'],
+        resolvedDocumentType: input.documentType === 'unknown' ? 'choice_contract' : input.documentType,
+        choiceContractFallback: fallbackDetails
+      }
+    }
+
+    const extractedData = {
+      ...fallbackResult.data,
+      __choiceContractFallback: {
+        used: true,
+        method: 'openai_ocr_vision',
+        extractedAt: fallbackDetails.extractedAt,
+        filledFields: fallbackDetails.filledFields,
+        confidence: fallbackDetails.confidence,
+        warnings: fallbackDetails.warnings
+      }
+    }
+
+    const status = countScalarFields(extractedData) >= 3 ? 'extracted' : 'partial'
+
+    return {
+      status,
+      extractedAt,
+      extractedData,
+      warnings: fallbackResult.warnings,
+      resolvedDocumentType: input.documentType === 'unknown' ? 'choice_contract' : input.documentType,
+      choiceContractFallback: fallbackDetails
+    }
+  }
 
   try {
-    const parsedText = await extractPdfText(input.pdfBytes)
+    const parsedText = await extractPdfText(input.fileBytes)
     const text = parsedText.text
     const diagnostics = buildParsedTextDiagnostics({
       text,
@@ -768,7 +872,9 @@ export async function extractUploadedDocumentData(input: ExtractionInput): Promi
         })
 
         const fallbackResult = await extractChoiceContractWithOpenAi({
-          pdfBytes: input.pdfBytes
+          fileBytes: input.fileBytes,
+          mimeType: input.mimeType,
+          fileName: input.fileName
         })
 
         const merged = mergeChoiceFallbackData({

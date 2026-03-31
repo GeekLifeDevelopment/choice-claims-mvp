@@ -50,7 +50,7 @@ async function main() {
 
   const extractionResult = await extractUploadedDocumentData({
     documentType: detectionResult.documentType,
-    pdfBytes,
+    fileBytes: pdfBytes,
     fileName: document.fileName
   })
 
