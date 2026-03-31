@@ -33,10 +33,11 @@ export type ChoicePostExtractionMatchResolution = {
   processingStatus: 'classified' | 'pending'
   anchors: DocumentAnchorData
   resolutionReason:
-    | 'vin_match'
+    | 'exact_vin_match'
     | 'vin_conflict'
-    | 'possible_match_partial_anchors'
-    | 'pending_insufficient_anchors'
+    | 'partial_contract_anchor_match'
+    | 'insufficient_contract_anchors'
+    | 'reclassified_choice_without_extraction'
     | 'unchanged'
   usedFallbackAnchors: boolean
   availableAnchors: {
@@ -341,8 +342,44 @@ export function resolveChoiceMatchAfterExtraction(input: {
   ].filter(Boolean).length
 
   const noUsableExtractionAnchors = !availableAnchors.vin && nonVinAnchorCount === 0
+
+  console.info('[choice_match_resolution] evaluating post-extraction match', {
+    initialMatchStatus: input.initial.matchStatus,
+    extractionStatus: input.extractionStatus,
+    claimVin,
+    extractedVin,
+    agreementNumber,
+    mileageAtSale,
+    vehiclePurchaseDate,
+    agreementPurchaseDate,
+    usedFallbackAnchors,
+    availableAnchors,
+    nonVinAnchorCount,
+    noUsableExtractionAnchors
+  })
+
   if (input.extractionStatus !== 'extracted' && input.extractionStatus !== 'partial') {
-    return {
+    if (input.initial.matchStatus === 'no_match') {
+      const reclassifiedWithoutExtractionResult: ChoicePostExtractionMatchResolution = {
+        matchStatus: 'pending',
+        matchNotes:
+          'Choice contract was detected, but extraction did not produce reliable anchors for match verification.',
+        processingStatus: 'pending',
+        anchors,
+        resolutionReason: 'reclassified_choice_without_extraction',
+        usedFallbackAnchors,
+        availableAnchors
+      }
+
+      console.info('[choice_match_resolution] completed post-extraction match', {
+        resolutionReason: reclassifiedWithoutExtractionResult.resolutionReason,
+        finalMatchStatus: reclassifiedWithoutExtractionResult.matchStatus
+      })
+
+      return reclassifiedWithoutExtractionResult
+    }
+
+    const unchangedResult: ChoicePostExtractionMatchResolution = {
       matchStatus: input.initial.matchStatus,
       matchNotes: input.initial.matchNotes,
       processingStatus: input.initial.processingStatus,
@@ -351,24 +388,38 @@ export function resolveChoiceMatchAfterExtraction(input: {
       usedFallbackAnchors,
       availableAnchors
     }
+
+    console.info('[choice_match_resolution] completed post-extraction match', {
+      resolutionReason: unchangedResult.resolutionReason,
+      finalMatchStatus: unchangedResult.matchStatus
+    })
+
+    return unchangedResult
   }
 
   if (claimVin && extractedVin) {
     if (claimVin === extractedVin) {
-      return {
+      const vinMatchResult: ChoicePostExtractionMatchResolution = {
         matchStatus: 'matched',
         matchNotes: usedFallbackAnchors
           ? 'VIN matches claim VIN after Choice extraction fallback.'
           : 'VIN matches claim VIN after Choice extraction.',
         processingStatus: 'classified',
         anchors,
-        resolutionReason: 'vin_match',
+        resolutionReason: 'exact_vin_match',
         usedFallbackAnchors,
         availableAnchors
       }
+
+      console.info('[choice_match_resolution] completed post-extraction match', {
+        resolutionReason: vinMatchResult.resolutionReason,
+        finalMatchStatus: vinMatchResult.matchStatus
+      })
+
+      return vinMatchResult
     }
 
-    return {
+    const vinConflictResult: ChoicePostExtractionMatchResolution = {
       matchStatus: 'conflict',
       matchNotes: `VIN mismatch after Choice extraction: document VIN ${extractedVin} differs from claim VIN ${claimVin}.`,
       processingStatus: 'classified',
@@ -377,31 +428,52 @@ export function resolveChoiceMatchAfterExtraction(input: {
       usedFallbackAnchors,
       availableAnchors
     }
+
+    console.info('[choice_match_resolution] completed post-extraction match', {
+      resolutionReason: vinConflictResult.resolutionReason,
+      finalMatchStatus: vinConflictResult.matchStatus
+    })
+
+    return vinConflictResult
   }
 
   if (noUsableExtractionAnchors) {
-    return {
+    const insufficientAnchorsResult: ChoicePostExtractionMatchResolution = {
       matchStatus: 'pending',
       matchNotes: 'Choice extraction completed but no reliable anchors were available for match verification.',
       processingStatus: 'pending',
       anchors,
-      resolutionReason: 'pending_insufficient_anchors',
+      resolutionReason: 'insufficient_contract_anchors',
       usedFallbackAnchors,
       availableAnchors
     }
+
+    console.info('[choice_match_resolution] completed post-extraction match', {
+      resolutionReason: insufficientAnchorsResult.resolutionReason,
+      finalMatchStatus: insufficientAnchorsResult.matchStatus
+    })
+
+    return insufficientAnchorsResult
   }
 
-  return {
+  const partialAnchorResult: ChoicePostExtractionMatchResolution = {
     matchStatus: 'possible_match',
     matchNotes: usedFallbackAnchors
       ? 'Choice extraction fallback produced usable anchors, but VIN was not confirmed.'
       : 'Choice extraction produced usable anchors, but VIN was not confirmed.',
     processingStatus: 'classified',
     anchors,
-    resolutionReason: 'possible_match_partial_anchors',
+    resolutionReason: 'partial_contract_anchor_match',
     usedFallbackAnchors,
     availableAnchors
   }
+
+  console.info('[choice_match_resolution] completed post-extraction match', {
+    resolutionReason: partialAnchorResult.resolutionReason,
+    finalMatchStatus: partialAnchorResult.matchStatus
+  })
+
+  return partialAnchorResult
 }
 
 export async function detectAndMatchUploadedDocument(input: DetectionInput): Promise<DocumentDetectionResult> {
