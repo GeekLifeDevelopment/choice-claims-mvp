@@ -41,24 +41,6 @@ import type {
 } from '../lib/providers/types'
 
 const FINAL_REVIEW_DECISIONS = ['Approved', 'Denied']
-const STALE_JOB_GRACE_MS = 5_000
-
-function parseJobRequestedAt(value: string | null | undefined): Date | null {
-  if (!value) {
-    return null
-  }
-
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function isJobStaleComparedToClaim(requestedAt: Date | null, claimUpdatedAt: Date): boolean {
-  if (!requestedAt) {
-    return false
-  }
-
-  return claimUpdatedAt.getTime() > requestedAt.getTime() + STALE_JOB_GRACE_MS
-}
 
 // Standalone worker does not get Next.js env loading, so load local env explicitly.
 loadEnv({ path: '.env.local' })
@@ -559,7 +541,6 @@ async function run() {
       }
 
       const payload = job.data as VinLookupJobPayload
-      const requestedAt = parseJobRequestedAt(payload.requestedAt)
       const claim = await prisma.claim.findUnique({
         where: { id: payload.claimId },
         select: {
@@ -625,24 +606,6 @@ async function run() {
         }
       }
 
-      if (isJobStaleComparedToClaim(requestedAt, claim.updatedAt)) {
-        log('vin lookup job skipped because job is stale relative to claim state', {
-          queueName: QUEUE_NAMES.VIN_DATA,
-          jobName: job.name,
-          jobId: job.id,
-          claimId: claim.id,
-          claimNumber: claim.claimNumber,
-          claimUpdatedAt: claim.updatedAt,
-          requestedAt
-        })
-
-        return {
-          ok: true,
-          skipped: true,
-          reason: 'stale_job'
-        }
-      }
-
       await prisma.claim.update({
         where: { id: claim.id },
         data: {
@@ -664,9 +627,9 @@ async function run() {
         attemptsAllowed
       })
 
-      const vinFromPayload = payload.vin?.trim() || null
       const vinFromClaim = claim.vin?.trim() || null
-      const vin = vinFromPayload ?? vinFromClaim
+      const vinFromPayload = payload.vin?.trim() || null
+      const vin = vinFromClaim ?? vinFromPayload
 
       if (!vin) {
         const errorMessage = 'VIN missing from job payload and claim record'

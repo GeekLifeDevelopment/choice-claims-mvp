@@ -12,6 +12,7 @@ type RouteContext = {
 }
 
 const RETRYABLE_STATUSES = new Set<string>([
+  ClaimStatus.AwaitingVinData,
   ClaimStatus.Submitted,
   ClaimStatus.ProviderFailed,
   ClaimStatus.ProcessingError
