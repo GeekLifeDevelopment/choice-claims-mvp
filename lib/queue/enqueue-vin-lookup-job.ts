@@ -65,6 +65,19 @@ export async function enqueueVinLookupJob(payload: VinLookupJobPayload): Promise
           jobId: existingJob.id?.toString()
         }
       }
+
+      await existingJob.remove()
+
+      console.info('[queue_enqueue] removed_terminal_job', {
+        stage: 'enqueue',
+        action: 'replace_job',
+        queueName,
+        jobName,
+        jobId,
+        existingState,
+        claimId: payload.claimId,
+        claimNumber: payload.claimNumber
+      })
     }
 
     const job = await queue.add(jobName, payload, {

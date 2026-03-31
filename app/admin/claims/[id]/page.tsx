@@ -327,6 +327,109 @@ const BADGE_BASE_CLASSNAME = 'inline-flex items-center rounded-full border px-2.
 const REVIEWER_LOW_CONFIDENCE_THRESHOLD = 0.4
 const REVIEWER_LOW_COMPLETENESS_THRESHOLD = 0.4
 const CRITICAL_MISSING_DATA_KEYWORDS = ['mileage', 'purchase date', 'valuation', 'warranty']
+const SUPPORTED_CONFLICT_RESOLUTION_PATHS = new Set<string>([
+  'documentEvidence.contract.vehiclePurchaseDate',
+  'documentEvidence.contract.agreementPurchaseDate',
+  'documentEvidence.contract.mileageAtSale',
+  'serviceHistory.latestMileage',
+  'documentEvidence.contract.agreementNumber',
+  'documentEvidence.contract.deductible',
+  'documentEvidence.contract.termMonths',
+  'documentEvidence.contract.termMiles',
+  'documentEvidence.contract.coverageLevel',
+  'documentEvidence.contract.planName',
+  'documentEvidence.contract.warrantyCoverageSummary',
+  'valuation.contextNote',
+  'documentEvidence.contract.obdCodes'
+])
+
+type ConflictResolutionViewModel = {
+  conflictKey: string
+  fieldPath: string
+  fieldLabel: string
+  slotLabel: string | null
+  reason: string
+  existingValue: unknown
+  incomingValue: unknown
+  currentValue: unknown
+  sourceLabel: string
+  sourceDocumentId: string | null
+  sourceDocumentName: string | null
+  sourceDocumentType: string | null
+  detectedAt: string | null
+}
+
+type ResolvedConflictViewModel = {
+  fieldPath: string
+  fieldLabel: string
+  winner: string
+  winningSource: string | null
+  losingSource: string | null
+  resolvedAt: string | null
+  resolvedBy: string | null
+  note: string | null
+}
+
+function formatEvidenceSourceLabel(value: string | null | undefined): string {
+  if (!value) {
+    return 'Unknown source'
+  }
+
+  if (value === 'uploaded_document') {
+    return 'Manual upload'
+  }
+
+  if (value === 'cognito_form') {
+    return 'Cognito form'
+  }
+
+  if (value === 'manual_reviewer_entry') {
+    return 'Manual reviewer entry'
+  }
+
+  if (value === 'existing_claim_value') {
+    return 'Existing claim value'
+  }
+
+  return value
+}
+
+function formatConflictValuePreview(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '—'
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value.toLocaleString('en-US') : '—'
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : '—'
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry)))
+      .filter((entry) => entry.length > 0)
+    return normalized.length > 0 ? normalized.join(', ') : '—'
+  }
+
+  const serialized = JSON.stringify(value)
+  return serialized && serialized.length > 0 ? serialized : '—'
+}
+
+function formatConflictFieldLabel(fieldPath: string): string {
+  const segment = fieldPath.split('.').pop() || fieldPath
+  return segment
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/^./, (letter) => letter.toUpperCase())
+}
 
 function getAuditActionLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -355,6 +458,9 @@ function getAuditActionLabel(action: string): string {
     claim_document_evidence_triggered_refresh: 'Document evidence triggered refresh',
     manual_evidence_entered: 'Manual evidence entered',
     manual_evidence_triggered_refresh: 'Manual evidence triggered refresh',
+    evidence_conflict_resolved: 'Evidence conflict resolved',
+    evidence_conflict_resolution_triggered_refresh: 'Conflict resolution triggered refresh',
+    evidence_conflict_resolution_blocked: 'Conflict resolution blocked',
     duplicate_blocked: 'Duplicate blocked',
     vin_lookup_enqueued: 'VIN lookup queued',
     vin_lookup_requeued: 'VIN retry requested',
@@ -410,9 +516,15 @@ function getTimelineEventBadgeClassName(action: string): string {
     action === 'claim_document_evidence_skipped' ||
     action === 'claim_document_evidence_triggered_refresh' ||
     action === 'manual_evidence_entered' ||
-    action === 'manual_evidence_triggered_refresh'
+    action === 'manual_evidence_triggered_refresh' ||
+    action === 'evidence_conflict_resolved' ||
+    action === 'evidence_conflict_resolution_triggered_refresh'
   ) {
     return `${base} border-sky-300 bg-sky-50 text-sky-700`
+  }
+
+  if (action === 'evidence_conflict_resolution_blocked') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
   }
 
   if (action === 'claim_document_classified' || action === 'claim_document_match_evaluated') {
@@ -476,13 +588,22 @@ function getTimelineEventBadgeText(action: string): string {
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_conflict_detected' ||
     action === 'claim_document_evidence_skipped' ||
-    action === 'manual_evidence_entered'
+    action === 'manual_evidence_entered' ||
+    action === 'evidence_conflict_resolved'
   ) {
     return 'Extraction'
   }
 
-  if (action === 'claim_document_evidence_triggered_refresh' || action === 'manual_evidence_triggered_refresh') {
+  if (
+    action === 'claim_document_evidence_triggered_refresh' ||
+    action === 'manual_evidence_triggered_refresh' ||
+    action === 'evidence_conflict_resolution_triggered_refresh'
+  ) {
     return 'Refresh'
+  }
+
+  if (action === 'evidence_conflict_resolution_blocked') {
+    return 'Resolution'
   }
 
   if (action.includes('failed') || action.includes('error')) {
@@ -545,6 +666,12 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const enteredBy = getOptionalString(record.enteredBy)
   const reviewerNote = getOptionalString(record.reviewerNote)
   const blockedFields = getOptionalStringArray(record.blockedFields)
+  const field = getOptionalString(record.field)
+  const winner = getOptionalString(record.winner)
+  const winningSource = getOptionalString(record.winningSource)
+  const losingSource = getOptionalString(record.losingSource)
+  const resolvedBy = getOptionalString(record.resolvedBy)
+  const valueChanged = getOptionalBoolean(record.valueChanged)
 
   const rows: Array<{ label: string; value: string }> = []
 
@@ -732,6 +859,40 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
     if (blockedFields.length > 0) {
       rows.push({ label: 'Blocked Fields', value: blockedFields.join(' | ') })
+    }
+
+    if (reviewerNote) {
+      rows.push({ label: 'Reviewer Note', value: reviewerNote })
+    }
+  }
+
+  if (
+    action === 'evidence_conflict_resolved' ||
+    action === 'evidence_conflict_resolution_triggered_refresh' ||
+    action === 'evidence_conflict_resolution_blocked'
+  ) {
+    if (field) {
+      rows.push({ label: 'Field', value: field })
+    }
+
+    if (winner) {
+      rows.push({ label: 'Winner', value: winner })
+    }
+
+    if (winningSource) {
+      rows.push({ label: 'Winning Source', value: winningSource })
+    }
+
+    if (losingSource) {
+      rows.push({ label: 'Losing Source', value: losingSource })
+    }
+
+    if (resolvedBy) {
+      rows.push({ label: 'Resolved By', value: resolvedBy })
+    }
+
+    if (valueChanged !== null) {
+      rows.push({ label: 'Value Changed', value: valueChanged ? 'Yes' : 'No' })
     }
 
     if (reviewerNote) {
@@ -1861,7 +2022,60 @@ type PageProps = {
     documentRemove?: string
     documentReprocess?: string
     manualEvidence?: string
+    conflictResolution?: string
   }>
+}
+
+function getConflictResolutionBannerMessage(value: string | undefined): string | null {
+  if (value === 'saved') {
+    return 'Evidence conflict resolved.'
+  }
+
+  if (value === 'saved_refresh') {
+    return 'Evidence conflict resolved and refresh queued.'
+  }
+
+  if (value === 'locked_final_decision') {
+    return 'Conflict resolution blocked: this claim is locked by a final reviewer decision.'
+  }
+
+  if (value === 'unsupported-slot') {
+    return 'Conflict resolution blocked: selected field is not supported in this version.'
+  }
+
+  if (value === 'stale') {
+    return 'Conflict resolution could not be applied because this conflict is no longer active.'
+  }
+
+  if (value === 'invalid') {
+    return 'Conflict resolution failed: invalid request payload.'
+  }
+
+  if (value === 'invalid-note') {
+    return 'Conflict resolution failed: reviewer note is too long.'
+  }
+
+  if (value === 'not-found') {
+    return 'Conflict resolution failed: claim was not found.'
+  }
+
+  if (value === 'error') {
+    return 'Conflict resolution failed unexpectedly.'
+  }
+
+  return null
+}
+
+function getConflictResolutionBannerClassName(value: string | undefined): string {
+  if (value === 'saved' || value === 'saved_refresh') {
+    return 'rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+  }
+
+  if (value === 'locked_final_decision' || value === 'unsupported-slot' || value === 'stale') {
+    return 'rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900'
+  }
+
+  return 'rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800'
 }
 
 function getManualEvidenceBannerMessage(value: string | undefined): string | null {
@@ -2272,6 +2486,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     resolvedSearchParams.documentReprocess
   )
   const manualEvidenceBannerMessage = getManualEvidenceBannerMessage(resolvedSearchParams.manualEvidence)
+  const conflictResolutionBannerMessage = getConflictResolutionBannerMessage(
+    resolvedSearchParams.conflictResolution
+  )
 
   const claimSelectBase = {
     id: true,
@@ -2771,6 +2988,89 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     }
   }
 
+  const evidenceSection = asRecord(vinDataResult.documentEvidence)
+  const evidenceDocuments = asRecord(evidenceSection.documents)
+  const evidenceConflictsRaw = Array.isArray(evidenceSection.conflicts) ? evidenceSection.conflicts : []
+  const evidenceResolvedConflictsRaw = Array.isArray(evidenceSection.conflictResolutions)
+    ? evidenceSection.conflictResolutions
+    : []
+
+  const slotLabelByFieldPath = new Map<string, string | null>(
+    claimDocumentEvidenceModel.conflicts.map((entry) => [entry.fieldPath, entry.slotLabel])
+  )
+
+  const claimDocumentById = new Map<string, Record<string, unknown>>(
+    (claim.claimDocuments as Array<Record<string, unknown>>).map((document) => [
+      getOptionalString(document.id) || '',
+      asRecord(document)
+    ])
+  )
+
+  const unresolvedConflictViewModels: ConflictResolutionViewModel[] = evidenceConflictsRaw
+    .map((entry) => {
+      const record = asRecord(entry)
+      const fieldPath = getOptionalString(record.field)
+      if (!fieldPath || !SUPPORTED_CONFLICT_RESOLUTION_PATHS.has(fieldPath)) {
+        return null
+      }
+
+      const sourceDocumentId = getOptionalString(record.documentId)
+      const sourceDocument = asRecord((sourceDocumentId && claimDocumentById.get(sourceDocumentId)) || {})
+      const evidenceDocument = asRecord((sourceDocumentId && evidenceDocuments[sourceDocumentId]) || {})
+      const sourceLabel = getOptionalString(evidenceDocument.source) || 'uploaded_document'
+      const detectedAt = getOptionalString(record.detectedAt)
+
+      return {
+        conflictKey: [fieldPath, sourceDocumentId || '', detectedAt || ''].join('|'),
+        fieldPath,
+        fieldLabel: formatConflictFieldLabel(fieldPath),
+        slotLabel: slotLabelByFieldPath.get(fieldPath) || null,
+        reason: getOptionalString(record.reason) || 'existing_value_differs',
+        existingValue: record.existing,
+        incomingValue: record.incoming,
+        currentValue: getValueAtPath(vinDataResult, fieldPath),
+        sourceLabel,
+        sourceDocumentId,
+        sourceDocumentName: getOptionalString(sourceDocument.fileName),
+        sourceDocumentType: getOptionalString(sourceDocument.documentType),
+        detectedAt
+      }
+    })
+    .filter((entry): entry is ConflictResolutionViewModel => Boolean(entry))
+    .sort((left, right) => {
+      const slotLeft = left.slotLabel || left.fieldLabel
+      const slotRight = right.slotLabel || right.fieldLabel
+      const slotRank = slotLeft.localeCompare(slotRight)
+      if (slotRank !== 0) {
+        return slotRank
+      }
+
+      return left.fieldLabel.localeCompare(right.fieldLabel)
+    })
+
+  const resolvedConflictHistory: ResolvedConflictViewModel[] = evidenceResolvedConflictsRaw
+    .map((entry) => {
+      const record = asRecord(entry)
+      const fieldPath = getOptionalString(record.field)
+      if (!fieldPath || !SUPPORTED_CONFLICT_RESOLUTION_PATHS.has(fieldPath)) {
+        return null
+      }
+
+      return {
+        fieldPath,
+        fieldLabel: formatConflictFieldLabel(fieldPath),
+        winner: getOptionalString(record.winner) || 'unknown',
+        winningSource: getOptionalString(record.winningSource),
+        losingSource: getOptionalString(record.losingSource),
+        resolvedAt: getOptionalString(record.resolvedAt),
+        resolvedBy: getOptionalString(record.resolvedBy),
+        note: getOptionalString(record.note)
+      }
+    })
+    .filter((entry): entry is ResolvedConflictViewModel => Boolean(entry))
+    .slice(-8)
+    .reverse()
+
   return (
     <section className="card space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -2821,6 +3121,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       {manualEvidenceBannerMessage ? (
         <p className={getManualEvidenceBannerClassName(resolvedSearchParams.manualEvidence)}>
           {manualEvidenceBannerMessage}
+        </p>
+      ) : null}
+
+      {conflictResolutionBannerMessage ? (
+        <p className={getConflictResolutionBannerClassName(resolvedSearchParams.conflictResolution)}>
+          {conflictResolutionBannerMessage}
         </p>
       ) : null}
 
@@ -3071,6 +3377,117 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </button>
           </div>
         </form>
+      </div>
+
+      <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">Resolve Evidence Conflicts</h2>
+          <span className="text-xs text-slate-600">Explicit reviewer choice required</span>
+        </div>
+        <p className="text-sm text-slate-600">
+          Choose which value should win for supported conflicting fields. Winning values are written with reviewer
+          resolution provenance and audit history.
+        </p>
+
+        {unresolvedConflictViewModels.length === 0 ? (
+          <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            No unresolved high-value conflicts are available for reviewer resolution.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {unresolvedConflictViewModels.map((conflict) => (
+              <form
+                key={conflict.conflictKey}
+                method="post"
+                action={`/api/admin/claims/${claim.id}/resolve-evidence-conflict`}
+                className="space-y-2 rounded-md border border-red-200 bg-white p-3"
+              >
+                <input type="hidden" name="conflictField" value={conflict.fieldPath} />
+                <input type="hidden" name="conflictDocumentId" value={conflict.sourceDocumentId || ''} />
+                <input type="hidden" name="conflictDetectedAt" value={conflict.detectedAt || ''} />
+
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-slate-900">
+                    {conflict.slotLabel ? `${conflict.slotLabel}: ` : ''}
+                    {conflict.fieldLabel}
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Source: {conflict.sourceDocumentName || conflict.sourceDocumentId || 'Unknown document'} |{' '}
+                    {formatEvidenceSourceLabel(conflict.sourceLabel)}
+                    {conflict.sourceDocumentType ? ` | ${formatDetectedDocumentType(conflict.sourceDocumentType)}` : ''}
+                  </p>
+                  <p className="text-xs text-slate-600">Reason: {conflict.reason}</p>
+                </div>
+
+                <div className="grid gap-2 text-sm sm:grid-cols-3">
+                  <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Current value</p>
+                    <p className="mt-1 text-slate-900">{formatConflictValuePreview(conflict.currentValue)}</p>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Keep existing</p>
+                    <p className="mt-1 text-slate-900">{formatConflictValuePreview(conflict.existingValue)}</p>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Accept candidate</p>
+                    <p className="mt-1 text-slate-900">{formatConflictValuePreview(conflict.incomingValue)}</p>
+                  </div>
+                </div>
+
+                <label className="block space-y-1 text-sm text-slate-700">
+                  <span className="font-medium text-slate-900">Reviewer note (optional)</span>
+                  <input
+                    type="text"
+                    name="reviewerNote"
+                    maxLength={2000}
+                    className="w-full rounded border border-slate-300 px-2 py-1"
+                  />
+                </label>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="submit"
+                    name="winner"
+                    value="existing"
+                    disabled={claimLockedForProcessing}
+                    className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Keep Existing Value
+                  </button>
+                  <button
+                    type="submit"
+                    name="winner"
+                    value="incoming"
+                    disabled={claimLockedForProcessing}
+                    className="inline-flex items-center rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Accept Candidate Value
+                  </button>
+                </div>
+              </form>
+            ))}
+          </div>
+        )}
+
+        <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
+          <p className="font-medium text-slate-900">Recent Resolved Conflicts</p>
+          {resolvedConflictHistory.length === 0 ? (
+            <p className="mt-2 text-slate-600">No reviewer conflict resolutions have been recorded yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1">
+              {resolvedConflictHistory.map((entry, index) => (
+                <li key={`${entry.fieldPath}-${entry.resolvedAt || 'unknown'}-${String(index)}`}>
+                  <span className="font-medium">{entry.fieldLabel}</span>: winner {entry.winner} ({' '}
+                  {formatEvidenceSourceLabel(entry.winningSource)})
+                  {entry.losingSource ? ` | loser ${formatEvidenceSourceLabel(entry.losingSource)}` : ''}
+                  {entry.resolvedBy ? ` | by ${entry.resolvedBy}` : ''}
+                  {entry.resolvedAt ? ` | ${formatIsoDate(entry.resolvedAt)}` : ''}
+                  {entry.note ? ` | note: ${entry.note}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">
