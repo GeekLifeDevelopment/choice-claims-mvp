@@ -124,31 +124,10 @@ export async function enqueueReviewSummaryForClaim(
     }
   }
 
-  if (claim.reviewSummaryStatus === REVIEW_SUMMARY_STATUS.Queued) {
-    console.info('[summary] queue skipped already queued', {
-      claimId: claim.id,
-      claimNumber: claim.claimNumber
-    })
-
-    return {
-      enqueued: false,
-      claimId: claim.id,
-      reason: 'already_queued'
-    }
-  }
-
   const queuedAt = new Date()
-  const transitioned = await prisma.claim.updateMany({
+  await prisma.claim.update({
     where: {
-      id: claim.id,
-      OR: [
-        { reviewSummaryStatus: null },
-        {
-          reviewSummaryStatus: {
-            not: REVIEW_SUMMARY_STATUS.Queued
-          }
-        }
-      ]
+      id: claim.id
     },
     data: {
       reviewSummaryStatus: REVIEW_SUMMARY_STATUS.Queued,
@@ -157,19 +136,6 @@ export async function enqueueReviewSummaryForClaim(
       reviewSummaryLastError: null
     }
   })
-
-  if (transitioned.count === 0) {
-    console.info('[summary] queue skipped transition race', {
-      claimId: claim.id,
-      claimNumber: claim.claimNumber
-    })
-
-    return {
-      enqueued: false,
-      claimId: claim.id,
-      reason: 'already_queued'
-    }
-  }
 
   try {
     const payload = buildReviewSummaryJobPayload({

@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
@@ -89,4 +89,19 @@ for (const target of targets) {
 
   rmSync(fullPath, { recursive: true, force: true })
   console.log(`[clean:next] removed ${target}`)
+}
+
+// In this iCloud-backed workspace, Next can intermittently fail before generating
+// server manifests in dev mode. Seed minimal placeholders to avoid MODULE_NOT_FOUND.
+const nextServerDir = resolve(process.cwd(), '.next', 'server')
+mkdirSync(nextServerDir, { recursive: true })
+
+const placeholderManifests = ['middleware-manifest.json', 'pages-manifest.json']
+
+for (const manifestName of placeholderManifests) {
+  const manifestPath = resolve(nextServerDir, manifestName)
+  if (!existsSync(manifestPath)) {
+    writeFileSync(manifestPath, '{}\n', { encoding: 'utf8' })
+    console.log(`[clean:next] seeded .next/server/${manifestName}`)
+  }
 }
