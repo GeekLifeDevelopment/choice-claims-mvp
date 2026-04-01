@@ -1,7 +1,7 @@
 const nextConfig = {
   reactStrictMode: true,
-  // Use the default Next output directory for consistent chunk resolution.
-  distDir: '.next',
+  // Use a dedicated output directory for this iCloud-backed workspace.
+  distDir: 'next-dist',
   webpack: (config, { dev }) => {
 
     if (dev) {

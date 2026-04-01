@@ -64,6 +64,20 @@ export async function enqueueReviewSummaryJob(
           jobId: existingJob.id?.toString()
         }
       }
+
+      // Replace stale completed/failed jobs so meaningful refreshes can enqueue a new run.
+      await existingJob.remove()
+
+      console.info('[queue_enqueue] replaced_stale_job', {
+        stage: 'enqueue',
+        action: 'replace',
+        queueName,
+        jobName,
+        jobId,
+        existingState,
+        claimId: payload.claimId,
+        claimNumber: payload.claimNumber
+      })
     }
 
     const job = await queue.add(jobName, payload, {
