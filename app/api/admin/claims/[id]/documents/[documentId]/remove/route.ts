@@ -7,10 +7,27 @@ type RouteContext = {
   params: Promise<{ id: string; documentId: string }>
 }
 
-function buildClaimDetailUrl(claimId: string, documentRemove: string): string {
-  const params = new URLSearchParams()
-  params.set('documentRemove', documentRemove)
-  return `/admin/claims/${claimId}?${params.toString()}`
+function resolveRequestOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+
+  if (forwardedHost) {
+    return `${forwardedProto || 'https'}://${forwardedHost}`
+  }
+
+  const host = request.headers.get('host')?.split(',')[0]?.trim()
+  if (host) {
+    const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https'
+    return `${proto}://${host}`
+  }
+
+  return new URL(request.url).origin
+}
+
+function buildClaimDetailUrl(request: Request, claimId: string, documentRemove: string): URL {
+  const url = new URL(`/admin/claims/${claimId}`, resolveRequestOrigin(request))
+  url.searchParams.set('documentRemove', documentRemove)
+  return url
 }
 
 function getRemovedBy(formData: FormData): string | null {
@@ -34,7 +51,7 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
-    return NextResponse.redirect(buildClaimDetailUrl(claimId, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claimId, 'not-found'), { status: 303 })
   }
 
   const document = await prisma.claimDocument.findFirst({
@@ -57,7 +74,7 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!document) {
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'missing-document'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'missing-document'), { status: 303 })
   }
 
   try {
@@ -90,10 +107,10 @@ export async function POST(request: Request, context: RouteContext) {
       error: error instanceof Error ? error.message : 'unknown_error'
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'remove-failed'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'remove-failed'), { status: 303 })
   }
 
   await removeClaimDocumentFile(document.storageKey)
 
-  return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'removed'), { status: 303 })
+  return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'removed'), { status: 303 })
 }
