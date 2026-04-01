@@ -88,42 +88,41 @@ type EvidenceSlotConfig = {
 }
 
 const DOCUMENT_EVIDENCE_FIELD_LABELS: Record<string, string> = {
-  'serviceHistory.latestMileage': 'Latest mileage',
-  'ownershipHistory.ownerCount': 'Owner count',
-  'recall.summary': 'Recall summary',
-  'recall.status': 'Recall status',
-  'titleHistory.titleStatus': 'Title status',
-  'serviceHistory.eventCount': 'Service history count',
-  'accident.summary': 'Accident summary',
-  'titleProblem.lienStatus': 'Lien status',
-  'titleHistory.odometerCheckSummary': 'Odometer check summary',
-  'documentEvidence.contract.mileageAtSale': 'Contract mileage at sale',
-  'documentEvidence.contract.vehiclePurchaseDate': 'Vehicle purchase date',
-  'documentEvidence.contract.agreementPurchaseDate': 'Agreement purchase date',
-  'documentEvidence.contract.agreementNumber': 'Agreement number',
-  'documentEvidence.contract.agreementPrice': 'Agreement price',
-  'documentEvidence.contract.coverageLevel': 'Coverage level',
-  'documentEvidence.contract.termMonths': 'Contract term months',
-  'documentEvidence.contract.termMiles': 'Contract term miles',
+  'serviceHistory.latestMileage': 'Current/latest mileage',
+  'ownershipHistory.ownerCount': 'Owner Count',
+  'recall.summary': 'Recall Summary',
+  'recall.status': 'Recall Status',
+  'titleHistory.titleStatus': 'Title Status',
+  'serviceHistory.eventCount': 'Service History Count',
+  'accident.summary': 'Damage/Accident Summary',
+  'titleProblem.lienStatus': 'Lien Status',
+  'titleHistory.odometerCheckSummary': 'Odometer Check Summary',
+  'documentEvidence.contract.mileageAtSale': 'Purchase Mileage',
+  'documentEvidence.contract.vehiclePurchaseDate': 'Purchase Date',
+  'documentEvidence.contract.agreementPurchaseDate': 'Purchase Date',
+  'documentEvidence.contract.agreementNumber': 'Agreement Number',
+  'documentEvidence.contract.agreementPrice': 'Agreement Price',
+  'documentEvidence.contract.coverageLevel': 'Coverage Level',
+  'documentEvidence.contract.termMonths': 'Term Months',
+  'documentEvidence.contract.termMiles': 'Term Miles',
   'documentEvidence.contract.deductible': 'Deductible',
-  'documentEvidence.contract.waitingPeriodMarker': 'Waiting period'
-  ,
-  'documentEvidence.contract.planName': 'Plan name',
-  'documentEvidence.contract.warrantyCoverageSummary': 'Warranty coverage summary',
-  'documentEvidence.contract.obdCodes': 'OBD codes',
-  'valuation.contextNote': 'Valuation context note'
+  'documentEvidence.contract.waitingPeriodMarker': 'Waiting Period',
+  'documentEvidence.contract.planName': 'Coverage Level',
+  'documentEvidence.contract.warrantyCoverageSummary': 'Warranty Coverage',
+  'documentEvidence.contract.obdCodes': 'OBD Codes',
+  'valuation.contextNote': 'Valuation Context'
 }
 
 const SLOT_CONFIG: EvidenceSlotConfig[] = [
   {
     slotId: 'purchaseDate',
-    slotLabel: 'Purchase date',
+    slotLabel: 'Purchase Date',
     fieldPaths: ['documentEvidence.contract.vehiclePurchaseDate', 'documentEvidence.contract.agreementPurchaseDate'],
     missingKeywords: ['days_since_purchase', 'purchase date']
   },
   {
     slotId: 'purchaseMileage',
-    slotLabel: 'Purchase mileage',
+    slotLabel: 'Purchase Mileage',
     fieldPaths: ['documentEvidence.contract.mileageAtSale'],
     missingKeywords: ['miles_since_purchase', 'purchase mileage', 'mileage']
   },
@@ -135,7 +134,7 @@ const SLOT_CONFIG: EvidenceSlotConfig[] = [
   },
   {
     slotId: 'agreementNumber',
-    slotLabel: 'Agreement number',
+    slotLabel: 'Agreement Number',
     fieldPaths: ['documentEvidence.contract.agreementNumber'],
     missingKeywords: ['warranty_support', 'agreement', 'contract']
   },
@@ -147,55 +146,55 @@ const SLOT_CONFIG: EvidenceSlotConfig[] = [
   },
   {
     slotId: 'termMonths',
-    slotLabel: 'Term months',
+    slotLabel: 'Term Months',
     fieldPaths: ['documentEvidence.contract.termMonths'],
     missingKeywords: ['warranty_support', 'term', 'contract']
   },
   {
     slotId: 'termMiles',
-    slotLabel: 'Term miles',
+    slotLabel: 'Term Miles',
     fieldPaths: ['documentEvidence.contract.termMiles'],
     missingKeywords: ['warranty_support', 'term', 'mileage', 'contract']
   },
   {
     slotId: 'ownerCount',
-    slotLabel: 'Owner count',
+    slotLabel: 'Owner Count',
     fieldPaths: ['ownershipHistory.ownerCount'],
     missingKeywords: ['owner', 'history']
   },
   {
     slotId: 'recallSummary',
-    slotLabel: 'Recall summary',
+    slotLabel: 'Recall Summary',
     fieldPaths: ['recall.summary'],
     missingKeywords: ['recall_relevance', 'recall']
   },
   {
     slotId: 'recallStatus',
-    slotLabel: 'Recall status',
+    slotLabel: 'Recall Status',
     fieldPaths: ['recall.status'],
     missingKeywords: ['recall_relevance', 'recall']
   },
   {
     slotId: 'titleStatus',
-    slotLabel: 'Title status',
+    slotLabel: 'Title Status',
     fieldPaths: ['titleHistory.titleStatus'],
     missingKeywords: ['branded_title', 'title']
   },
   {
     slotId: 'titleRisk',
-    slotLabel: 'Title risk indicators',
+    slotLabel: 'Title Risk Indicators',
     fieldPaths: ['titleProblem.lienStatus', 'titleHistory.odometerCheckSummary'],
     missingKeywords: ['branded_title', 'title']
   },
   {
     slotId: 'serviceHistoryCount',
-    slotLabel: 'Service history count',
+    slotLabel: 'Service History Count',
     fieldPaths: ['serviceHistory.eventCount'],
     missingKeywords: ['maintenance_history', 'service']
   },
   {
     slotId: 'warrantyCoverageData',
-    slotLabel: 'Warranty coverage support',
+    slotLabel: 'Warranty Coverage',
     fieldPaths: [
       'documentEvidence.contract.waitingPeriodMarker',
       'documentEvidence.contract.agreementPrice',
@@ -206,13 +205,13 @@ const SLOT_CONFIG: EvidenceSlotConfig[] = [
   },
   {
     slotId: 'coverageLevel',
-    slotLabel: 'Coverage level / plan name',
+    slotLabel: 'Coverage Level',
     fieldPaths: ['documentEvidence.contract.coverageLevel', 'documentEvidence.contract.planName'],
     missingKeywords: ['warranty_support', 'coverage', 'plan']
   },
   {
     slotId: 'valuationContext',
-    slotLabel: 'Valuation context',
+    slotLabel: 'Valuation Context',
     fieldPaths: [
       'valuation.estimatedValue',
       'valuation.retailValue',
@@ -224,7 +223,7 @@ const SLOT_CONFIG: EvidenceSlotConfig[] = [
   },
   {
     slotId: 'damageOrAccidentSummary',
-    slotLabel: 'Damage / accident summary',
+    slotLabel: 'Damage/Accident Summary',
     fieldPaths: ['accident.summary'],
     missingKeywords: ['accident', 'damage']
   }
