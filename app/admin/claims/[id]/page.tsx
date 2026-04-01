@@ -1513,16 +1513,21 @@ function getDocumentOutcomeSummary(input: {
 
   const applyRecord = getDocumentEvidenceApplyRecord(input.extractedData)
   const applyStatus = getOptionalString(applyRecord.applyStatus)
+  const appliedCount = getOptionalStringArray(applyRecord.appliedFields).length
+  const conflictCount = Array.isArray(applyRecord.conflictFields) ? applyRecord.conflictFields.length : 0
+
+  if (applyStatus === 'skipped' && appliedCount === 0 && conflictCount === 0) {
+    parts.push('This file was reviewed, but it did not change the current claim evidence')
+  }
+
   if (applyStatus) {
     parts.push(`Apply ${formatDocumentEvidenceApplyStatus(input.extractedData)}`)
   }
 
-  const appliedCount = getOptionalStringArray(applyRecord.appliedFields).length
   if (appliedCount > 0) {
     parts.push(`Applied ${String(appliedCount)} fields`)
   }
 
-  const conflictCount = Array.isArray(applyRecord.conflictFields) ? applyRecord.conflictFields.length : 0
   if (conflictCount > 0) {
     parts.push(`${String(conflictCount)} conflicts detected`)
   }
@@ -2349,7 +2354,7 @@ function getReviewDecisionBannerClassName(value: string | undefined): string {
 
 function getSummaryRegenerateBannerMessage(value: string | undefined): string | null {
   if (value === 'queued') {
-    return 'Summary regeneration was queued successfully.'
+    return 'Refreshing summary from the latest evidence. Check back shortly.'
   }
 
   if (value === 'not-found') {
@@ -2486,7 +2491,7 @@ function getDocumentRemoveBannerClassName(value: string | undefined): string {
 
 function getDocumentReprocessBannerMessage(value: string | undefined): string | null {
   if (value === 'reprocessed') {
-    return 'Document reprocessed successfully.'
+    return 'Document was reprocessed. Updated evidence (if any) will appear after processing completes.'
   }
 
   if (value === 'missing-document') {
@@ -2535,15 +2540,15 @@ function getSummaryRegenerateDisabledReason(input: {
   }
 
   if (input.status !== ClaimStatus.ReadyForAI) {
-    return 'Summary regenerate is available when status is ReadyForAI'
+    return 'Summary refresh becomes available when the claim is ready for review.'
   }
 
   if (!input.reviewRuleEvaluatedAt) {
-    return 'Rule evaluation must be completed before summary regenerate'
+    return 'Summary refresh is waiting for initial claim processing to complete.'
   }
 
   if (input.reviewSummaryStatus === 'Queued') {
-    return 'Summary generation is already queued'
+    return 'Summary refresh is already in progress.'
   }
 
   return null
@@ -3067,6 +3072,45 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     missingEvidenceSlots.length === 0
       ? `${BADGE_BASE_CLASSNAME} border-emerald-300 bg-emerald-50 text-emerald-700`
       : `${BADGE_BASE_CLASSNAME} border-amber-300 bg-amber-50 text-amber-800`
+  const summaryQueuedOrInProgress = claim.reviewSummaryStatus === 'Queued'
+  const noSummaryGenerated = !claim.reviewSummaryText
+  const reviewSummaryEmptyMessage = summaryQueuedOrInProgress
+    ? 'Refreshing summary from latest evidence. This usually completes shortly.'
+    : claim.reviewSummaryStatus === 'Failed'
+      ? 'Summary could not be generated from current information yet. Add missing information or upload more documents, then regenerate.'
+      : !claim.reviewRuleEvaluatedAt
+        ? 'Summary is waiting for initial processing. Once processing completes, you can generate a review summary.'
+        : missingEvidenceSlots.length > 0
+          ? 'Summary not generated yet. Add missing information or upload additional documents, then regenerate.'
+          : 'Summary not generated yet. Regenerate summary to capture the latest claim evidence.'
+  const adjudicationEmptyMessage = summaryQueuedOrInProgress
+    ? 'Waiting for summary refresh before producing a recommendation.'
+    : noSummaryGenerated
+      ? 'Waiting for enough information to produce a review result. Generate a summary after adding missing information.'
+      : missingEvidenceSlots.length > 0
+        ? 'Recommendation is pending while key evidence is still missing. Add missing information or upload more documents to continue.'
+        : 'Recommendation has not been produced yet. Regenerate summary to continue.'
+  const allDocumentsPendingOrReprocess =
+    claim.claimDocuments.length > 0 &&
+    claimDocumentEvidenceModel.pendingOrReprocessDocuments === claim.claimDocuments.length
+  const documentsReviewedWithoutNewEvidence =
+    claimDocumentEvidenceModel.totalDocuments > 0 &&
+    claimDocumentEvidenceModel.processedDocuments > 0 &&
+    claimDocumentEvidenceModel.contributedDocuments === 0
+  const supportingDocumentsIntroMessage = claim.claimDocuments.length === 0
+    ? claim.attachments.length > 0
+      ? 'No supporting documents uploaded yet. Start by reviewing Cognito attachments above, then upload PDFs for any missing contract details.'
+      : 'No supporting documents uploaded yet. Upload PDFs to help fill missing claim evidence.'
+    : allDocumentsPendingOrReprocess
+      ? 'Documents are uploaded and currently processing. Evidence results will appear as processing completes.'
+      : null
+  const timelineEmptyMessage = claim.reviewSummaryStatus === 'Queued'
+    ? 'Activity is in progress. Summary refresh and document processing events will appear here as they complete.'
+    : claim.status === ClaimStatus.Submitted
+      ? 'This claim has been submitted and is waiting for processing to begin.'
+      : claim.claimDocuments.length === 0
+        ? 'No review activity yet. Upload documents or add manual evidence to start the processing trail.'
+        : 'This claim is still early in review. New processing and reviewer actions will appear here.'
   const hasEnrichmentData =
     claim.vinDataFetchedAt !== null ||
     Boolean(claim.vinDataProvider) ||
@@ -3358,10 +3402,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-900">Add Missing Information</h2>
-          <span className="text-xs text-slate-600">Empty fields only in this version</span>
+          <span className="text-xs text-slate-600">Only fields without values can be entered here</span>
         </div>
         <p className="text-sm text-slate-600">
-          Add reviewer-confirmed values when evidence is still missing. Existing values remain read-only.
+          Enter reviewer-confirmed values for missing claim fields. If a field already has a value, keep it as-is and use document upload/reprocess or conflict resolution for updates.
         </p>
         <form method="post" action={`/api/admin/claims/${claim.id}/manual-evidence`} className="space-y-3">
           <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -3549,7 +3593,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </div>
 
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-slate-600">Source is recorded as manual_reviewer_entry.</p>
+            <p className="text-xs text-slate-600">Saved values are recorded with manual reviewer attribution for audit history.</p>
             <button
               type="submit"
               disabled={claimLockedForProcessing}
@@ -3701,7 +3745,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </pre>
           </div>
         ) : (
-          <p className="text-slate-600">No summary generated yet. Add evidence or regenerate the summary.</p>
+          <p className="text-slate-600">{reviewSummaryEmptyMessage}</p>
         )}
       </div>
 
@@ -3713,7 +3757,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </p>
 
         {!adjudicationResult ? (
-          <p className="text-slate-600">No recommendation available yet for this claim.</p>
+          <p className="text-slate-600">{adjudicationEmptyMessage}</p>
         ) : (
           <div className="space-y-4">
             <div className="rounded-md border border-slate-200 bg-white p-4">
@@ -4299,10 +4343,18 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
         {claimDocumentEvidenceModel.totalDocuments === 0 ? (
           <p className="text-slate-600">
-            No supporting document evidence has been applied yet. Upload or reprocess documents to improve coverage.
+            {claim.claimDocuments.length === 0
+              ? 'No supporting document evidence has been applied yet. Upload supporting documents or review Cognito attachments to begin filling missing claim information.'
+              : 'Documents are available but no claim evidence has been applied yet. Reprocess documents or add manual evidence for missing fields.'}
           </p>
         ) : (
           <div className="space-y-3">
+            {documentsReviewedWithoutNewEvidence ? (
+              <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                Documents were reviewed, but no new claim evidence was applied. Add missing information manually or upload additional supporting documents.
+              </p>
+            ) : null}
+
             <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
               <p>
                 <span className="font-medium text-slate-900">Processed documents:</span>{' '}
@@ -4345,7 +4397,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                 <p className="font-medium">Satisfied Evidence ({String(satisfiedEvidenceSlots.length)})</p>
                 {satisfiedEvidenceSlots.length === 0 ? (
-                  <p className="mt-2 text-emerald-900/80">No key evidence values are confirmed yet.</p>
+                  <p className="mt-2 text-emerald-900/80">No key evidence values are confirmed yet from current documents.</p>
                 ) : (
                   <ul className="mt-2 space-y-2">
                     {satisfiedEvidenceSlots.map((slot) => {
@@ -4377,7 +4429,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <p className="font-medium">Missing Evidence ({String(missingEvidenceSlots.length)})</p>
                 {missingEvidenceSlots.length === 0 ? (
-                  <p className="mt-2 text-amber-900/80">All tracked evidence slots are currently satisfied.</p>
+                  <p className="mt-2 text-amber-900/80">All tracked evidence slots are currently satisfied and ready for review.</p>
                 ) : (
                   <ul className="mt-2 space-y-2">
                     {missingEvidenceSlots.map((slot) => (
@@ -4404,7 +4456,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <p className="font-medium text-slate-900">Missing Data Already Reduced</p>
                 {claimDocumentEvidenceModel.gapCoverage.reduced.length === 0 ? (
-                  <p className="mt-2 text-slate-600">No missing-data items are reduced by current evidence yet.</p>
+                  <p className="mt-2 text-slate-600">Current evidence has not reduced adjudication missing-data items yet.</p>
                 ) : (
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {claimDocumentEvidenceModel.gapCoverage.reduced.map((gap) => (
@@ -4417,7 +4469,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <p className="font-medium text-slate-900">Important Data Still Missing</p>
                 {claimDocumentEvidenceModel.gapCoverage.remaining.length === 0 ? (
-                  <p className="mt-2 text-slate-600">No major missing-data items are currently flagged.</p>
+                  <p className="mt-2 text-slate-600">No critical adjudication data gaps are currently flagged.</p>
                 ) : (
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {claimDocumentEvidenceModel.gapCoverage.remaining.map((gap) => (
@@ -4526,8 +4578,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </p>
         </div>
 
+        {supportingDocumentsIntroMessage ? (
+          <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+            {supportingDocumentsIntroMessage}
+          </p>
+        ) : null}
+
         {claim.claimDocuments.length === 0 ? (
-          <p className="text-slate-600">No supporting documents uploaded yet.</p>
+          <p className="text-slate-600">No supporting documents are available yet.</p>
         ) : (
           <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
@@ -5124,7 +5182,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         <p className="text-sm text-slate-600">Chronological history of key claim events and reviewer actions.</p>
 
         {timelineAuditLogs.length === 0 ? (
-          <p className="text-slate-600">No activity recorded for this claim yet.</p>
+          <p className="text-slate-600">{timelineEmptyMessage}</p>
         ) : (
           <ol className="space-y-3">
             {timelineAuditLogs.map((auditLog: any) => {
