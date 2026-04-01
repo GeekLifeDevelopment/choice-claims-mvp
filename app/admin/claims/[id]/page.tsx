@@ -108,6 +108,65 @@ function formatClaimSubmissionMileage(rawPayload: unknown): string {
   return parsed.toLocaleString('en-US')
 }
 
+function parseClaimSubmissionMileage(rawPayload: unknown): number | null {
+  const rawMileage = findFirstPayloadString(rawPayload, ['MilesOnVehicle', 'milesOnVehicle', 'MileageAtSubmission'])
+  if (!rawMileage) {
+    return null
+  }
+
+  const parsed = Number(rawMileage.replace(/[,$\s]/g, ''))
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null
+  }
+
+  return Math.round(parsed)
+}
+
+function withCognitoSubmissionMileageEvidence(input: {
+  vinDataResult: Record<string, unknown>
+  rawSubmissionPayload: unknown
+  claimSource: unknown
+}): Record<string, unknown> {
+  const source = typeof input.claimSource === 'string' ? input.claimSource.toLowerCase() : ''
+  if (!source.includes('cognito')) {
+    return input.vinDataResult
+  }
+
+  const existingMileage = getValueAtPath(input.vinDataResult, 'serviceHistory.latestMileage')
+  if (hasManualSlotValue(existingMileage)) {
+    return input.vinDataResult
+  }
+
+  const submissionMileage = parseClaimSubmissionMileage(input.rawSubmissionPayload)
+  if (submissionMileage === null) {
+    return input.vinDataResult
+  }
+
+  const nowIso = new Date().toISOString()
+  const nextVinDataResult = asRecord(input.vinDataResult)
+  const nextServiceHistory = asRecord(nextVinDataResult.serviceHistory)
+  nextServiceHistory.latestMileage = submissionMileage
+  nextVinDataResult.serviceHistory = nextServiceHistory
+
+  const nextDocumentEvidence = asRecord(nextVinDataResult.documentEvidence)
+  const nextProvenance = asRecord(nextDocumentEvidence.provenance)
+  const mileagePath = 'serviceHistory.latestMileage'
+  const existingProvenance = asRecord(nextProvenance[mileagePath])
+
+  nextProvenance[mileagePath] = {
+    source: getOptionalString(existingProvenance.source) || 'cognito_form',
+    sourceDocumentId: getOptionalString(existingProvenance.sourceDocumentId),
+    sourceDocumentType: getOptionalString(existingProvenance.sourceDocumentType) || 'cognito_submission',
+    appliedAt: getOptionalString(existingProvenance.appliedAt) || nowIso,
+    slot: getOptionalString(existingProvenance.slot) || 'currentMileage'
+  }
+
+  nextDocumentEvidence.provenance = nextProvenance
+  nextVinDataResult.documentEvidence = nextDocumentEvidence
+
+  return nextVinDataResult
+}
+
 type CognitoAttachmentLabelCandidate = {
   filename: string
   mimeType?: string
@@ -2748,7 +2807,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     notFound()
   }
 
-  const vinDataResult = asRecord(claim.vinDataResult)
+  const baseVinDataResult = asRecord(claim.vinDataResult)
+  const vinDataResult = withCognitoSubmissionMileageEvidence({
+    vinDataResult: baseVinDataResult,
+    rawSubmissionPayload: claim.rawSubmissionPayload,
+    claimSource: claim.source
+  })
   const legacyEmbeddedRawPayload = vinDataResult.raw
   const resolvedRawProviderPayload = claim.vinDataRawPayload ?? legacyEmbeddedRawPayload ?? null
   const vinDataYear = getOptionalNumber(vinDataResult.year)
