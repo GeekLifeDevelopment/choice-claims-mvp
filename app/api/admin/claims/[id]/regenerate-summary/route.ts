@@ -8,10 +8,10 @@ type RouteContext = {
   params: Promise<{ id: string }>
 }
 
-function buildClaimDetailUrl(requestUrl: string, claimId: string, summaryRegenerate: string): URL {
-  const url = new URL(`/admin/claims/${claimId}`, requestUrl)
-  url.searchParams.set('summaryRegenerate', summaryRegenerate)
-  return url
+function buildClaimDetailUrl(claimId: string, summaryRegenerate: string): string {
+  const params = new URLSearchParams()
+  params.set('summaryRegenerate', summaryRegenerate)
+  return `/admin/claims/${claimId}?${params.toString()}`
 }
 
 function mapIneligibleReasonToResult(reason: string | null): string {
@@ -64,7 +64,7 @@ export async function POST(request: Request, context: RouteContext) {
     console.warn('[summary] regenerate claim not found', {
       claimId: id
     })
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
@@ -81,7 +81,7 @@ export async function POST(request: Request, context: RouteContext) {
       reviewDecision: claim.reviewDecision
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'locked_final_decision'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
       status: 303
     })
   }
@@ -110,7 +110,7 @@ export async function POST(request: Request, context: RouteContext) {
         reviewSummaryStatus: claim.reviewSummaryStatus
       })
 
-      return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, mappedResult), {
+      return NextResponse.redirect(buildClaimDetailUrl(claim.id, mappedResult), {
         status: 303
       })
     }
@@ -146,7 +146,7 @@ export async function POST(request: Request, context: RouteContext) {
       jobId: result.jobId
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'queued'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'queued'), {
       status: 303
     })
   } catch (error) {
@@ -163,7 +163,7 @@ export async function POST(request: Request, context: RouteContext) {
       error
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'error'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'error'), {
       status: 303
     })
   }

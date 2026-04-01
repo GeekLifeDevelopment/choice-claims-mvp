@@ -18,10 +18,10 @@ const RETRYABLE_STATUSES = new Set<string>([
   ClaimStatus.ProcessingError
 ])
 
-function buildClaimDetailUrl(requestUrl: string, claimId: string, retry: string): URL {
-  const url = new URL(`/admin/claims/${claimId}`, requestUrl)
-  url.searchParams.set('retry', retry)
-  return url
+function buildClaimDetailUrl(claimId: string, retry: string): string {
+  const params = new URLSearchParams()
+  params.set('retry', retry)
+  return `/admin/claims/${claimId}?${params.toString()}`
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -47,7 +47,7 @@ export async function POST(request: Request, context: RouteContext) {
     console.warn('[retry] claim not found', {
       claimId: id
     })
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
@@ -64,7 +64,7 @@ export async function POST(request: Request, context: RouteContext) {
       reviewDecision: claim.reviewDecision
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'locked_final_decision'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
       status: 303
     })
   }
@@ -82,7 +82,7 @@ export async function POST(request: Request, context: RouteContext) {
       status: claim.status
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'invalid-status'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'invalid-status'), {
       status: 303
     })
   }
@@ -115,7 +115,7 @@ export async function POST(request: Request, context: RouteContext) {
       claimNumber: claim.claimNumber,
       previousStatus
     })
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'duplicate-blocked'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'duplicate-blocked'), {
       status: 303
     })
   }
@@ -137,7 +137,7 @@ export async function POST(request: Request, context: RouteContext) {
         }
       })
 
-      return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'skipped-feature-disabled'), {
+      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'skipped-feature-disabled'), {
         status: 303
       })
     }
@@ -190,7 +190,7 @@ export async function POST(request: Request, context: RouteContext) {
       jobId: enqueued.jobId
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'queued'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'queued'), { status: 303 })
   } catch (error) {
     await prisma.claim.updateMany({
       where: {
@@ -216,7 +216,7 @@ export async function POST(request: Request, context: RouteContext) {
       error
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'enqueue-failed'), {
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'enqueue-failed'), {
       status: 303
     })
   }
