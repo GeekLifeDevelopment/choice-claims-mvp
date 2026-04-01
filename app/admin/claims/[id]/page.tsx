@@ -16,8 +16,8 @@ import type {
 } from '../../../../lib/review/adjudication-result'
 import {
   buildClaimDocumentEvidenceReadModel,
-  formatDocumentEvidenceSlotState,
-  type ClaimDocumentEvidenceSlotContribution
+  type ClaimDocumentEvidenceSlotContribution,
+  type EvidenceSlotId
 } from '../../../../lib/review/document-evidence-read-model'
 import { isClaimLockedForProcessing } from '../../../../lib/review/claim-lock'
 import { extractCognitoAttachments } from '../../../../lib/intake/extract-cognito-attachments'
@@ -435,11 +435,11 @@ function formatEvidenceSourceLabel(value: string | null | undefined): string {
   }
 
   if (value === 'uploaded_document') {
-    return 'Manual upload'
+    return 'Uploaded Document'
   }
 
   if (value === 'cognito_form') {
-    return 'Cognito form'
+    return 'Cognito Form'
   }
 
   if (value === 'manual_reviewer_entry') {
@@ -1157,21 +1157,39 @@ function formatDocumentExtractionStatus(value: string | null | undefined): strin
 }
 
 function formatEvidenceContributionSource(entry: ClaimDocumentEvidenceSlotContribution): string {
-  const sourceName = entry.sourceDocumentName || entry.sourceDocumentId || 'Existing claim data'
-  const pieces = [sourceName]
+  const sourceLabel = formatEvidenceSourceLabel(entry.sourceLabel)
+  const sourceContext =
+    entry.sourceDocumentName ||
+    (entry.sourceDocumentType ? formatDetectedDocumentType(entry.sourceDocumentType) : null)
 
-  if (entry.sourceDocumentType) {
-    pieces.push(formatDetectedDocumentType(entry.sourceDocumentType))
+  if (!sourceContext) {
+    return sourceLabel
   }
 
-  const sourceLabel = entry.sourceLabel === 'manual_reviewer_entry' ? 'manual reviewer entry' : entry.sourceLabel
-  pieces.push(sourceLabel)
+  return `${sourceLabel} - ${sourceContext}`
+}
 
-  if (entry.extractionMethod) {
-    pieces.push(`method ${entry.extractionMethod}`)
+function getEvidenceSlotNextAction(slotId: EvidenceSlotId): string {
+  if (slotId === 'purchaseDate' || slotId === 'purchaseMileage' || slotId === 'currentMileage') {
+    return 'Review Cognito attachments first, then add mileage/date manually if still missing.'
   }
 
-  return pieces.join(' | ')
+  if (
+    slotId === 'agreementNumber' ||
+    slotId === 'deductible' ||
+    slotId === 'termMonths' ||
+    slotId === 'termMiles' ||
+    slotId === 'coverageLevel' ||
+    slotId === 'warrantyCoverageData'
+  ) {
+    return 'Upload or reprocess contract/warranty documents, or add the value manually.'
+  }
+
+  if (slotId === 'valuationContext') {
+    return 'Add valuation context manually when business context is known.'
+  }
+
+  return 'Upload supporting documents or add details manually if known.'
 }
 
 function getChoiceFallbackRecord(value: unknown): Record<string, unknown> {
@@ -3035,24 +3053,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   })
   const satisfiedEvidenceSlots = claimDocumentEvidenceModel.slots.filter((slot) => slot.satisfied)
   const missingEvidenceSlots = claimDocumentEvidenceModel.slots.filter((slot) => !slot.satisfied)
-  const hasAdjudicationResult = Boolean(adjudicationResult)
-  const suggestedNextAction = claimLockedForProcessing
-    ? 'Claim is finalized. Review details for reference only.'
-    : missingEvidenceSlots.length > 0
-      ? 'Add missing information or upload supporting documents to complete review.'
-      : claim.reviewSummaryStatus !== 'Generated'
-        ? 'Generate or refresh the summary before final reviewer decision.'
-        : 'Review recommendation details and save a reviewer decision.'
-  const pageReadinessLabel = claimLockedForProcessing
-    ? 'Final decision completed'
-    : missingEvidenceSlots.length === 0 && hasAdjudicationResult
-      ? 'Review-ready'
-      : 'Needs reviewer input'
-  const pageReadinessClassName = claimLockedForProcessing
-    ? `${BADGE_BASE_CLASSNAME} border-slate-300 bg-slate-100 text-slate-700`
-    : missingEvidenceSlots.length === 0 && hasAdjudicationResult
-      ? `${BADGE_BASE_CLASSNAME} border-emerald-300 bg-emerald-50 text-emerald-700`
-      : `${BADGE_BASE_CLASSNAME} border-amber-300 bg-amber-50 text-amber-900`
   const hasEnrichmentData =
     claim.vinDataFetchedAt !== null ||
     Boolean(claim.vinDataProvider) ||
@@ -4318,83 +4318,79 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
             <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
               <p>
-                <span className="font-medium text-slate-900">Applied fields from documents:</span>{' '}
+                <span className="font-medium text-slate-900">Evidence values identified:</span>{' '}
                 {String(claimDocumentEvidenceModel.appliedFieldCount)}
               </p>
               <p>
-                <span className="font-medium text-slate-900">Reduced adjudication gaps:</span>{' '}
+                <span className="font-medium text-slate-900">Missing data reduced:</span>{' '}
                 {String(claimDocumentEvidenceModel.gapCoverage.reduced.length)}
               </p>
             </div>
 
-            {satisfiedEvidenceSlots.length === 0 ? (
-              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                No high-value evidence slots are satisfied yet. Reprocess existing documents or upload additional
-                supporting PDFs.
-              </p>
-            ) : (
-              <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-slate-600">
-                      <th className="py-2 pr-4 font-medium">Evidence Slot</th>
-                      <th className="py-2 pr-4 font-medium">Status</th>
-                      <th className="py-2 pr-4 font-medium">Provenance</th>
-                      <th className="py-2 pr-4 font-medium">Contributions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {claimDocumentEvidenceModel.slots.map((slot) => {
-                      const appliedSources = slot.contributions.filter((entry) => entry.state === 'applied')
-                      const sourcePreview =
-                        appliedSources.length > 0
-                          ? appliedSources.slice(0, 2).map((entry) => formatEvidenceContributionSource(entry)).join(' | ')
-                          : 'No applied source yet'
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                <p className="font-medium">Satisfied Evidence ({String(satisfiedEvidenceSlots.length)})</p>
+                {satisfiedEvidenceSlots.length === 0 ? (
+                  <p className="mt-2 text-emerald-900/80">No key evidence values are confirmed yet.</p>
+                ) : (
+                  <ul className="mt-2 space-y-2">
+                    {satisfiedEvidenceSlots.map((slot) => {
+                      const appliedEntries = slot.contributions.filter((entry) => entry.state === 'applied')
+                      const primaryEntry = appliedEntries[0] || slot.contributions[0] || null
 
                       return (
-                        <tr key={slot.slotId} className="border-b last:border-0 align-top">
-                          <td className="py-2 pr-4 text-slate-900">
-                            <p className="font-medium">{slot.slotLabel}</p>
-                          </td>
-                          <td className="py-2 pr-4">
-                            <span
-                              className={
-                                slot.satisfied
-                                  ? `${BADGE_BASE_CLASSNAME} border-emerald-300 bg-emerald-50 text-emerald-700`
-                                  : `${BADGE_BASE_CLASSNAME} border-slate-300 bg-slate-50 text-slate-700`
-                              }
-                            >
-                              {slot.satisfied ? 'Satisfied' : 'Missing'}
-                            </span>
-                          </td>
-                          <td className="py-2 pr-4 text-slate-700">{sourcePreview}</td>
-                          <td className="py-2 pr-4 text-slate-700">
-                            {slot.contributions.length === 0 ? (
-                              '—'
-                            ) : (
-                              <ul className="space-y-1">
-                                {slot.contributions.map((entry, index) => (
-                                  <li key={`${slot.slotId}-${entry.fieldPath}-${entry.sourceDocumentId || 'none'}-${String(index)}`}>
-                                    <span className="font-medium">{entry.fieldLabel}</span> |{' '}
-                                    {formatDocumentEvidenceSlotState(entry.state)} | {entry.sourceLabel}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </td>
-                        </tr>
+                        <li key={slot.slotId} className="rounded-md border border-emerald-200 bg-white px-2.5 py-2">
+                          <p className="font-medium text-slate-900">{slot.slotLabel}</p>
+                          <p className="mt-0.5 text-xs text-slate-700">
+                            Source:{' '}
+                            {primaryEntry
+                              ? formatEvidenceContributionSource(primaryEntry)
+                              : 'Confirmed from existing claim data'}
+                          </p>
+                          {appliedEntries.length > 1 ? (
+                            <p className="mt-0.5 text-xs text-slate-600">
+                              Also found in {String(appliedEntries.length - 1)} additional source
+                              {appliedEntries.length - 1 > 1 ? 's' : ''}.
+                            </p>
+                          ) : null}
+                        </li>
                       )
                     })}
-                  </tbody>
-                </table>
+                  </ul>
+                )}
               </div>
-            )}
+
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-medium">Missing Evidence ({String(missingEvidenceSlots.length)})</p>
+                {missingEvidenceSlots.length === 0 ? (
+                  <p className="mt-2 text-amber-900/80">All tracked evidence slots are currently satisfied.</p>
+                ) : (
+                  <ul className="mt-2 space-y-2">
+                    {missingEvidenceSlots.map((slot) => (
+                      <li key={slot.slotId} className="rounded-md border border-amber-200 bg-white px-2.5 py-2">
+                        <p className="font-medium text-slate-900">{slot.slotLabel}</p>
+                        <p className="mt-0.5 text-xs text-slate-700">Next step: {getEvidenceSlotNextAction(slot.slotId)}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">Reviewer Next Steps</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>Review Cognito attachments already on the claim for missing fields.</li>
+                <li>Upload or reprocess supporting documents when contract details are still missing.</li>
+                <li>Use Manual Evidence Entry for values you can confirm immediately.</li>
+              </ul>
+            </div>
 
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Adjudication Gaps Reduced By Evidence</p>
+                <p className="font-medium text-slate-900">Missing Data Already Reduced</p>
                 {claimDocumentEvidenceModel.gapCoverage.reduced.length === 0 ? (
-                  <p className="mt-2 text-slate-600">No current adjudication gaps are reduced by satisfied slots yet.</p>
+                  <p className="mt-2 text-slate-600">No missing-data items are reduced by current evidence yet.</p>
                 ) : (
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {claimDocumentEvidenceModel.gapCoverage.reduced.map((gap) => (
@@ -4405,9 +4401,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               </div>
 
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Important Gaps Remaining</p>
+                <p className="font-medium text-slate-900">Important Data Still Missing</p>
                 {claimDocumentEvidenceModel.gapCoverage.remaining.length === 0 ? (
-                  <p className="mt-2 text-slate-600">No major adjudication data gaps currently flagged.</p>
+                  <p className="mt-2 text-slate-600">No major missing-data items are currently flagged.</p>
                 ) : (
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {claimDocumentEvidenceModel.gapCoverage.remaining.map((gap) => (
@@ -4419,9 +4415,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </div>
 
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <p className="font-medium text-slate-900">Coverage Mapping (slot to reduced gaps)</p>
+              <p className="font-medium text-slate-900">How Evidence Reduced Missing Data</p>
               {claimDocumentEvidenceModel.gapCoverage.reducedBySlot.length === 0 ? (
-                <p className="mt-2 text-slate-600">No slot-to-gap reductions detected.</p>
+                <p className="mt-2 text-slate-600">No slot-to-gap reductions detected yet.</p>
               ) : (
                 <ul className="mt-2 space-y-1">
                   {claimDocumentEvidenceModel.gapCoverage.reducedBySlot.map((entry) => (
@@ -4434,9 +4430,9 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </div>
 
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <p className="font-medium text-slate-900">Conflicts</p>
+              <p className="font-medium text-slate-900">Conflicting Evidence</p>
               {claimDocumentEvidenceModel.conflicts.length === 0 ? (
-                <p className="mt-2 text-slate-600">No unresolved document evidence conflicts.</p>
+                <p className="mt-2 text-slate-600">No unresolved evidence conflicts.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
                   {claimDocumentEvidenceModel.conflicts.map((conflict, index) => (
@@ -4450,7 +4446,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       </p>
                       <p className="text-xs">
                         Source: {conflict.sourceDocumentName || conflict.sourceDocumentId || 'Unknown document'} |{' '}
-                        {conflict.sourceLabel}
+                        {formatEvidenceSourceLabel(conflict.sourceLabel)}
                       </p>
                       <p className="text-xs">Reason: {conflict.reason}</p>
                     </li>
