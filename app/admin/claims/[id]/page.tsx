@@ -3053,6 +3053,20 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   })
   const satisfiedEvidenceSlots = claimDocumentEvidenceModel.slots.filter((slot) => slot.satisfied)
   const missingEvidenceSlots = claimDocumentEvidenceModel.slots.filter((slot) => !slot.satisfied)
+  const hasAdjudicationResult = Boolean(adjudicationResult)
+  const suggestedNextAction = claimLockedForProcessing
+    ? 'Claim is locked. No further reviewer action is required unless the decision is reopened.'
+    : missingEvidenceSlots.length > 0
+      ? 'Add or resolve missing evidence before finalizing the reviewer decision.'
+      : !hasAdjudicationResult
+        ? 'Generate or refresh the recommendation summary before final decision.'
+        : 'Review recommendation and supporting evidence, then confirm final decision.'
+  const pageReadinessLabel =
+    missingEvidenceSlots.length === 0 ? 'Ready to Decide' : `${String(missingEvidenceSlots.length)} Evidence Gaps`
+  const pageReadinessClassName =
+    missingEvidenceSlots.length === 0
+      ? `${BADGE_BASE_CLASSNAME} border-emerald-300 bg-emerald-50 text-emerald-700`
+      : `${BADGE_BASE_CLASSNAME} border-amber-300 bg-amber-50 text-amber-800`
   const hasEnrichmentData =
     claim.vinDataFetchedAt !== null ||
     Boolean(claim.vinDataProvider) ||
