@@ -377,8 +377,9 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'blocked-populated'), { status: 303 })
   }
 
+  const currentEvidenceSection = asRecord(nextVinDataResult.documentEvidence)
   nextVinDataResult.documentEvidence = {
-    ...evidenceSection,
+    ...currentEvidenceSection,
     provenance,
     lastAppliedAt: nowIso
   }
