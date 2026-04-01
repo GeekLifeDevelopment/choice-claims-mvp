@@ -33,10 +33,27 @@ type ParsedManualField = {
 const MAX_TEXT_LENGTH = 2000
 const MAX_OBD_CODES_LENGTH = 1000
 
-function buildClaimDetailUrl(claimId: string, status: string): string {
-  const params = new URLSearchParams()
-  params.set('manualEvidence', status)
-  return `/admin/claims/${claimId}?${params.toString()}`
+function resolveRequestOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+
+  if (forwardedHost) {
+    return `${forwardedProto || 'https'}://${forwardedHost}`
+  }
+
+  const host = request.headers.get('host')?.split(',')[0]?.trim()
+  if (host) {
+    const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https'
+    return `${proto}://${host}`
+  }
+
+  return new URL(request.url).origin
+}
+
+function buildClaimDetailUrl(request: Request, claimId: string, status: string): URL {
+  const url = new URL(`/admin/claims/${claimId}`, resolveRequestOrigin(request))
+  url.searchParams.set('manualEvidence', status)
+  return url
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -296,17 +313,17 @@ export async function POST(request: Request, context: RouteContext) {
   const parsedFields = parseManualEvidence(formData)
 
   if (parsedFields === 'invalid') {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'invalid'), { status: 303 })
   }
 
   const reviewerNoteRaw = formData.get('reviewerNote')
   const reviewerNote = typeof reviewerNoteRaw === 'string' ? reviewerNoteRaw.trim() : ''
   if (reviewerNote.length > MAX_TEXT_LENGTH) {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid-note'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'invalid-note'), { status: 303 })
   }
 
   if (parsedFields.length === 0) {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'empty'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'empty'), { status: 303 })
   }
 
   const claim = await prisma.claim.findUnique({
@@ -320,11 +337,11 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), { status: 303 })
   }
 
   const nowIso = new Date().toISOString()
@@ -374,7 +391,7 @@ export async function POST(request: Request, context: RouteContext) {
       }
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'blocked-populated'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'blocked-populated'), { status: 303 })
   }
 
   const currentEvidenceSection = asRecord(nextVinDataResult.documentEvidence)
@@ -416,7 +433,7 @@ export async function POST(request: Request, context: RouteContext) {
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'claim_locked_final_decision') {
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), {
         status: 303
       })
     }
@@ -427,7 +444,7 @@ export async function POST(request: Request, context: RouteContext) {
       error: error instanceof Error ? error.message : 'unknown_error'
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'error'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'error'), { status: 303 })
   }
 
   const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'manual')
@@ -448,5 +465,5 @@ export async function POST(request: Request, context: RouteContext) {
     }
   })
 
-  return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'saved'), { status: 303 })
+  return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'saved'), { status: 303 })
 }

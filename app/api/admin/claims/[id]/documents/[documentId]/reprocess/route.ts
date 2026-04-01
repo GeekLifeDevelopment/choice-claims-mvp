@@ -40,10 +40,27 @@ type RouteContext = {
   params: Promise<{ id: string; documentId: string }>
 }
 
-function buildClaimDetailUrl(claimId: string, status: string): string {
-  const params = new URLSearchParams()
-  params.set('documentReprocess', status)
-  return `/admin/claims/${claimId}?${params.toString()}`
+function resolveRequestOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+
+  if (forwardedHost) {
+    return `${forwardedProto || 'https'}://${forwardedHost}`
+  }
+
+  const host = request.headers.get('host')?.split(',')[0]?.trim()
+  if (host) {
+    const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https'
+    return `${proto}://${host}`
+  }
+
+  return new URL(request.url).origin
+}
+
+function buildClaimDetailUrl(request: Request, claimId: string, status: string): URL {
+  const url = new URL(`/admin/claims/${claimId}`, resolveRequestOrigin(request))
+  url.searchParams.set('documentReprocess', status)
+  return url
 }
 
 function getExtractedDataRecord(value: unknown): Record<string, unknown> {
@@ -244,11 +261,11 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
-    return NextResponse.redirect(buildClaimDetailUrl(claimId, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claimId, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), {
       status: 303
     })
   }
@@ -274,7 +291,7 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!document) {
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'missing-document'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'missing-document'), { status: 303 })
   }
 
   await logClaimDocumentReprocessRequestedAudit({
@@ -316,7 +333,7 @@ export async function POST(request: Request, context: RouteContext) {
       errorMessage: 'Document file not found in storage during reprocess.'
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'file-unavailable'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'file-unavailable'), { status: 303 })
   }
 
   let detectionResult: DocumentDetectionResult
@@ -673,11 +690,11 @@ export async function POST(request: Request, context: RouteContext) {
       errorMessage
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'failed'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'failed'), { status: 303 })
   }
 
   if (!transactionResult) {
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'failed'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'failed'), { status: 303 })
   }
 
   const { shouldQueueRefresh, evidenceApplyStatus, updatedSummary } = transactionResult
@@ -732,5 +749,5 @@ export async function POST(request: Request, context: RouteContext) {
     refreshReason: refreshResult?.reason ?? null
   })
 
-  return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'reprocessed'), { status: 303 })
+  return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'reprocessed'), { status: 303 })
 }

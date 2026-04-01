@@ -42,15 +42,32 @@ type RouteContext = {
 const MAX_DOCUMENT_SIZE_BYTES = 15 * 1024 * 1024
 const ALLOWED_PDF_MIME_TYPES = new Set(['application/pdf'])
 
-function buildClaimDetailUrl(claimId: string, documentUpload: string, count?: number): string {
-  const params = new URLSearchParams()
-  params.set('documentUpload', documentUpload)
+function resolveRequestOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
 
-  if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
-    params.set('documentUploadCount', String(count))
+  if (forwardedHost) {
+    return `${forwardedProto || 'https'}://${forwardedHost}`
   }
 
-  return `/admin/claims/${claimId}?${params.toString()}`
+  const host = request.headers.get('host')?.split(',')[0]?.trim()
+  if (host) {
+    const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https'
+    return `${proto}://${host}`
+  }
+
+  return new URL(request.url).origin
+}
+
+function buildClaimDetailUrl(request: Request, claimId: string, documentUpload: string, count?: number): URL {
+  const url = new URL(`/admin/claims/${claimId}`, resolveRequestOrigin(request))
+  url.searchParams.set('documentUpload', documentUpload)
+
+  if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+    url.searchParams.set('documentUploadCount', String(count))
+  }
+
+  return url
 }
 
 function isPdfFilename(value: string): boolean {
@@ -229,7 +246,7 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'not-found'), { status: 303 })
   }
 
   const formData = await request.formData()
@@ -237,14 +254,14 @@ export async function POST(request: Request, context: RouteContext) {
   const files = formData.getAll('documents')
 
   if (files.length === 0) {
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'missing-file'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'missing-file'), { status: 303 })
   }
 
   const parsedFiles: Array<{ fileName: string; mimeType: string; size: number; bytes: Buffer }> = []
 
   for (const entry of files) {
     if (!(entry instanceof File)) {
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'invalid-file'), { status: 303 })
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'invalid-file'), { status: 303 })
     }
 
     const fileName = entry.name || 'document.pdf'
@@ -252,15 +269,15 @@ export async function POST(request: Request, context: RouteContext) {
     const size = entry.size
 
     if (size <= 0) {
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'empty-file'), { status: 303 })
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'empty-file'), { status: 303 })
     }
 
     if (size > MAX_DOCUMENT_SIZE_BYTES) {
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'file-too-large'), { status: 303 })
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'file-too-large'), { status: 303 })
     }
 
     if (!ALLOWED_PDF_MIME_TYPES.has(mimeType) || !isPdfFilename(fileName)) {
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'invalid-file-type'), { status: 303 })
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'invalid-file-type'), { status: 303 })
     }
 
     const bytes = Buffer.from(await entry.arrayBuffer())
@@ -346,7 +363,7 @@ export async function POST(request: Request, context: RouteContext) {
         error: error instanceof Error ? error.message : 'unknown_error'
       })
 
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'upload-failed'), {
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'upload-failed'), {
         status: 303
       })
     }
@@ -823,7 +840,7 @@ export async function POST(request: Request, context: RouteContext) {
     uploadedCount
   })
 
-  return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'uploaded', uploadedCount), {
+  return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'uploaded', uploadedCount), {
     status: 303
   })
 }

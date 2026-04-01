@@ -12,10 +12,27 @@ const REVIEW_DECISION_VERSION = 'v1'
 const MAX_REVIEW_NOTES_LENGTH = 5000
 const MAX_OVERRIDE_REASON_LENGTH = 1000
 
-function buildClaimDetailUrl(claimId: string, result: string): string {
-  const params = new URLSearchParams()
-  params.set('reviewDecision', result)
-  return `/admin/claims/${claimId}?${params.toString()}`
+function resolveRequestOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+
+  if (forwardedHost) {
+    return `${forwardedProto || 'https'}://${forwardedHost}`
+  }
+
+  const host = request.headers.get('host')?.split(',')[0]?.trim()
+  if (host) {
+    const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https'
+    return `${proto}://${host}`
+  }
+
+  return new URL(request.url).origin
+}
+
+function buildClaimDetailUrl(request: Request, claimId: string, result: string): URL {
+  const url = new URL(`/admin/claims/${claimId}`, resolveRequestOrigin(request))
+  url.searchParams.set('reviewDecision', result)
+  return url
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -35,15 +52,15 @@ export async function POST(request: Request, context: RouteContext) {
     console.warn('[decision] invalid payload missing decision', {
       claimId: id
     })
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'invalid'), { status: 303 })
   }
 
   if (notesValue !== null && typeof notesValue !== 'string') {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid-notes'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'invalid-notes'), { status: 303 })
   }
 
   if (overrideReasonValue !== null && typeof overrideReasonValue !== 'string') {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid-override-reason'), {
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'invalid-override-reason'), {
       status: 303
     })
   }
@@ -59,15 +76,15 @@ export async function POST(request: Request, context: RouteContext) {
       claimId: id,
       decision
     })
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'invalid'), { status: 303 })
   }
 
   if (notes.length > MAX_REVIEW_NOTES_LENGTH) {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'notes-too-long'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'notes-too-long'), { status: 303 })
   }
 
   if (overrideReason.length > MAX_OVERRIDE_REASON_LENGTH) {
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'override-reason-too-long'), {
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'override-reason-too-long'), {
       status: 303
     })
   }
@@ -85,7 +102,7 @@ export async function POST(request: Request, context: RouteContext) {
     console.warn('[decision] claim not found', {
       claimId: id
     })
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
@@ -102,7 +119,7 @@ export async function POST(request: Request, context: RouteContext) {
       reason: 'locked_final_decision'
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), {
       status: 303
     })
   }
@@ -148,7 +165,7 @@ export async function POST(request: Request, context: RouteContext) {
       decision
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'saved'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'saved'), { status: 303 })
   } catch (error) {
     if (error instanceof Error && error.message === 'claim_locked_final_decision') {
       console.warn('[ADMIN_REVIEW_DECISION] blocked by final decision lock during update', {
@@ -157,7 +174,7 @@ export async function POST(request: Request, context: RouteContext) {
         reason: 'locked_final_decision'
       })
 
-      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
+      return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), {
         status: 303
       })
     }
@@ -173,6 +190,6 @@ export async function POST(request: Request, context: RouteContext) {
       error
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(id, 'error'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(request, id, 'error'), { status: 303 })
   }
 }
