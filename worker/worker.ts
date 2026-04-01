@@ -259,6 +259,36 @@ function mergePrimaryWithFallbackSpecs(
   }
 }
 
+function parseJobRequestedAt(value: unknown): Date | null {
+  if (!value) {
+    return null
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+
+  if (typeof value === 'number') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  return null
+}
+
+function isJobStaleComparedToClaim(requestedAt: Date | null, claimUpdatedAt: Date): boolean {
+  if (!requestedAt) {
+    return false
+  }
+
+  return claimUpdatedAt.getTime() > requestedAt.getTime()
+}
+
 async function lookupVinSpecsFallbackBestEffort(
   vin: string,
   context: {
