@@ -2070,6 +2070,50 @@ function getStatusBadgeClassName(status: string): string {
   return `${base} border-slate-300 bg-slate-50 text-slate-700`
 }
 
+function formatClaimStatusLabel(status: string): string {
+  if (status === ClaimStatus.ReadyForAI) {
+    return 'Ready for Review'
+  }
+
+  if (status === ClaimStatus.AwaitingVinData) {
+    return 'Collecting Vehicle Data'
+  }
+
+  if (status === ClaimStatus.ProviderFailed) {
+    return 'Needs Data Retry'
+  }
+
+  if (status === ClaimStatus.ProcessingError) {
+    return 'Needs Attention'
+  }
+
+  if (status === ClaimStatus.Submitted) {
+    return 'Submitted'
+  }
+
+  return status
+}
+
+function formatSummaryStatusLabel(status: string | null | undefined): string {
+  if (!status || status === 'NotRequested') {
+    return 'Not Requested'
+  }
+
+  if (status === 'Queued') {
+    return 'In Progress'
+  }
+
+  if (status === 'Generated') {
+    return 'Generated'
+  }
+
+  if (status === 'Failed') {
+    return 'Needs Retry'
+  }
+
+  return status
+}
+
 type PageProps = {
   params: Promise<{ id: string }>
   searchParams: Promise<{
@@ -2990,6 +3034,25 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     adjudicationMissingData
   })
   const satisfiedEvidenceSlots = claimDocumentEvidenceModel.slots.filter((slot) => slot.satisfied)
+  const missingEvidenceSlots = claimDocumentEvidenceModel.slots.filter((slot) => !slot.satisfied)
+  const hasAdjudicationResult = Boolean(adjudicationResult)
+  const suggestedNextAction = claimLockedForProcessing
+    ? 'Claim is finalized. Review details for reference only.'
+    : missingEvidenceSlots.length > 0
+      ? 'Add missing information or upload supporting documents to complete review.'
+      : claim.reviewSummaryStatus !== 'Generated'
+        ? 'Generate or refresh the summary before final reviewer decision.'
+        : 'Review recommendation details and save a reviewer decision.'
+  const pageReadinessLabel = claimLockedForProcessing
+    ? 'Final decision completed'
+    : missingEvidenceSlots.length === 0 && hasAdjudicationResult
+      ? 'Review-ready'
+      : 'Needs reviewer input'
+  const pageReadinessClassName = claimLockedForProcessing
+    ? `${BADGE_BASE_CLASSNAME} border-slate-300 bg-slate-100 text-slate-700`
+    : missingEvidenceSlots.length === 0 && hasAdjudicationResult
+      ? `${BADGE_BASE_CLASSNAME} border-emerald-300 bg-emerald-50 text-emerald-700`
+      : `${BADGE_BASE_CLASSNAME} border-amber-300 bg-amber-50 text-amber-900`
   const hasEnrichmentData =
     claim.vinDataFetchedAt !== null ||
     Boolean(claim.vinDataProvider) ||
@@ -3138,14 +3201,15 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   return (
     <section className="card space-y-6">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl">Claim {claim.claimNumber}</h1>
+        <div className="space-y-1">
+          <h1 className="text-2xl">Claim Details</h1>
+          <p className="text-sm text-slate-600">
+            {claim.claimNumber} | {claim.claimantName || 'Unknown customer'}
+          </p>
+        </div>
         <Link href="/admin/claims" className="text-sm text-slate-600 underline underline-offset-2">
           Back to Claims
         </Link>
-      </div>
-
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Claim Info</h2>
       </div>
 
       {retryBannerMessage ? (
@@ -3196,9 +3260,49 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       {claimLockedForProcessing ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Claim locked by final decision ({claim.reviewDecision}).
+          Claim is locked by final reviewer decision ({formatReviewerDecisionLabel(claim.reviewDecision)}).
         </p>
       ) : null}
+
+      <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={getStatusBadgeClassName(claim.status)}>{formatClaimStatusLabel(claim.status)}</span>
+          <span className={pageReadinessClassName}>{pageReadinessLabel}</span>
+          <span className={BADGE_BASE_CLASSNAME + ' border-slate-300 bg-white text-slate-700'}>
+            Summary {formatSummaryStatusLabel(claim.reviewSummaryStatus)}
+          </span>
+        </div>
+
+        <div className="mt-3 grid gap-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
+          <p>
+            <span className="font-medium text-slate-900">Current Decision:</span>{' '}
+            {formatReviewerDecisionLabel(claim.reviewDecision)}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Evidence Ready:</span>{' '}
+            {String(satisfiedEvidenceSlots.length)} satisfied / {String(missingEvidenceSlots.length)} missing
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Supporting Docs:</span>{' '}
+            {String(claim.claimDocuments.length)}
+          </p>
+          <p>
+            <span className="font-medium text-slate-900">Claim Source:</span>{' '}
+            {formatClaimDocumentSource(claim.source)}
+          </p>
+        </div>
+
+        <p className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <span className="font-medium">Next best action:</span> {suggestedNextAction}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-900">Claim Info</h2>
+        <p className="text-sm text-slate-600">
+          Core claim details used by reviewers to understand customer context and current processing state.
+        </p>
+      </div>
 
       <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
         <p>
@@ -3206,7 +3310,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         </p>
         <p>
           <span className="font-medium text-slate-900">Status:</span>{' '}
-          <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
+          <span className={getStatusBadgeClassName(claim.status)}>{formatClaimStatusLabel(claim.status)}</span>
         </p>
         <p>
           <span className="font-medium text-slate-900">Source:</span> {claim.source || '—'}
@@ -3239,11 +3343,11 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-slate-900">Manual Evidence Entry</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Add Missing Information</h2>
           <span className="text-xs text-slate-600">Empty fields only in this version</span>
         </div>
         <p className="text-sm text-slate-600">
-          Enter reviewer-confirmed values for unresolved gaps. Existing populated fields are shown as read-only.
+          Add reviewer-confirmed values when evidence is still missing. Existing values remain read-only.
         </p>
         <form method="post" action={`/api/admin/claims/${claim.id}/manual-evidence`} className="space-y-3">
           <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -3568,6 +3672,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
           </form>
         </div>
 
+        <p className="text-sm text-slate-600">
+          Business summary of the claim based on currently available evidence.
+        </p>
+
         {!canRegenerateSummary && summaryRegenerateDisabledReason ? (
           <p className="text-sm text-amber-900">{summaryRegenerateDisabledReason}</p>
         ) : null}
@@ -3579,15 +3687,19 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             </pre>
           </div>
         ) : (
-          <p className="text-slate-600">No review summary yet.</p>
+          <p className="text-slate-600">No summary generated yet. Add evidence or regenerate the summary.</p>
         )}
       </div>
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Adjudication Result</h2>
 
+        <p className="text-sm text-slate-600">
+          Recommendation details showing confidence, completeness, and remaining risk areas.
+        </p>
+
         {!adjudicationResult ? (
-          <p className="text-slate-600">No adjudication result available for this claim.</p>
+          <p className="text-slate-600">No recommendation available yet for this claim.</p>
         ) : (
           <div className="space-y-4">
             <div className="rounded-md border border-slate-200 bg-white p-4">
@@ -3739,10 +3851,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Rule Flags</h2>
+        <h2 className="text-lg font-semibold text-slate-900">System Signals</h2>
 
         <p className="text-sm text-slate-600">
-          Legacy/system rule outputs from the earlier rule evaluation step.
+          Supporting system checks that help explain the recommendation.
         </p>
 
         <p className="text-xs text-slate-500">
@@ -3811,6 +3923,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Reviewer Decision</h2>
+
+        <p className="text-sm text-slate-600">
+          Confirm the final reviewer outcome after checking recommendation, evidence, and missing data.
+        </p>
 
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-3">
           <div className="grid gap-2 sm:grid-cols-3">
@@ -3916,7 +4032,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                 disabled={claimLockedForProcessing}
                 className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               >
-                <option value="NeedsReview">NeedsReview</option>
+                <option value="NeedsReview">Needs Review</option>
                 <option value="Approved">Approved</option>
                 <option value="Denied">Denied</option>
               </select>
@@ -4026,8 +4142,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Attachments</h2>
-        <p className="text-sm text-slate-600">Preview image only. Use Open file for PDFs and other file types.</p>
+        <h2 className="text-lg font-semibold text-slate-900">Claim Attachments</h2>
+        <p className="text-sm text-slate-600">Original intake files from the customer submission.</p>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
           <p>
             <span className="font-medium text-slate-900">Attachment Count:</span> {claim.attachments.length}
@@ -4162,15 +4278,14 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Document Evidence Summary</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Evidence Summary</h2>
         <p className="text-sm text-slate-600">
-          Claim-level view of evidence usefulness: which adjudication-relevant slots were filled, what gaps were
-          reduced, and where conflicts still need reviewer attention.
+          Quick view of what evidence is confirmed, what is still missing, and where reviewer attention is needed.
         </p>
 
         {claimDocumentEvidenceModel.totalDocuments === 0 ? (
           <p className="text-slate-600">
-            No uploaded document evidence has been applied yet. Upload supporting PDFs to begin evidence fill.
+            No supporting document evidence has been applied yet. Upload or reprocess documents to improve coverage.
           </p>
         ) : (
           <div className="space-y-3">
@@ -4350,7 +4465,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Supporting Documents</h2>
         <p className="text-sm text-slate-600">
-          Claim documents include manual uploads and Cognito form attachments processed through the same evidence pipeline.
+          Reviewer-uploaded and intake documents used to confirm claim details.
         </p>
 
         <form
@@ -4377,7 +4492,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
               type="text"
               name="uploadedBy"
               maxLength={120}
-              placeholder="Reviewer or team name"
+              placeholder="Reviewer name"
               className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
             />
           </label>
@@ -4386,7 +4501,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             type="submit"
             className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100"
           >
-            Upload Supporting PDFs
+            Upload Supporting Documents
           </button>
         </form>
 
@@ -4587,7 +4702,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Enrichment &amp; Processing</h2>
-        <p className="text-sm text-slate-600">Provider and downstream enrichment outputs grouped for review.</p>
+        <p className="text-sm text-slate-600">Reference data from background lookups and processing services.</p>
       </div>
 
       <div className="space-y-3">
@@ -4960,15 +5075,16 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">Pipeline Status</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Processing Status</h2>
+        <p className="text-sm text-slate-600">Current processing checkpoints for this claim.</p>
         <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
           <p>
             <span className="font-medium text-slate-900">Status:</span>{' '}
-            <span className={getStatusBadgeClassName(claim.status)}>{claim.status}</span>
+            <span className={getStatusBadgeClassName(claim.status)}>{formatClaimStatusLabel(claim.status)}</span>
           </p>
           <p>
             <span className="font-medium text-slate-900">Summary Status:</span>{' '}
-            {claim.reviewSummaryStatus || 'NotRequested'}
+            {formatSummaryStatusLabel(claim.reviewSummaryStatus)}
           </p>
           <p>
             <span className="font-medium text-slate-900">Generated At:</span>{' '}
@@ -4995,7 +5111,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">Activity Timeline</h2>
-        <p className="text-sm text-slate-600">Timeline uses the latest persisted claim audit events.</p>
+        <p className="text-sm text-slate-600">Chronological history of key claim events and reviewer actions.</p>
 
         {timelineAuditLogs.length === 0 ? (
           <p className="text-slate-600">No activity recorded for this claim yet.</p>
@@ -5025,8 +5141,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                       </p>
                     </div>
                   </div>
-
-                  <p className="mt-1 text-xs text-slate-600">Event key: {auditLog.action}</p>
 
                   {message ? <p className="mt-2 break-words text-sm text-slate-700">{message}</p> : null}
 
