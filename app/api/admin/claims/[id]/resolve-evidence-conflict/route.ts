@@ -45,10 +45,10 @@ const SUPPORTED_CONFLICT_PATHS = new Set<string>([
   'documentEvidence.contract.obdCodes'
 ])
 
-function buildClaimDetailUrl(requestUrl: string, claimId: string, result: string): URL {
-  const url = new URL(`/admin/claims/${claimId}`, requestUrl)
-  url.searchParams.set('conflictResolution', result)
-  return url
+function buildClaimDetailUrl(claimId: string, result: string): string {
+  const params = new URLSearchParams()
+  params.set('conflictResolution', result)
+  return `/admin/claims/${claimId}?${params.toString()}`
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -139,15 +139,15 @@ export async function POST(request: Request, context: RouteContext) {
   const reviewerNote = typeof reviewerNoteRaw === 'string' ? reviewerNoteRaw.trim() : ''
 
   if (!SUPPORTED_CONFLICT_PATHS.has(conflictField)) {
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'unsupported-slot'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(id, 'unsupported-slot'), { status: 303 })
   }
 
   if (!winner) {
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'invalid'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid'), { status: 303 })
   }
 
   if (reviewerNote.length > MAX_REVIEWER_NOTE_LENGTH) {
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'invalid-note'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(id, 'invalid-note'), { status: 303 })
   }
 
   const claim = await prisma.claim.findUnique({
@@ -161,7 +161,7 @@ export async function POST(request: Request, context: RouteContext) {
   })
 
   if (!claim) {
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, id, 'not-found'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(id, 'not-found'), { status: 303 })
   }
 
   if (isClaimLockedForProcessing(claim)) {
@@ -177,7 +177,7 @@ export async function POST(request: Request, context: RouteContext) {
       }
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'locked_final_decision'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), { status: 303 })
   }
 
   const nowIso = new Date().toISOString()
@@ -223,7 +223,7 @@ export async function POST(request: Request, context: RouteContext) {
       }
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'stale'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'stale'), { status: 303 })
   }
 
   const conflictRecord = asRecord(conflicts[conflictIndex])
@@ -350,7 +350,7 @@ export async function POST(request: Request, context: RouteContext) {
         }
       })
 
-      return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'locked_final_decision'), {
+      return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'locked_final_decision'), {
         status: 303
       })
     }
@@ -361,11 +361,11 @@ export async function POST(request: Request, context: RouteContext) {
       error: error instanceof Error ? error.message : 'unknown_error'
     })
 
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'error'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'error'), { status: 303 })
   }
 
   if (!valueChanged) {
-    return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'saved'), { status: 303 })
+    return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'saved'), { status: 303 })
   }
 
   const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'manual')
@@ -385,5 +385,5 @@ export async function POST(request: Request, context: RouteContext) {
     }
   })
 
-  return NextResponse.redirect(buildClaimDetailUrl(request.url, claim.id, 'saved_refresh'), { status: 303 })
+  return NextResponse.redirect(buildClaimDetailUrl(claim.id, 'saved_refresh'), { status: 303 })
 }
