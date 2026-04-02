@@ -141,6 +141,7 @@ export async function enqueueReviewSummaryForClaim(
     const payload = buildReviewSummaryJobPayload({
       claimId: claim.id,
       claimNumber: claim.claimNumber,
+      requestedAt: queuedAt.toISOString(),
       source
     })
 
@@ -158,13 +159,14 @@ export async function enqueueReviewSummaryForClaim(
       claimNumber: claim.claimNumber,
       queueName: enqueued.queueName,
       jobName: enqueued.jobName,
-      jobId: enqueued.jobId
+      jobId: enqueued.jobId,
+      reusedInFlight: Boolean(enqueued.reusedInFlight)
     })
 
     return {
-      enqueued: true,
+      enqueued: !enqueued.reusedInFlight,
       claimId: claim.id,
-      reason: null,
+      reason: enqueued.reusedInFlight ? 'already_queued' : null,
       queueName: enqueued.queueName,
       jobName: enqueued.jobName,
       jobId: enqueued.jobId

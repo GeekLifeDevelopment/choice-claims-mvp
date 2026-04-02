@@ -21,6 +21,7 @@ export type EnqueueReviewSummaryJobResult = {
   queueName: string
   jobName: string
   jobId: string | undefined
+  reusedInFlight?: boolean
 }
 
 export async function enqueueReviewSummaryJob(
@@ -47,6 +48,8 @@ export async function enqueueReviewSummaryJob(
       const existingState = await existingJob.getState()
 
       if (REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES.has(existingState)) {
+        await existingJob.updateData(payload)
+
         console.info('[queue_enqueue] duplicate_in_flight', {
           stage: 'enqueue',
           action: 'skip',
@@ -61,7 +64,8 @@ export async function enqueueReviewSummaryJob(
         return {
           queueName,
           jobName,
-          jobId: existingJob.id?.toString()
+          jobId: existingJob.id?.toString(),
+          reusedInFlight: true
         }
       }
 
@@ -102,7 +106,8 @@ export async function enqueueReviewSummaryJob(
     return {
       queueName,
       jobName,
-      jobId: job.id?.toString()
+      jobId: job.id?.toString(),
+      reusedInFlight: false
     }
   } catch (error) {
     console.error('[queue_enqueue] failed', {
