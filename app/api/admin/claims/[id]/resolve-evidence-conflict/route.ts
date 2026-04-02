@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { writeAuditLog } from '../../../../../../lib/audit/write-audit-log'
 import { prisma } from '../../../../../../lib/prisma'
-import { isClaimLockedForProcessing } from '../../../../../../lib/review/claim-lock'
 import { enqueueReviewSummaryForClaim } from '../../../../../../lib/review/enqueue-review-summary'
 
 type RouteContext = {
@@ -181,22 +180,6 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.redirect(buildClaimDetailUrl(request, id, 'not-found'), { status: 303 })
   }
 
-  if (isClaimLockedForProcessing(claim)) {
-    await writeAuditLog({
-      action: 'evidence_conflict_resolution_blocked',
-      claimId: claim.id,
-      metadata: {
-        claimNumber: claim.claimNumber,
-        reason: 'locked_final_decision',
-        field: conflictField,
-        winner,
-        reviewer: 'reviewer'
-      }
-    })
-
-    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), { status: 303 })
-  }
-
   const nowIso = new Date().toISOString()
   const nextVinDataResult = asRecord(claim.vinDataResult)
   const baseVinDataResult = asRecord(claim.vinDataResult)
@@ -320,8 +303,7 @@ export async function POST(request: Request, context: RouteContext) {
     await prisma.$transaction(async (tx) => {
       const updated = await tx.claim.updateMany({
         where: {
-          id: claim.id,
-          OR: [{ reviewDecision: null }, { reviewDecision: 'NeedsReview' }]
+          id: claim.id
         },
         data: {
           vinDataResult: nextVinDataResult as Prisma.InputJsonValue
@@ -385,7 +367,9 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'saved'), { status: 303 })
   }
 
-  const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'manual')
+  const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'manual', {
+    allowLockedFinalDecision: true
+  })
 
   await writeAuditLog({
     action: 'evidence_conflict_resolution_triggered_refresh',
@@ -398,7 +382,8 @@ export async function POST(request: Request, context: RouteContext) {
       queueReason: refreshResult.reason,
       queueName: refreshResult.queueName ?? null,
       jobName: refreshResult.jobName ?? null,
-      jobId: refreshResult.jobId ?? null
+      jobId: refreshResult.jobId ?? null,
+      queueReusedInFlight: refreshResult.reusedInFlight ?? false
     }
   })
 

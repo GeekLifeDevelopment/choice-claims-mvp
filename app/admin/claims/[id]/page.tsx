@@ -359,6 +359,26 @@ function getAuditProvider(metadata: Record<string, unknown>): string | null {
   return getOptionalString(metadata.provider) || getOptionalString(metadata.providerName)
 }
 
+function formatAuditReason(reason: string): string {
+  const labels: Record<string, string> = {
+    all_fields_already_populated: 'No meaningful evidence change: all target fields are already populated.',
+    no_supported_fields_extracted: 'No meaningful evidence change: extracted data had no supported evidence fields.',
+    missing_extracted_data: 'No meaningful evidence change: extraction returned no evidence payload.',
+    no_new_evidence_applied: 'No meaningful evidence change: document processing did not contribute new values.',
+    match_status_no_match: 'No meaningful evidence change: document did not match this claim.',
+    match_status_possible_match: 'No meaningful evidence change: document match remains uncertain.',
+    not_ready_for_ai: 'Refresh skipped because claim is not in ReadyForAI status.',
+    missing_rule_evaluation: 'Refresh skipped because rule evaluation has not completed yet.',
+    already_queued: 'Refresh already queued; latest evidence was merged into the pending refresh flow.',
+    enqueue_failed: 'Refresh enqueue failed. Retry after checking queue connectivity.',
+    summary_disabled: 'Refresh skipped because summary generation is disabled.',
+    locked_final_decision: 'Refresh allowed for evidence updates, but this event references a final decision lock state.',
+    stale_job: 'Refresh job became stale and was requeued to ensure latest evidence is used.'
+  }
+
+  return labels[reason] || reason.replace(/_/g, ' ')
+}
+
 function getAuditMessage(action: string, metadata: unknown): string | null {
   if (action === 'review_decision_changed') {
     const change = formatReviewDecisionChangeMetadata(metadata)
@@ -372,11 +392,12 @@ function getAuditMessage(action: string, metadata: unknown): string | null {
   }
 
   const record = asRecord(metadata)
+  const rawReason = getOptionalString(record.reason)
 
   return (
     getOptionalString(record.message) ||
     getOptionalString(record.errorMessage) ||
-    getOptionalString(record.reason) ||
+    (rawReason ? formatAuditReason(rawReason) : null) ||
     getOptionalString(record.notes)
   )
 }
@@ -572,7 +593,6 @@ function getTimelineEventBadgeClassName(action: string): string {
     action === 'claim_document_choice_fallback_partial' ||
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
-    action === 'claim_document_evidence_skipped' ||
     action === 'claim_document_evidence_triggered_refresh' ||
     action === 'manual_evidence_entered' ||
     action === 'manual_evidence_triggered_refresh' ||
@@ -583,6 +603,10 @@ function getTimelineEventBadgeClassName(action: string): string {
   }
 
   if (action === 'evidence_conflict_resolution_blocked') {
+    return `${base} border-amber-300 bg-amber-50 text-amber-900`
+  }
+
+  if (action === 'claim_document_evidence_skipped') {
     return `${base} border-amber-300 bg-amber-50 text-amber-900`
   }
 
@@ -646,11 +670,14 @@ function getTimelineEventBadgeText(action: string): string {
     action === 'claim_document_evidence_applied' ||
     action === 'claim_document_evidence_partially_applied' ||
     action === 'claim_document_evidence_conflict_detected' ||
-    action === 'claim_document_evidence_skipped' ||
     action === 'manual_evidence_entered' ||
     action === 'evidence_conflict_resolved'
   ) {
     return 'Extraction'
+  }
+
+  if (action === 'claim_document_evidence_skipped') {
+    return 'No change'
   }
 
   if (
@@ -689,6 +716,7 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   const reviewer = getOptionalString(record.reviewer)
   const provider = getOptionalString(record.provider)
   const queueName = getOptionalString(record.queueName)
+  const queueReusedInFlight = getOptionalBoolean(record.queueReusedInFlight)
   const jobName = getOptionalString(record.jobName)
   const jobId = getOptionalString(record.jobId)
   const toDecision = getOptionalString(record.toDecision)
@@ -756,6 +784,10 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
 
   if (jobId) {
     rows.push({ label: 'Job ID', value: jobId })
+  }
+
+  if (queueReusedInFlight !== null) {
+    rows.push({ label: 'Queue Reused In-Flight', value: queueReusedInFlight ? 'Yes' : 'No' })
   }
 
   if (action === 'review_decision_changed') {
@@ -904,7 +936,7 @@ function getTimelineMetadataRows(action: string, metadata: unknown): Array<{ lab
   }
 
   if (reason) {
-    rows.push({ label: 'Reason', value: reason })
+    rows.push({ label: 'Reason', value: formatAuditReason(reason) })
   }
 
   if (action === 'manual_evidence_entered' || action === 'manual_evidence_triggered_refresh') {
@@ -3318,7 +3350,7 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
       {claimLockedForProcessing ? (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Claim is locked by final reviewer decision ({formatReviewerDecisionLabel(claim.reviewDecision)}).
+          Claim has a final reviewer decision ({formatReviewerDecisionLabel(claim.reviewDecision)}). Evidence updates still run and can trigger a refreshed summary and adjudication.
         </p>
       ) : null}
 
@@ -3596,7 +3628,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
             <p className="text-xs text-slate-600">Saved values are recorded with manual reviewer attribution for audit history.</p>
             <button
               type="submit"
-              disabled={claimLockedForProcessing}
               className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save Manual Evidence
@@ -3675,7 +3706,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     type="submit"
                     name="winner"
                     value="existing"
-                    disabled={claimLockedForProcessing}
                     className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Keep Existing Value
@@ -3684,7 +3714,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                     type="submit"
                     name="winner"
                     value="incoming"
-                    disabled={claimLockedForProcessing}
                     className="inline-flex items-center rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Accept Candidate Value
@@ -4738,13 +4767,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
                         <form method="post" action={`/api/admin/claims/${claim.id}/documents/${document.id}/reprocess`}>
                           <button
                             type="submit"
-                            disabled={claimLockedForProcessing}
                             className="inline-flex items-center rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
-                            title={
-                              claimLockedForProcessing
-                                ? 'Claim is locked by final decision'
-                                : 'Reprocess this document'
-                            }
+                            title={'Reprocess this document'}
                           >
                             Reprocess
                           </button>

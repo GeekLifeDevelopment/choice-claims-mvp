@@ -264,6 +264,7 @@ type LogClaimDocumentEvidenceTriggeredRefreshInput = CommonAuditInput & {
   queueName?: string | null
   jobName?: string | null
   jobId?: string | null
+  queueReusedInFlight?: boolean | null
 }
 
 function getExtractedFieldCount(extractedData?: Prisma.InputJsonValue): number | null {
@@ -922,6 +923,7 @@ export async function logClaimDocumentEvidenceTriggeredRefreshAudit(
       queueName: input.queueName ?? null,
       jobName: input.jobName ?? null,
       jobId: input.jobId ?? null,
+      queueReusedInFlight: input.queueReusedInFlight ?? false,
       message: input.queueEnqueued
         ? 'Summary/adjudication refresh queued from document evidence update'
         : `Summary/adjudication refresh skipped (${input.queueReason ?? 'unknown'})`

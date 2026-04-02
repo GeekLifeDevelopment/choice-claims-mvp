@@ -804,7 +804,9 @@ export async function POST(request: Request, context: RouteContext) {
           (applyStatus === 'applied' || applyStatus === 'partial') && appliedFields.length > 0
 
         if (shouldTriggerRefresh) {
-          const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'document_evidence')
+          const refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'document_evidence', {
+            allowLockedFinalDecision: true
+          })
 
           await logClaimDocumentEvidenceTriggeredRefreshAudit({
             claimId: claim.id,
@@ -817,7 +819,8 @@ export async function POST(request: Request, context: RouteContext) {
             queueReason: refreshResult.reason,
             queueName: refreshResult.queueName,
             jobName: refreshResult.jobName,
-            jobId: refreshResult.jobId
+            jobId: refreshResult.jobId,
+            queueReusedInFlight: refreshResult.reusedInFlight ?? false
           })
         }
       }
