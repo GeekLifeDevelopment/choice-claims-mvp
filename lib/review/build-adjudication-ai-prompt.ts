@@ -25,6 +25,7 @@ export function buildAdjudicationAiPrompt(input: AdjudicationAiPromptInput): Adj
     'Use only facts present in the supplied JSON.',
     'If evidence is missing, use status insufficient_data or provider_unavailable.',
     'Do not invent document contents or OCR results.',
+    'When documentEvidence fields are present in the input JSON, you may cite them as concrete evidence items.',
     'Never use scored when evidence is weak, missing, or contradictory.',
     'When confidence is uncertain, prefer insufficient_data and explain what is missing.'
   ].join(' ')

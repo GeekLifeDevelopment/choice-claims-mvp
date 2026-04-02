@@ -8,6 +8,8 @@ import type {
 type DeterministicQuestionId =
   | 'miles_since_purchase'
   | 'days_since_purchase'
+  | 'obd_codes'
+  | 'warranty_support'
   | 'maintenance_history'
   | 'branded_title'
   | 'recall_relevance'
@@ -65,29 +67,233 @@ function withEvidence(evidence: AdjudicationEvidenceEntry[]): AdjudicationEviden
   return evidence.filter((entry) => entry.label.trim().length > 0)
 }
 
-function scoreMilesSincePurchase(): AdjudicationQuestionResult {
+function getSubmission(input: ClaimEvaluationInput): Record<string, unknown> {
+  const snapshot = asRecord(input.snapshot)
+  return asRecord(snapshot.submission)
+}
+
+function getDocumentContract(vinDataResult: unknown): Record<string, unknown> {
+  const vinData = asRecord(vinDataResult)
+  const documentEvidence = asRecord(vinData.documentEvidence)
+  return asRecord(documentEvidence.contract)
+}
+
+function parseDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function scoreMilesSincePurchase(input: { evaluationInput: ClaimEvaluationInput; vinDataResult: unknown }): AdjudicationQuestionResult {
+  const submission = getSubmission(input.evaluationInput)
+  const contract = getDocumentContract(input.vinDataResult)
+  const vinData = asRecord(input.vinDataResult)
+  const serviceHistory = asRecord(vinData.serviceHistory)
+
+  const currentMileage =
+    getOptionalNumber(submission.mileage) ??
+    getOptionalNumber(serviceHistory.latestMileage) ??
+    getOptionalNumber(contract.currentMileage)
+  const purchaseMileage = getOptionalNumber(submission.purchaseMileage) ?? getOptionalNumber(contract.mileageAtSale)
+
+  if (currentMileage === null || purchaseMileage === null) {
+    return {
+      id: 'miles_since_purchase',
+      title: 'Miles since purchase',
+      status: 'insufficient_data',
+      score: null,
+      explanation: 'Current or purchase mileage baseline is incomplete for deterministic scoring.',
+      evidence: withEvidence([
+        {
+          label: 'current_mileage_available',
+          value: currentMileage !== null
+        },
+        {
+          label: 'purchase_mileage_available',
+          value: purchaseMileage !== null
+        }
+      ]),
+      sourceType: 'claim',
+      providerStatus: 'available'
+    }
+  }
+
+  const milesSincePurchase = Math.max(0, currentMileage - purchaseMileage)
+  const score =
+    milesSincePurchase <= 1_000 ? 84 : milesSincePurchase <= 5_000 ? 74 : milesSincePurchase <= 15_000 ? 62 : 48
+
   return {
     id: 'miles_since_purchase',
     title: 'Miles since purchase',
-    status: 'insufficient_data',
-    score: null,
-    explanation: 'Purchase mileage baseline is not available in current persisted claim/enrichment data.',
-    evidence: [],
+    status: 'scored',
+    score,
+    explanation:
+      milesSincePurchase <= 1_000
+        ? 'Low mileage since purchase indicates limited post-purchase exposure.'
+        : milesSincePurchase <= 5_000
+          ? 'Moderate mileage since purchase provides baseline usage context.'
+          : milesSincePurchase <= 15_000
+            ? 'Elevated mileage since purchase suggests moderate exposure and review risk.'
+            : 'High mileage since purchase indicates significant exposure and may warrant closer review.',
+    evidence: withEvidence([
+      { label: 'current_mileage', value: currentMileage },
+      { label: 'purchase_mileage', value: purchaseMileage },
+      { label: 'miles_since_purchase', value: milesSincePurchase }
+    ]),
     sourceType: 'claim',
-    providerStatus: 'not_applicable'
+    providerStatus: 'available'
   }
 }
 
-function scoreDaysSincePurchase(): AdjudicationQuestionResult {
+function scoreDaysSincePurchase(input: { evaluationInput: ClaimEvaluationInput; vinDataResult: unknown }): AdjudicationQuestionResult {
+  const submission = getSubmission(input.evaluationInput)
+  const contract = getDocumentContract(input.vinDataResult)
+  const purchaseDate =
+    parseDate(submission.purchaseDate) ??
+    parseDate(contract.vehiclePurchaseDate) ??
+    parseDate(contract.agreementPurchaseDate)
+
+  if (!purchaseDate) {
+    return {
+      id: 'days_since_purchase',
+      title: 'Days since purchase',
+      status: 'insufficient_data',
+      score: null,
+      explanation: 'Purchase date is missing from submission and contract evidence.',
+      evidence: withEvidence([{ label: 'purchase_date_available', value: false }]),
+      sourceType: 'claim',
+      providerStatus: 'available'
+    }
+  }
+
+  const generatedAt = parseDate(input.evaluationInput.generatedAt) ?? new Date()
+  const elapsedMs = generatedAt.getTime() - purchaseDate.getTime()
+  const daysSincePurchase = Math.max(0, Math.floor(elapsedMs / 86_400_000))
+  const score = daysSincePurchase <= 30 ? 82 : daysSincePurchase <= 90 ? 70 : daysSincePurchase <= 180 ? 60 : 52
+
   return {
     id: 'days_since_purchase',
     title: 'Days since purchase',
-    status: 'insufficient_data',
-    score: null,
-    explanation: 'Purchase date is not currently captured in a deterministic field for adjudication scoring.',
-    evidence: [],
+    status: 'scored',
+    score,
+    explanation:
+      daysSincePurchase <= 30
+        ? 'Recent purchase date provides stronger recency confidence for claim context.'
+        : daysSincePurchase <= 90
+          ? 'Purchase date indicates moderate recency and stable context for adjudication.'
+          : daysSincePurchase <= 180
+            ? 'Purchase date is older but still useful for adjudication context.'
+            : 'Older purchase date context may reduce recency certainty for this claim.',
+    evidence: withEvidence([
+      { label: 'purchase_date', value: purchaseDate.toISOString().slice(0, 10) },
+      { label: 'days_since_purchase', value: daysSincePurchase }
+    ]),
     sourceType: 'claim',
-    providerStatus: 'not_applicable'
+    providerStatus: 'available'
+  }
+}
+
+function scoreObdCodes(vinDataResult: unknown): AdjudicationQuestionResult {
+  const contract = getDocumentContract(vinDataResult)
+  const rawCodes = contract.obdCodes
+
+  const codes = Array.isArray(rawCodes)
+    ? rawCodes.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : typeof rawCodes === 'string' && rawCodes.trim().length > 0
+      ? rawCodes
+          .split(/[\n,;\s]+/)
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : []
+
+  if (codes.length === 0) {
+    return {
+      id: 'obd_codes',
+      title: 'OBD diagnostic codes',
+      status: 'insufficient_data',
+      score: null,
+      explanation: 'No OBD diagnostic codes were present in contract/manual evidence.',
+      evidence: withEvidence([{ label: 'obd_codes_available', value: false }]),
+      sourceType: 'documents',
+      providerStatus: 'available'
+    }
+  }
+
+  return {
+    id: 'obd_codes',
+    title: 'OBD diagnostic codes',
+    status: 'scored',
+    score: 58,
+    explanation: 'OBD diagnostic codes are present and can inform adjudication context.',
+    evidence: withEvidence([
+      { label: 'obd_codes_count', value: codes.length },
+      { label: 'obd_codes', value: codes.slice(0, 8).join(', ') }
+    ]),
+    sourceType: 'documents',
+    providerStatus: 'available'
+  }
+}
+
+function scoreWarrantySupport(vinDataResult: unknown): AdjudicationQuestionResult {
+  const contract = getDocumentContract(vinDataResult)
+
+  const supportedFields: Array<[string, unknown]> = [
+    ['agreement_number', contract.agreementNumber],
+    ['coverage_level', contract.coverageLevel],
+    ['plan_name', contract.planName],
+    ['coverage_summary', contract.warrantyCoverageSummary],
+    ['deductible', contract.deductible],
+    ['term_months', contract.termMonths],
+    ['term_miles', contract.termMiles]
+  ]
+
+  const presentEvidence: AdjudicationEvidenceEntry[] = []
+  for (const [label, value] of supportedFields) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      presentEvidence.push({ label, value: value.trim() })
+      continue
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      presentEvidence.push({ label, value })
+    }
+  }
+
+  if (presentEvidence.length === 0) {
+    return {
+      id: 'warranty_support',
+      title: 'Warranty support evidence',
+      status: 'insufficient_data',
+      score: null,
+      explanation: 'No contract warranty-support fields were present for adjudication.',
+      evidence: withEvidence([{ label: 'warranty_fields_present', value: 0 }]),
+      sourceType: 'documents',
+      providerStatus: 'available'
+    }
+  }
+
+  const score = presentEvidence.length >= 5 ? 74 : presentEvidence.length >= 3 ? 66 : 58
+
+  return {
+    id: 'warranty_support',
+    title: 'Warranty support evidence',
+    status: 'scored',
+    score,
+    explanation:
+      presentEvidence.length >= 5
+        ? 'Strong contract warranty evidence is present for adjudication support.'
+        : presentEvidence.length >= 3
+          ? 'Moderate contract warranty evidence is present for adjudication support.'
+          : 'Limited contract warranty evidence is present for adjudication support.',
+    evidence: withEvidence([
+      { label: 'warranty_fields_present', value: presentEvidence.length },
+      ...presentEvidence.slice(0, 8)
+    ]),
+    sourceType: 'documents',
+    providerStatus: 'available'
   }
 }
 
@@ -378,8 +584,10 @@ export function buildDeterministicQuestionScores(input: {
   vinDataResult: unknown
 }): DeterministicQuestionMap {
   return {
-    miles_since_purchase: scoreMilesSincePurchase(),
-    days_since_purchase: scoreDaysSincePurchase(),
+    miles_since_purchase: scoreMilesSincePurchase(input),
+    days_since_purchase: scoreDaysSincePurchase(input),
+    obd_codes: scoreObdCodes(input.vinDataResult),
+    warranty_support: scoreWarrantySupport(input.vinDataResult),
     maintenance_history: scoreMaintenanceHistory(input.vinDataResult),
     branded_title: scoreBrandedTitle(input.vinDataResult),
     recall_relevance: scoreRecallRelevance(input.vinDataResult),

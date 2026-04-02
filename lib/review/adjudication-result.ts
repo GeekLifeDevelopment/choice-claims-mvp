@@ -154,6 +154,21 @@ function mergeAiFindingsIntoQuestions(
       }
     }
 
+    // For contract-evidence-backed questions, keep deterministic scored outcomes
+    // when AI is non-scored so manual evidence updates remain visible in adjudication.
+    const keepDeterministicScoredResult =
+      (question.id === 'warranty_support' || question.id === 'obd_codes') &&
+      question.status === 'scored' &&
+      question.score !== null &&
+      aiFinding.status !== 'scored'
+
+    if (keepDeterministicScoredResult) {
+      return {
+        ...question,
+        explanation: `${question.explanation} AI finding was non-scored and did not override deterministic evidence-backed scoring.`
+      }
+    }
+
     return {
       ...question,
       status: aiFinding.status,
@@ -323,6 +338,26 @@ export function buildAdjudicationResult(input: {
         sourceType: 'claim',
         providerStatus: 'no_result'
       }),
+    deterministicScores.obd_codes ??
+      buildQuestion({
+        id: 'obd_codes',
+        title: 'OBD diagnostic codes',
+        status: 'insufficient_data',
+        score: null,
+        explanation: 'No OBD diagnostic code evidence is currently available for adjudication.',
+        sourceType: 'documents',
+        providerStatus: 'no_result'
+      }),
+    deterministicScores.warranty_support ??
+      buildQuestion({
+        id: 'warranty_support',
+        title: 'Warranty support evidence',
+        status: 'insufficient_data',
+        score: null,
+        explanation: 'Contract warranty-support fields are not yet available for adjudication.',
+        sourceType: 'documents',
+        providerStatus: 'no_result'
+      }),
     deterministicScores.maintenance_history ??
       buildQuestion({
         id: 'maintenance_history',
@@ -388,24 +423,6 @@ export function buildAdjudicationResult(input: {
         ? 'Image-forensics scoring is deferred to a future ticket.'
         : 'No image evidence attached.',
       sourceType: 'documents',
-      providerStatus: 'no_result'
-    }),
-    buildQuestion({
-      id: 'obd_codes',
-      title: 'OBD code consistency',
-      status: 'insufficient_data',
-      score: null,
-      explanation: 'OBD code ingestion is not yet part of the current processing flow.',
-      sourceType: 'claim',
-      providerStatus: 'no_result'
-    }),
-    buildQuestion({
-      id: 'warranty_support',
-      title: 'Warranty support alignment',
-      status: 'insufficient_data',
-      score: null,
-      explanation: 'Warranty eligibility checks are deferred to later adjudication tickets.',
-      sourceType: 'system',
       providerStatus: 'no_result'
     }),
     deterministicScores.valuation_context ??

@@ -21,6 +21,7 @@ export function buildReviewSummaryPrompt(input: ReviewSummaryPromptInput): Revie
       'You are an insurance claim reviewer assistant.',
       'Return only factual information present in the input. Do not speculate or invent data.',
       'If data is missing, state that it is missing.',
+      'When documentEvidence fields are present (for example contract term months, deductible, mileage, purchase dates), reference them explicitly in the summary.',
       'When data is sparse or conflicting, explicitly say limited data is available and manual review is recommended.',
       'If provider data is missing or unavailable, say provider unavailable or insufficient evidence.',
       'Use reviewer-stage language: the summary is being generated now for reviewer assistance.',
@@ -34,6 +35,7 @@ export function buildReviewSummaryPrompt(input: ReviewSummaryPromptInput): Revie
   const userMessage = [
     'Summarize this vehicle service contract claim for a reviewer.',
     'Explain claim, provider result, attachments, and rule flags.',
+    'Use documentEvidence values when available and call out materially newly-satisfied evidence in plain language.',
     'Use neutral reviewer-stage wording.',
     'If retries or initial provider failures are present in the data, mention them factually.',
     'Do not claim no errors occurred unless the input explicitly supports that statement.',

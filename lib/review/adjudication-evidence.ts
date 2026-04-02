@@ -61,6 +61,31 @@ function hasKnownNumber(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function getDocumentEvidenceContract(vinDataResult: Record<string, unknown>): Record<string, unknown> {
+  const documentEvidence = asRecord(vinDataResult.documentEvidence)
+  return asRecord(documentEvidence.contract)
+}
+
+function getKnownNumberFromCandidates(values: unknown[]): number | null {
+  for (const value of values) {
+    if (hasKnownNumber(value)) {
+      return Number(value)
+    }
+  }
+
+  return null
+}
+
+function getKnownStringFromCandidates(values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  return null
+}
+
 export function buildQuestionEvidenceAndMissing(context: EvidenceContext): EvidenceMapping {
   const evidence = [...context.existingEvidence]
   const missing: string[] = []
@@ -86,26 +111,58 @@ export function buildQuestionEvidenceAndMissing(context: EvidenceContext): Evide
   const serviceHistory = asRecord(context.vinDataResult.serviceHistory)
   const recalls = asRecord(context.vinDataResult.nhtsaRecalls)
   const valuation = asRecord(context.vinDataResult.valuation)
+  const documentContract = getDocumentEvidenceContract(context.vinDataResult)
 
   if (context.questionId === 'miles_since_purchase') {
-    if (hasKnownNumber(submission.mileage)) {
-      pushEvidence('submission.mileage', Number(submission.mileage))
+    const currentMileage = getKnownNumberFromCandidates([
+      submission.mileage,
+      serviceHistory.latestMileage,
+      documentContract.currentMileage
+    ])
+
+    if (currentMileage !== null) {
+      const currentMileageLabel = hasKnownNumber(submission.mileage)
+        ? 'submission.mileage'
+        : hasKnownNumber(serviceHistory.latestMileage)
+          ? 'serviceHistory.latestMileage'
+          : 'documentEvidence.contract.currentMileage'
+      pushEvidence(currentMileageLabel, currentMileage)
     } else {
-      missing.push('submission.mileage')
+      missing.push('submission.mileage_or_serviceHistory.latestMileage')
     }
 
-    if (hasKnownNumber(submission.purchaseMileage)) {
-      pushEvidence('submission.purchaseMileage', Number(submission.purchaseMileage))
+    const purchaseMileage = getKnownNumberFromCandidates([
+      submission.purchaseMileage,
+      documentContract.mileageAtSale
+    ])
+
+    if (purchaseMileage !== null) {
+      const purchaseMileageLabel = hasKnownNumber(submission.purchaseMileage)
+        ? 'submission.purchaseMileage'
+        : 'documentEvidence.contract.mileageAtSale'
+      pushEvidence(purchaseMileageLabel, purchaseMileage)
     } else {
-      missing.push('submission.purchaseMileage')
+      missing.push('submission.purchaseMileage_or_documentEvidence.contract.mileageAtSale')
     }
   }
 
   if (context.questionId === 'days_since_purchase') {
-    if (typeof submission.purchaseDate === 'string' && submission.purchaseDate.trim().length > 0) {
-      pushEvidence('submission.purchaseDate', submission.purchaseDate)
+    const purchaseDate = getKnownStringFromCandidates([
+      submission.purchaseDate,
+      documentContract.vehiclePurchaseDate,
+      documentContract.agreementPurchaseDate
+    ])
+
+    if (purchaseDate) {
+      const purchaseDateLabel = typeof submission.purchaseDate === 'string' && submission.purchaseDate.trim().length > 0
+        ? 'submission.purchaseDate'
+        : typeof documentContract.vehiclePurchaseDate === 'string' &&
+            documentContract.vehiclePurchaseDate.trim().length > 0
+          ? 'documentEvidence.contract.vehiclePurchaseDate'
+          : 'documentEvidence.contract.agreementPurchaseDate'
+      pushEvidence(purchaseDateLabel, purchaseDate)
     } else {
-      missing.push('submission.purchaseDate')
+      missing.push('submission.purchaseDate_or_documentEvidence.contract.purchaseDate')
     }
   }
 
@@ -138,8 +195,15 @@ export function buildQuestionEvidenceAndMissing(context: EvidenceContext): Evide
   }
 
   if (context.questionId === 'obd_codes') {
-    pushEvidence('rule.placeholder', true)
-    missing.push('vehicle.obdCodes')
+    const obdCodes = documentContract.obdCodes
+    if (
+      (typeof obdCodes === 'string' && obdCodes.trim().length > 0) ||
+      (Array.isArray(obdCodes) && obdCodes.length > 0)
+    ) {
+      pushEvidence('documentEvidence.contract.obdCodes', Array.isArray(obdCodes) ? obdCodes.join(',') : obdCodes)
+    } else {
+      missing.push('documentEvidence.contract.obdCodes')
+    }
   }
 
   if (context.questionId === 'prior_repairs' || context.questionId === 'maintenance_history') {
@@ -152,8 +216,32 @@ export function buildQuestionEvidenceAndMissing(context: EvidenceContext): Evide
   }
 
   if (context.questionId === 'warranty_support') {
-    pushEvidence('rule.placeholder', true)
-    missing.push('warranty.coverageData')
+    const supportedFields: Array<[string, unknown]> = [
+      ['documentEvidence.contract.coverageLevel', documentContract.coverageLevel],
+      ['documentEvidence.contract.planName', documentContract.planName],
+      ['documentEvidence.contract.warrantyCoverageSummary', documentContract.warrantyCoverageSummary],
+      ['documentEvidence.contract.deductible', documentContract.deductible],
+      ['documentEvidence.contract.termMonths', documentContract.termMonths],
+      ['documentEvidence.contract.termMiles', documentContract.termMiles],
+      ['documentEvidence.contract.agreementNumber', documentContract.agreementNumber]
+    ]
+
+    let hasWarrantyEvidence = false
+    for (const [label, value] of supportedFields) {
+      if (typeof value === 'string' && value.trim().length > 0) {
+        pushEvidence(label, value.trim())
+        hasWarrantyEvidence = true
+      }
+
+      if (hasKnownNumber(value)) {
+        pushEvidence(label, Number(value))
+        hasWarrantyEvidence = true
+      }
+    }
+
+    if (!hasWarrantyEvidence) {
+      missing.push('documentEvidence.contract.coverageData')
+    }
   }
 
   if (context.questionId === 'branded_title') {
@@ -179,7 +267,17 @@ export function buildQuestionEvidenceAndMissing(context: EvidenceContext): Evide
         ? Number(valuation.estimatedValue)
         : Number(valuation.retailValue)
       pushEvidence('valuation.estimatedValue', value)
-    } else {
+    }
+
+    if (typeof valuation.contextNote === 'string' && valuation.contextNote.trim().length > 0) {
+      pushEvidence('valuation.contextNote', valuation.contextNote.trim())
+    }
+
+    if (
+      !hasKnownNumber(valuation.estimatedValue) &&
+      !hasKnownNumber(valuation.retailValue) &&
+      !(typeof valuation.contextNote === 'string' && valuation.contextNote.trim().length > 0)
+    ) {
       missing.push('valuation.estimatedValue')
     }
   }

@@ -118,6 +118,33 @@ function hasMeaningfulValue(value: unknown): boolean {
   return false
 }
 
+function valuesAreEquivalent(existing: unknown, next: unknown): boolean {
+  if (typeof existing === 'string' && typeof next === 'string') {
+    return existing.trim() === next.trim()
+  }
+
+  if (typeof existing === 'number' && typeof next === 'number') {
+    return Number.isFinite(existing) && Number.isFinite(next) && existing === next
+  }
+
+  if (Array.isArray(existing) && Array.isArray(next)) {
+    if (existing.length !== next.length) {
+      return false
+    }
+
+    return existing.every((entry, index) => {
+      const candidate = next[index]
+      if (typeof entry === 'string' && typeof candidate === 'string') {
+        return entry.trim() === candidate.trim()
+      }
+
+      return entry === candidate
+    })
+  }
+
+  return existing === next
+}
+
 function parseOptionalNonNegativeNumber(raw: FormDataEntryValue | null): number | null | 'invalid' {
   if (typeof raw !== 'string') {
     return null
@@ -349,13 +376,18 @@ export async function POST(request: Request, context: RouteContext) {
   const provenance = asRecord(evidenceSection.provenance)
 
   const appliedFields: string[] = []
+  const updatedFields: string[] = []
   const blockedFields: string[] = []
 
   for (const field of parsedFields) {
     const existing = getValueAtPath(baseVinDataResult, field.path)
-    if (hasMeaningfulValue(existing)) {
+    if (hasMeaningfulValue(existing) && valuesAreEquivalent(existing, field.value)) {
       blockedFields.push(field.path)
       continue
+    }
+
+    if (hasMeaningfulValue(existing)) {
+      updatedFields.push(field.path)
     }
 
     setValueAtPath(nextVinDataResult, field.path, field.value)
@@ -380,9 +412,10 @@ export async function POST(request: Request, context: RouteContext) {
         source,
         enteredBy,
         appliedFields: [],
+        updatedFields: [],
         blockedFields,
         reviewerNote: reviewerNote || null,
-        reason: 'all_fields_already_populated'
+        reason: 'all_fields_unchanged_or_empty'
       }
     })
 
@@ -420,6 +453,7 @@ export async function POST(request: Request, context: RouteContext) {
           source,
           enteredBy,
           appliedFields,
+          updatedFields,
           blockedFields,
           reviewerNote: reviewerNote || null
         }
@@ -453,6 +487,7 @@ export async function POST(request: Request, context: RouteContext) {
       source,
       enteredBy,
       appliedFields,
+      updatedFields,
       queueEnqueued: refreshResult.enqueued,
       queueReason: refreshResult.reason,
       queueName: refreshResult.queueName ?? null,

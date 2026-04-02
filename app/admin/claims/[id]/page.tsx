@@ -2564,7 +2564,6 @@ function getDocumentReprocessBannerClassName(value: string | undefined): string 
 function getSummaryRegenerateDisabledReason(input: {
   claimLockedForProcessing: boolean
   status: string
-  reviewSummaryStatus: string | null
   reviewRuleEvaluatedAt: Date | null
 }): string | null {
   if (input.claimLockedForProcessing) {
@@ -2577,10 +2576,6 @@ function getSummaryRegenerateDisabledReason(input: {
 
   if (!input.reviewRuleEvaluatedAt) {
     return 'Summary refresh is waiting for initial claim processing to complete.'
-  }
-
-  if (input.reviewSummaryStatus === 'Queued') {
-    return 'Summary refresh is already in progress.'
   }
 
   return null
@@ -3041,10 +3036,10 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
   ]
 
   const claimLockedForProcessing = isClaimLockedForProcessing(claim)
+  const summaryQueuedOrInProgress = claim.reviewSummaryStatus === 'Queued'
   const summaryRegenerateDisabledReason = getSummaryRegenerateDisabledReason({
     claimLockedForProcessing,
     status: claim.status,
-    reviewSummaryStatus: claim.reviewSummaryStatus,
     reviewRuleEvaluatedAt: claim.reviewRuleEvaluatedAt
   })
   const canRegenerateSummary = summaryRegenerateDisabledReason === null
@@ -3104,7 +3099,6 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
     missingEvidenceSlots.length === 0
       ? `${BADGE_BASE_CLASSNAME} border-emerald-300 bg-emerald-50 text-emerald-700`
       : `${BADGE_BASE_CLASSNAME} border-amber-300 bg-amber-50 text-amber-800`
-  const summaryQueuedOrInProgress = claim.reviewSummaryStatus === 'Queued'
   const noSummaryGenerated = !claim.reviewSummaryText
   const reviewSummaryEmptyMessage = summaryQueuedOrInProgress
     ? 'Refreshing summary from latest evidence. This usually completes shortly.'
@@ -3290,6 +3284,8 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
 
   return (
     <section className="card space-y-6">
+      {summaryQueuedOrInProgress ? <meta httpEquiv="refresh" content="8" /> : null}
+
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl">Claim Details</h1>
@@ -3762,6 +3758,12 @@ export default async function AdminClaimDetailPage({ params, searchParams }: Pag
         <p className="text-sm text-slate-600">
           Business summary of the claim based on currently available evidence.
         </p>
+
+        {summaryQueuedOrInProgress ? (
+          <p className="text-sm text-blue-800">
+            Summary refresh is queued. This page auto-refreshes every 8 seconds while processing.
+          </p>
+        ) : null}
 
         {!canRegenerateSummary && summaryRegenerateDisabledReason ? (
           <p className="text-sm text-amber-900">{summaryRegenerateDisabledReason}</p>

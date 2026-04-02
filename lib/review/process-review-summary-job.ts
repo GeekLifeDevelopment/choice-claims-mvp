@@ -169,6 +169,40 @@ function buildProviderResultSummary(value: unknown): Record<string, unknown> {
   }
 }
 
+function buildDocumentEvidenceSummary(value: unknown): Record<string, unknown> {
+  const vinData = asRecord(value)
+  const documentEvidence = asRecord(vinData.documentEvidence)
+  const contract = asRecord(documentEvidence.contract)
+  const provenance = asRecord(documentEvidence.provenance)
+  const documents = asRecord(documentEvidence.documents)
+
+  const appliedFieldCount = Object.keys(provenance).length
+  const contributingDocumentCount = Object.keys(documents).length
+
+  return {
+    appliedFieldCount,
+    contributingDocumentCount,
+    lastAppliedAt: getOptionalString(documentEvidence.lastAppliedAt),
+    contract: {
+      vehiclePurchaseDate: getOptionalString(contract.vehiclePurchaseDate),
+      agreementPurchaseDate: getOptionalString(contract.agreementPurchaseDate),
+      mileageAtSale: getOptionalNumber(contract.mileageAtSale),
+      agreementNumber: getOptionalString(contract.agreementNumber),
+      deductible: getOptionalNumber(contract.deductible),
+      termMonths: getOptionalNumber(contract.termMonths),
+      termMiles: getOptionalNumber(contract.termMiles),
+      coverageLevel: getOptionalString(contract.coverageLevel),
+      planName: getOptionalString(contract.planName),
+      warrantyCoverageSummary: getOptionalString(contract.warrantyCoverageSummary),
+      obdCodes: Array.isArray(contract.obdCodes)
+        ? contract.obdCodes.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : getOptionalString(contract.obdCodes)
+    },
+    claimMileage: getOptionalNumber(asRecord(vinData.serviceHistory).latestMileage),
+    valuationContextNote: getOptionalString(asRecord(vinData.valuation).contextNote)
+  }
+}
+
 function buildSummaryInput(claim: ReviewSummaryClaim, evaluationInput: ClaimEvaluationInput, ruleFlags: RuleFlag[]) {
   return {
     claimNumber: claim.claimNumber,
@@ -183,6 +217,7 @@ function buildSummaryInput(claim: ReviewSummaryClaim, evaluationInput: ClaimEval
         fileSize: attachment.fileSize
       }))
     },
+    documentEvidence: buildDocumentEvidenceSummary(claim.vinDataResult),
     ruleFlags,
     evaluationInput: {
       generatedAt: evaluationInput.generatedAt,

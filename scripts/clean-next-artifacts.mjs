@@ -93,15 +93,37 @@ for (const target of targets) {
 
 // In this iCloud-backed workspace, Next can intermittently fail before generating
 // server manifests in dev mode. Seed minimal placeholders to avoid MODULE_NOT_FOUND.
-const nextServerDir = resolve(process.cwd(), '.next', 'server')
-mkdirSync(nextServerDir, { recursive: true })
+const seededServerDirs = [
+  { label: '.next/server', path: resolve(process.cwd(), '.next', 'server') },
+  { label: 'next-dist/server', path: resolve(process.cwd(), 'next-dist', 'server') }
+]
 
-const placeholderManifests = ['middleware-manifest.json', 'pages-manifest.json']
+const placeholderManifests = {
+  'middleware-manifest.json': {},
+  'pages-manifest.json': {},
+  'app-paths-manifest.json': {},
+  'next-font-manifest.json': {
+    pages: {},
+    app: {},
+    appUsingSizeAdjust: false,
+    pagesUsingSizeAdjust: false
+  },
+  'font-manifest.json': {
+    pages: {},
+    app: {},
+    appUsingSizeAdjust: false,
+    pagesUsingSizeAdjust: false
+  }
+}
 
-for (const manifestName of placeholderManifests) {
-  const manifestPath = resolve(nextServerDir, manifestName)
-  if (!existsSync(manifestPath)) {
-    writeFileSync(manifestPath, '{}\n', { encoding: 'utf8' })
-    console.log(`[clean:next] seeded .next/server/${manifestName}`)
+for (const serverDir of seededServerDirs) {
+  mkdirSync(serverDir.path, { recursive: true })
+
+  for (const [manifestName, payload] of Object.entries(placeholderManifests)) {
+    const manifestPath = resolve(serverDir.path, manifestName)
+    if (!existsSync(manifestPath)) {
+      writeFileSync(manifestPath, `${JSON.stringify(payload)}\n`, { encoding: 'utf8' })
+      console.log(`[clean:next] seeded ${serverDir.label}/${manifestName}`)
+    }
   }
 }
