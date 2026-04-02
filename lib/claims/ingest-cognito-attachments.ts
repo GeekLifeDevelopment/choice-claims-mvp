@@ -540,7 +540,9 @@ export async function ingestCognitoAttachmentsIntoClaimDocuments(
     }
 
     if (shouldTriggerSummaryRefresh(evidence)) {
-      const refreshResult = await enqueueReviewSummaryForClaim(input.claimId, 'document_evidence')
+      const refreshResult = await enqueueReviewSummaryForClaim(input.claimId, 'document_evidence', {
+        allowLockedFinalDecision: true
+      })
 
       await logClaimDocumentEvidenceTriggeredRefreshAudit({
         claimId: input.claimId,
@@ -553,7 +555,8 @@ export async function ingestCognitoAttachmentsIntoClaimDocuments(
         queueReason: refreshResult.reason,
         queueName: refreshResult.queueName,
         jobName: refreshResult.jobName,
-        jobId: refreshResult.jobId
+        jobId: refreshResult.jobId,
+        queueReusedInFlight: refreshResult.reusedInFlight ?? false
       })
     }
 

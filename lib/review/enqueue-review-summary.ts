@@ -34,11 +34,17 @@ export type EnqueueReviewSummaryForClaimResult = {
   queueName?: string
   jobName?: string
   jobId?: string
+  reusedInFlight?: boolean
+}
+
+type EnqueueReviewSummaryForClaimOptions = {
+  allowLockedFinalDecision?: boolean
 }
 
 export async function enqueueReviewSummaryForClaim(
   claimId: string,
-  source: ReviewSummaryJobSource = 'rules_ready'
+  source: ReviewSummaryJobSource = 'rules_ready',
+  options: EnqueueReviewSummaryForClaimOptions = {}
 ): Promise<EnqueueReviewSummaryForClaimResult> {
   if (!isFeatureEnabled('summary_generation') || !isFeatureEnabled('openai')) {
     console.info('[feature] openai disabled', {
@@ -83,7 +89,7 @@ export async function enqueueReviewSummaryForClaim(
     }
   }
 
-  if (isClaimLockedForProcessing(claim)) {
+  if (isClaimLockedForProcessing(claim) && !options.allowLockedFinalDecision) {
     console.warn('[summary] queue skipped locked claim', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -169,7 +175,8 @@ export async function enqueueReviewSummaryForClaim(
       reason: enqueued.reusedInFlight ? 'already_queued' : null,
       queueName: enqueued.queueName,
       jobName: enqueued.jobName,
-      jobId: enqueued.jobId
+      jobId: enqueued.jobId,
+      reusedInFlight: Boolean(enqueued.reusedInFlight)
     }
   } catch (error) {
     const message =

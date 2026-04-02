@@ -1759,11 +1759,14 @@ async function run() {
         throw new Error(message)
       }
 
+      const payload = job.data as ReviewSummaryJobPayload
+      const bypassFinalDecisionLock = payload.source === 'manual' || payload.source === 'document_evidence'
+
       try {
-        const payload = job.data as ReviewSummaryJobPayload
         const result = await processReviewSummaryJob(payload.claimId, {
           requestedAt: payload.requestedAt,
-          persistFailureStatus: isFinalAttempt
+          persistFailureStatus: isFinalAttempt,
+          source: payload.source
         })
 
         if (!result.ok) {
@@ -1807,7 +1810,6 @@ async function run() {
 
         return result
       } catch (error) {
-        const payload = job.data as Partial<ReviewSummaryJobPayload>
         const claimId = typeof payload.claimId === 'string' ? payload.claimId : null
         const errorMessage = error instanceof Error ? error.message : 'Unknown review summary worker error.'
         const willRetry = attemptsMade < attemptsAllowed
@@ -1817,14 +1819,18 @@ async function run() {
             await prisma.claim.updateMany({
               where: {
                 id: claimId,
-                OR: [
-                  { reviewDecision: null },
-                  {
-                    reviewDecision: {
-                      notIn: FINAL_REVIEW_DECISIONS
-                    }
-                  }
-                ]
+                ...(bypassFinalDecisionLock
+                  ? {}
+                  : {
+                      OR: [
+                        { reviewDecision: null },
+                        {
+                          reviewDecision: {
+                            notIn: FINAL_REVIEW_DECISIONS
+                          }
+                        }
+                      ]
+                    })
               },
               data: {
                 ...(isFinalAttempt ? { reviewSummaryStatus: 'Failed' } : {}),

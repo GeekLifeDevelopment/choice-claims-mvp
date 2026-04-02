@@ -33,7 +33,6 @@ import {
 } from '../../../../../../../../lib/claims/apply-uploaded-document-evidence'
 import { readClaimDocumentFile } from '../../../../../../../../lib/claims/claim-document-storage'
 import { prisma } from '../../../../../../../../lib/prisma'
-import { isClaimLockedForProcessing } from '../../../../../../../../lib/review/claim-lock'
 import { enqueueReviewSummaryForClaim } from '../../../../../../../../lib/review/enqueue-review-summary'
 
 type RouteContext = {
@@ -262,12 +261,6 @@ export async function POST(request: Request, context: RouteContext) {
 
   if (!claim) {
     return NextResponse.redirect(buildClaimDetailUrl(request, claimId, 'not-found'), { status: 303 })
-  }
-
-  if (isClaimLockedForProcessing(claim)) {
-    return NextResponse.redirect(buildClaimDetailUrl(request, claim.id, 'locked_final_decision'), {
-      status: 303
-    })
   }
 
   const document = await prisma.claimDocument.findFirst({
@@ -703,7 +696,9 @@ export async function POST(request: Request, context: RouteContext) {
 
   if (shouldQueueRefresh) {
     try {
-      refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'document_evidence')
+      refreshResult = await enqueueReviewSummaryForClaim(claim.id, 'document_evidence', {
+        allowLockedFinalDecision: true
+      })
     } catch (error) {
       refreshResult = {
         enqueued: false,
@@ -730,7 +725,8 @@ export async function POST(request: Request, context: RouteContext) {
       queueReason: refreshResult.reason,
       queueName: refreshResult.queueName,
       jobName: refreshResult.jobName,
-      jobId: refreshResult.jobId
+      jobId: refreshResult.jobId,
+      queueReusedInFlight: refreshResult.reusedInFlight ?? false
     })
   }
 

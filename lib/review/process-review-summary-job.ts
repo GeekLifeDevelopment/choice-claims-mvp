@@ -11,6 +11,7 @@ import { buildAdjudicationResult } from './adjudication-result'
 import { buildAdjudicationAiPrompt } from './build-adjudication-ai-prompt'
 import { buildReviewSummaryPrompt } from './build-review-summary-prompt'
 import { isClaimLockedForProcessing } from './claim-lock'
+import { enqueueReviewSummaryForClaim } from './enqueue-review-summary'
 
 const REVIEW_SUMMARY_VERSION = 'v1'
 const DEFAULT_OPENAI_MODEL = process.env.REVIEW_SUMMARY_MODEL || 'gpt-4.1-mini'
@@ -59,6 +60,7 @@ export type ProcessReviewSummaryJobResult = {
 type ProcessReviewSummaryJobOptions = {
   requestedAt?: string | null
   persistFailureStatus?: boolean
+  source?: 'rules_ready' | 'manual' | 'backfill' | 'document_evidence'
 }
 
 type AdjudicationAiExtractionOutcome = {
@@ -776,11 +778,16 @@ function isStaleRequestedAt(requestedAt: Date | null, claimUpdatedAt: Date): boo
   return claimUpdatedAt.getTime() > requestedAt.getTime() + STALE_JOB_GRACE_MS
 }
 
+function shouldBypassFinalDecisionLock(source: string | null | undefined): boolean {
+  return source === 'manual' || source === 'document_evidence'
+}
+
 export async function processReviewSummaryJob(
   claimId: string,
   options: ProcessReviewSummaryJobOptions = {}
 ): Promise<ProcessReviewSummaryJobResult> {
   const persistFailureStatus = options.persistFailureStatus ?? true
+  const bypassFinalDecisionLock = shouldBypassFinalDecisionLock(options.source)
 
   if (!isFeatureEnabled('summary_generation') || !isFeatureEnabled('openai')) {
     console.info('[feature] openai disabled', {
@@ -819,7 +826,7 @@ export async function processReviewSummaryJob(
     }
   }
 
-  if (isClaimLockedForProcessing(claim)) {
+  if (isClaimLockedForProcessing(claim) && !bypassFinalDecisionLock) {
     console.warn('[summary] job skipped locked claim', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
@@ -850,33 +857,47 @@ export async function processReviewSummaryJob(
   }
 
   if (isStaleRequestedAt(requestedAt, claim.updatedAt)) {
-    const staleTransition = await prisma.claim.updateMany({
-      where: {
-        id: claim.id,
-        reviewSummaryStatus: 'Queued',
-        status: ClaimStatus.ReadyForAI,
-        OR: [
-          { reviewDecision: null },
-          {
-            reviewDecision: {
-              notIn: FINAL_REVIEW_DECISIONS
+    let staleTransitionCount = 0
+
+    if (bypassFinalDecisionLock) {
+      const requeueResult = await enqueueReviewSummaryForClaim(claim.id, options.source ?? 'manual', {
+        allowLockedFinalDecision: true
+      })
+
+      staleTransitionCount = requeueResult.enqueued ? 1 : 0
+    } else {
+      const staleTransition = await prisma.claim.updateMany({
+        where: {
+          id: claim.id,
+          reviewSummaryStatus: 'Queued',
+          status: ClaimStatus.ReadyForAI,
+          OR: [
+            { reviewDecision: null },
+            {
+              reviewDecision: {
+                notIn: FINAL_REVIEW_DECISIONS
+              }
             }
-          }
-        ]
-      },
-      data: {
-        reviewSummaryStatus: 'Failed',
-        reviewSummaryLastError: 'stale_job',
-        reviewSummaryVersion: REVIEW_SUMMARY_VERSION
-      }
-    })
+          ]
+        },
+        data: {
+          reviewSummaryStatus: 'Failed',
+          reviewSummaryLastError: 'stale_job',
+          reviewSummaryVersion: REVIEW_SUMMARY_VERSION
+        }
+      })
+
+      staleTransitionCount = staleTransition.count
+    }
 
     console.info('[summary] job skipped stale request', {
       claimId: claim.id,
       claimNumber: claim.claimNumber,
       requestedAt: options.requestedAt ?? null,
       claimUpdatedAt: claim.updatedAt.toISOString(),
-      transitioned: staleTransition.count
+      transitioned: staleTransitionCount,
+      source: options.source ?? null,
+      bypassFinalDecisionLock
     })
 
     return {
@@ -1052,14 +1073,18 @@ export async function processReviewSummaryJob(
         id: claim.id,
         status: ClaimStatus.ReadyForAI,
         reviewSummaryStatus: 'Queued',
-        OR: [
-          { reviewDecision: null },
-          {
-            reviewDecision: {
-              notIn: FINAL_REVIEW_DECISIONS
-            }
-          }
-        ]
+        ...(bypassFinalDecisionLock
+          ? {}
+          : {
+              OR: [
+                { reviewDecision: null },
+                {
+                  reviewDecision: {
+                    notIn: FINAL_REVIEW_DECISIONS
+                  }
+                }
+              ]
+            })
       },
       data: {
         vinDataResult: persistedVinDataResult,

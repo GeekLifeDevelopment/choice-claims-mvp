@@ -12,6 +12,7 @@ const REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES = new Set([
   'prioritized',
   'waiting-children'
 ])
+const EVIDENCE_REFRESH_SOURCES = new Set(['manual', 'document_evidence'])
 
 function buildReviewSummaryJobId(payload: ReviewSummaryJobPayload): string {
   return `${JOB_NAMES.GENERATE_REVIEW_SUMMARY}__${payload.claimId}`
@@ -48,6 +49,38 @@ export async function enqueueReviewSummaryJob(
       const existingState = await existingJob.getState()
 
       if (REVIEW_SUMMARY_IN_FLIGHT_JOB_STATES.has(existingState)) {
+        if (existingState === 'active' && EVIDENCE_REFRESH_SOURCES.has(payload.source)) {
+          const followUpJobId = `${jobId}__followup__${Date.now().toString()}`
+          const followUpJob = await queue.add(jobName, payload, {
+            jobId: followUpJobId,
+            attempts: REVIEW_SUMMARY_JOB_ATTEMPTS,
+            backoff: {
+              type: 'exponential',
+              delay: REVIEW_SUMMARY_JOB_BACKOFF_MS
+            }
+          })
+
+          console.info('[queue_enqueue] active_job_followup_enqueued', {
+            stage: 'enqueue',
+            action: 'add_followup_job',
+            queueName,
+            jobName,
+            jobId,
+            followUpJobId: followUpJob.id?.toString(),
+            existingState,
+            claimId: payload.claimId,
+            claimNumber: payload.claimNumber,
+            source: payload.source
+          })
+
+          return {
+            queueName,
+            jobName,
+            jobId: followUpJob.id?.toString(),
+            reusedInFlight: false
+          }
+        }
+
         await existingJob.updateData(payload)
 
         console.info('[queue_enqueue] duplicate_in_flight', {
