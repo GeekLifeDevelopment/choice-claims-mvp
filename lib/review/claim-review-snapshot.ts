@@ -48,6 +48,17 @@ export type ClaimReviewSnapshot = {
     lastFailedAt?: string | null
   }
 
+  submission?: {
+    mileage?: number
+    purchaseMileage?: number
+    purchaseDate?: string
+    contractPurchaseDate?: string
+  }
+
+  warranty?: {
+    coverageData?: Record<string, unknown>
+  }
+
   flags?: string[]
 }
 
@@ -164,6 +175,8 @@ function pickEnrichmentSummary(result: JsonRecord): Record<string, unknown> | un
 // aiSummary(snapshot)
 export function buildClaimReviewSnapshot(claim: ClaimReviewSnapshotInput): ClaimReviewSnapshot {
   const providerResult = asRecord(claim.vinDataResult)
+  const submissionRecord = asRecord(providerResult.submission)
+  const warrantyRecord = asRecord(providerResult.warranty)
 
   const vehicleVin = readOptionalString(providerResult.vin) ?? readOptionalString(claim.vin)
   const vehicleYear = readOptionalNumber(providerResult.year)
@@ -237,6 +250,15 @@ export function buildClaimReviewSnapshot(claim: ClaimReviewSnapshotInput): Claim
           : undefined,
       lastError: claim.vinLookupLastError ?? null,
       lastFailedAt: toIsoString(claim.vinLookupLastFailedAt) ?? null
+    },
+    submission: {
+      mileage: readOptionalNumber(submissionRecord.mileage),
+      purchaseMileage: readOptionalNumber(submissionRecord.purchaseMileage),
+      purchaseDate: readOptionalString(submissionRecord.purchaseDate),
+      contractPurchaseDate: readOptionalString(submissionRecord.contractPurchaseDate)
+    },
+    warranty: {
+      coverageData: asRecord(warrantyRecord.coverageData)
     },
     flags: flags.length > 0 ? flags : undefined
   }

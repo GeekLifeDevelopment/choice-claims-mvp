@@ -161,6 +161,36 @@ function extractIntegerValue(raw: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function normalizeDateValue(raw: string | null): string | null {
+  if (!raw) {
+    return null
+  }
+
+  const trimmed = raw.trim()
+  const match = trimmed.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/)
+  if (!match) {
+    return trimmed
+  }
+
+  const month = Number.parseInt(match[1], 10)
+  const day = Number.parseInt(match[2], 10)
+  const yearRaw = Number.parseInt(match[3], 10)
+  const year = match[3].length === 2 ? 2000 + yearRaw : yearRaw
+
+  if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) {
+    return trimmed
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return trimmed
+  }
+
+  const mm = String(month).padStart(2, '0')
+  const dd = String(day).padStart(2, '0')
+  const yyyy = String(year)
+  return `${yyyy}-${mm}-${dd}`
+}
+
 function extractVin(text: string): string | null {
   const matches = text.toUpperCase().match(/\b[A-HJ-NPR-Z0-9]{17}\b/g)
   return matches && matches.length > 0 ? matches[0] : null
@@ -350,7 +380,9 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
     /\b(?:agreement|contract)\s*[:#]\s*([A-Z0-9-]{5,})/i
   ])
   if (agreementNumber) {
-    data.agreementNumber = agreementNumber
+    const normalizedAgreementNumber = agreementNumber.replace(/\s+/g, '').toUpperCase()
+    data.agreementNumber = normalizedAgreementNumber
+    data.contractNumber = normalizedAgreementNumber
   }
 
   const mileageAtSaleRaw = extractFirstMatch(text, [
@@ -366,16 +398,18 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
     /vehicle\s+purchase\s+date\s*[:#]?\s*([0-9]{1,2}[\/.-][0-9]{1,2}[\/.-][0-9]{2,4})/i,
     /purchase\s+date\s*[:#]?\s*([0-9]{1,2}[\/.-][0-9]{1,2}[\/.-][0-9]{2,4})/i
   ])
-  if (vehiclePurchaseDate) {
-    data.vehiclePurchaseDate = vehiclePurchaseDate
+  const normalizedVehiclePurchaseDate = normalizeDateValue(vehiclePurchaseDate)
+  if (normalizedVehiclePurchaseDate) {
+    data.vehiclePurchaseDate = normalizedVehiclePurchaseDate
   }
 
   const agreementPurchaseDate = extractFirstMatch(text, [
     /agreement\s+purchase\s+date\s*[:#]?\s*([0-9]{1,2}[\/.-][0-9]{1,2}[\/.-][0-9]{2,4})/i,
     /contract\s+purchase\s+date\s*[:#]?\s*([0-9]{1,2}[\/.-][0-9]{1,2}[\/.-][0-9]{2,4})/i
   ])
-  if (agreementPurchaseDate) {
-    data.agreementPurchaseDate = agreementPurchaseDate
+  const normalizedAgreementPurchaseDate = normalizeDateValue(agreementPurchaseDate)
+  if (normalizedAgreementPurchaseDate) {
+    data.agreementPurchaseDate = normalizedAgreementPurchaseDate
   }
 
   const agreementPriceRaw = extractFirstMatch(text, [
@@ -392,7 +426,7 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
     /(?:coverage\s+level|plan\s+name|plan|protection\s+plan|coverage\s+option)\s*[:#]?\s*([A-Za-z][A-Za-z0-9\s\-/]{2,40})/i
   ])
   if (coverageLevel) {
-    data.coverageLevel = coverageLevel
+    data.coverageLevel = coverageLevel.replace(/\s+/g, ' ').trim()
   }
 
   const termMonthsRaw = extractFirstMatch(text, [
@@ -430,7 +464,17 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
     /(coverage\s+begins[^.\n]{0,140})/i
   ])
   if (waitingPeriodMarker) {
-    data.waitingPeriodMarker = waitingPeriodMarker
+    data.waitingPeriodMarker = waitingPeriodMarker.replace(/\s+/g, ' ').trim()
+  }
+
+  const coverageSummary = extractFirstMatch(text, [
+    /(powertrain[^.\n]{0,160})/i,
+    /(stated\s+components[^.\n]{0,160})/i,
+    /(covered\s+components[^.\n]{0,160})/i,
+    /(exclusionary\s+coverage[^.\n]{0,160})/i
+  ])
+  if (coverageSummary) {
+    data.coverageSummary = coverageSummary.replace(/\s+/g, ' ').trim()
   }
 
   const addonCandidates = ['rental', 'roadside', 'trip interruption', 'key replacement', 'wheel and tire', 'maintenance']
@@ -438,6 +482,7 @@ function buildChoiceContractData(text: string): { data: Record<string, unknown>;
   const selectedAddOns = addonCandidates.filter((entry) => lower.includes(entry))
   if (selectedAddOns.length > 0) {
     data.selectedAddOns = selectedAddOns
+    data.selectedAddOnsSummary = selectedAddOns.join(', ')
   }
 
   if (!vin) {
